@@ -150,4 +150,3 @@ flowchart TB
 - 变更评审：`$10-change-review`
 - 发布管理：`$11-release-management`
 - 运行监控与复盘：`$12-production-monitoring-retrospective`
-- 复杂模块审查和重构：`$legacy-module-governance`（跨节点通用能力）

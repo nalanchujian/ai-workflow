@@ -1,4 +1,0 @@
-interface:
-  display_name: "模块重构治理"
-  short_description: "按审查、重构或专项优化模式治理复杂业务模块"
-  default_prompt: "使用 $legacy-module-governance。执行模式：重构。目标模块：当前模块。先审查，再分批实施安全改动并完成验证。"
