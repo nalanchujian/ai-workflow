@@ -1,0 +1,129 @@
+{
+  "artifact": "change-assessment",
+  "task_id": "20260713-175300-growth-links-share-links",
+  "node": "change-assessment",
+  "skill": "03-change-assessment",
+  "status": "completed",
+  "target_module": "/src/pages/growth/links",
+  "inputs": [
+    "01-requirement-analysis.md",
+    "02-requirement-clarification.md"
+  ],
+  "depends_on": [
+    "requirement-intake",
+    "requirement-clarification"
+  ],
+  "decisionState": "ROUTED",
+  "path": "complex",
+  "confidence": "high",
+  "matchedRules": [
+    {
+      "rule": "跨业务类型与多组外部接口",
+      "reason": "同一套 Share links 流程同时覆盖 Tracking 和 Free trial，并按类型分流 metrics、limit、page、save、update、delete 接口。"
+    },
+    {
+      "rule": "权限、灰度与旧流程共存",
+      "reason": "新 Tab 受 ShareLink 权限和 newShareLinkV1 灰度控制；灰度关闭时仍保留旧分享弹窗入口。"
+    },
+    {
+      "rule": "异步状态与配额约束",
+      "reason": "dataReady 驱动 Processing 到 Active，且创建、编辑、删除需同步列表和配额状态。"
+    },
+    {
+      "rule": "存在删除与外部状态边界",
+      "reason": "删除 Share link、Creator 掉线/删除、Link 停用均依赖服务端状态和前端展示规则。"
+    }
+  ],
+  "evidence": [
+    {
+      "source": "01-requirement-analysis.md",
+      "finding": "范围同时包含 Tracking links、Free trial links、列表、创建编辑、配额、状态、Creator/Link 边界。"
+    },
+    {
+      "source": "src/pages/growth/links/layouts/link-variant-page/entry/LinkVariantPage.tsx:69-77",
+      "finding": "Share links 同时依赖权限和 newShareLinkV1 灰度，并与旧行内分享入口并存。"
+    },
+    {
+      "source": "src/pages/growth/links/layouts/link-variant-page/entry/LinkVariantPage.tsx:160-190",
+      "finding": "新版 ShareLinksTab 与 legacy LinkShareModal 由灰度条件切换，影响两个 links 页面共用装配层。"
+    },
+    {
+      "source": "src/pages/growth/links/apis/share-link/index.ts:32-46, 92-112, 218-319",
+      "finding": "Share link v2 API 同时按 Tracking/Trial 资源分流，覆盖指标、配额、分页、创建、编辑和删除操作。"
+    },
+    {
+      "source": "src/pages/growth/links/apis/share-link/index.ts:236-265",
+      "finding": "配额接口返回 Agency 总量、Creator 数量和单 Creator Link 数量，需要影响创建禁用与表单限制。"
+    },
+    {
+      "source": "src/pages/growth/links/components/share-links-tab/hooks/useShareLinkModalController.tsx:234-252",
+      "finding": "Creator/Link 分组选择包含数量校验和字段错误清理，修改会影响表单回填、搜索和分页选项。"
+    },
+    {
+      "source": "src/pages/growth/links/components/share-links-tab/components/share-link-form/ShareLinkGroupCard.tsx:92-103",
+      "finding": "达到单 Creator Link 配额时需要保留已选项可删除，同时禁用未选项。"
+    }
+  ],
+  "complexTriggers": [
+    "公共页面装配层同时服务 Tracking 和 Free trial links。",
+    "新旧分享入口需要依赖灰度开关安全切换。",
+    "ShareLink 权限需同时控制 Tab、行操作和旧入口。",
+    "涉及异步数据准备状态、配额和删除等服务端契约。",
+    "Creator 与 Link 的异常状态影响列表、表单和落地页边界。"
+  ],
+  "knownRisks": [
+    {
+      "level": "P1",
+      "item": "分页口径需复核",
+      "detail": "需求澄清确认默认每页 50 条，但 share-link API 请求构造函数的缺省 size 为 1000；影响分析需要确认调用方是否始终显式传入 50。"
+    },
+    {
+      "level": "P1",
+      "item": "Creator 删除与 Link 停用字段依赖后端契约",
+      "detail": "已确认由后端过滤删除 Creator，并使用 linkInfo.enable 识别停用 Link；实施前需在接口响应中验证。"
+    },
+    {
+      "level": "P2",
+      "item": "旧分享入口保留",
+      "detail": "灰度期间新旧流程并存，需要在验收设计中覆盖开关切换和权限组合。"
+    }
+  ],
+  "requiredNodes": [
+    "04-acceptance-design",
+    "05-impact-analysis",
+    "06-implementation-design",
+    "07-solution-review",
+    "08-development-implementation",
+    "09-quality-verification",
+    "10-change-review",
+    "11-release-management",
+    "12-production-monitoring-retrospective"
+  ],
+  "requiredArtifacts": {
+    "04-acceptance-design": "04-acceptance-checklist.md",
+    "05-impact-analysis": "05-impact-analysis.md",
+    "06-implementation-design": "06-implementation-plan.md",
+    "07-solution-review": "07-solution-review.md",
+    "08-development-implementation": "08-development-record.md",
+    "09-quality-verification": "09-quality-verification.md",
+    "10-change-review": "10-change-review.md",
+    "11-release-management": "11-release-record.md",
+    "12-production-monitoring-retrospective": "12-monitoring-retrospective.md"
+  },
+  "executionBrief": {
+    "scope": "新版 Share links 在 Tracking/Free trial 两类 links 下的入口、列表、表单、配额、状态和异常交互。",
+    "nextObjective": "先建立完整验收清单，再扫描真实代码影响范围，最后形成实施计划。",
+    "rollback": "保持 newShareLinkV1 灰度；出现阻断问题时可关闭新版入口并使用旧分享流程。"
+  },
+  "requiresOwnerApproval": false,
+  "nextNode": {
+    "name": "acceptance-design",
+    "skill": "04-acceptance-design",
+    "input": [
+      "01-requirement-analysis.md",
+      "02-requirement-clarification.md",
+      "03-change-assessment.json"
+    ],
+    "output": "04-acceptance-checklist.md"
+  }
+}
