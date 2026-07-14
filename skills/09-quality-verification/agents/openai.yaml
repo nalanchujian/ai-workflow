@@ -1,0 +1,4 @@
+interface:
+  display_name: "质量验证"
+  short_description: "按验收依据执行测试并输出质量报告"
+  default_prompt: "使用 $09-quality-verification 读取当前任务目录，执行质量验证并生成报告。"

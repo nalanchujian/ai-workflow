@@ -1,0 +1,4 @@
+interface:
+  display_name: "方案评审"
+  short_description: "确认复杂需求方案是否可进入开发"
+  default_prompt: "使用 $07-solution-review 读取当前任务目录，输出复杂需求的方案评审结论。"

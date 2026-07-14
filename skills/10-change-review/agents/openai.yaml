@@ -1,0 +1,4 @@
+interface:
+  display_name: "变更评审"
+  short_description: "发布前审查最终差异和发布风险"
+  default_prompt: "使用 $10-change-review 读取当前任务目录，审查最终变更并给出发布建议。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求澄清"
+  short_description: "生成推荐结论并等待整体确认"
+  default_prompt: "使用 $02-requirement-clarification 读取当前任务目录，生成需求澄清结论并等待确认。"

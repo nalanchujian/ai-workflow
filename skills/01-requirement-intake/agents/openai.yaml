@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求受理"
+  short_description: "基于需求与设计截图生成并保存需求解析包"
+  default_prompt: "使用 $01-requirement-intake 基于一张需求文档截图和一张设计稿截图，生成需求解析包并写入任务产物目录。"

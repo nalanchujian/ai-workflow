@@ -1,0 +1,4 @@
+interface:
+  display_name: "运行监控与复盘"
+  short_description: "沉淀发布后的监控结论与治理动作"
+  default_prompt: "使用 $12-production-monitoring-retrospective 读取当前任务目录，输出发布后的监控复盘结论。"

@@ -137,13 +137,17 @@ flowchart TB
 
 ## 推荐入口
 
+- 仓库内可调用 Skills 目录：`/Users/j/codes/ai-workflow/skills`
 - 需求受理：`$01-requirement-intake`
 - 需求澄清：`$02-requirement-clarification`
 - 变更评估：`$03-change-assessment`
 - 验收设计：`$04-acceptance-design`
 - 影响分析：`$05-impact-analysis`
 - 实施设计：`$06-implementation-design`
+- 方案评审：`$07-solution-review`
 - 开发实现：`$08-development-implementation`
 - 质量验证：`$09-quality-verification`
 - 变更评审：`$10-change-review`
+- 发布管理：`$11-release-management`
+- 运行监控与复盘：`$12-production-monitoring-retrospective`
 - 复杂模块审查和重构：`$legacy-module-governance`（跨节点通用能力）

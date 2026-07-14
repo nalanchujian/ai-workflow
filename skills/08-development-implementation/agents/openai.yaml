@@ -1,0 +1,4 @@
+interface:
+  display_name: "开发实现"
+  short_description: "按实施计划改动代码并完成基础自测"
+  default_prompt: "使用 $08-development-implementation 读取当前任务目录，按已批准计划实施代码改动。"
