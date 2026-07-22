@@ -1,0 +1,35 @@
+---
+revision: 8
+task_id: 20260722-102703-links
+target_module: "/Users/j/codes/infloww/crm-pc-client-web/src/pages/growth/links"
+path: complex
+current_node: acceptance-design
+status: awaiting_confirmation
+artifacts:
+  requirement-intake:
+    attempt: 1
+    sha256: 84fdf916e516484062c78dfcf5a7334b32a1bd4b19b83cd23a2f005916831154
+    approved: true
+  requirement-routing:
+    attempt: 1
+    sha256: 53b89fa1fe012517b7eb935e1528fccab2e6094eedd51e140ed906c7dfde40f8
+    approved: true
+  acceptance-design:
+    attempt: 1
+    sha256: d8a6c5c45c083ed74ab43b331feab138c4580c576ae373cb1866a05efffbc6b0
+attempts:
+  requirement-intake: 1
+  requirement-routing: 1
+  acceptance-design: 1
+gate:
+  node: acceptance-design
+  status: pending
+  owner: workflow-owner
+cancellation: 
+next_node: impact-analysis
+blocked_by: []
+delivery:
+  repository_root: 
+  base_commit: 
+  candidate_tree: 
+  change_fingerprint: 

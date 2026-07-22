@@ -1,0 +1,16 @@
+{
+  "task_id": "20260722-102703-links",
+  "node": "requirement-routing",
+  "status": "completed",
+  "attempt": 1,
+  "artifact_schema_version": 1,
+  "path": "complex",
+  "reason": "需求同时触及权限控制、金额与派生指标口径及多个 Links 功能边界，命中复杂路径触发器。",
+  "evidence": [
+    "requirement-analysis.md RF-004、RF-007、RF-009：变更跨 Details、Performance、Fan list 与多类导出边界。",
+    "src/pages/growth/links/tracking-links/TrackingLinks.tsx:14 与 free-trial-links/TrialLinks.tsx:14：两个入口均绑定全局功能权限和数据权限。",
+    "src/pages/growth/links/components/link-user-list/components/LinkUserListToolbar.tsx:14：Fan 导出继续通过全局 Auth 和 FUN_PERMISSIONS 控制。",
+    "requirement-analysis.md RF-010、RF-011 与 src/pages/growth/links/components/link-dashboard/constants.ts:33：Promo cost、ROI 等金额和派生指标口径同时影响列表、导出和 Dashboard。"
+  ],
+  "unresolved_items": []
+}
