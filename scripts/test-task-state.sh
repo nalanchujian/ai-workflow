@@ -21,11 +21,19 @@ gate_confirmation() {
   ruby -ryaml -e 'state=YAML.safe_load(File.read(ARGV[0]), aliases: false); gate=state["gate"] || {}; puts "#{ARGV[1]}：#{state["task_id"]}/#{gate["node"]}@#{state["revision"]}"' "$dir/task.yaml" "$label"
 }
 
+start_confirmation() {
+  local dir="$1"
+  ruby -ryaml -e 'state=YAML.safe_load(File.read(ARGV[0]), aliases: false); node=state["next_node"]; node=node["name"] if node.is_a?(Hash); puts "执行节点：#{state["task_id"]}/#{node}@#{state["revision"]}"' "$dir/task.yaml"
+}
+
 state() {
   local command="$1" actor=workflow-orchestrator
   local confirmation=""
   shift
   case "$command" in
+    start-node)
+      confirmation="$(start_confirmation "$task_dir")"
+      ;;
     approve-gate)
       actor=workflow-owner
       confirmation="$(gate_confirmation "$task_dir" 确认节点)"
@@ -49,6 +57,9 @@ state_for() {
   local confirmation=""
   shift
   case "$command" in
+    start-node)
+      confirmation="$(start_confirmation "$dir")"
+      ;;
     approve-gate)
       actor=workflow-owner
       confirmation="$(gate_confirmation "$dir" 确认节点)"
@@ -125,7 +136,25 @@ write_json_artifact() {
     '}' >"$dir/$file"
 }
 
-state init --task-id state-cli-test --target-module /tmp/example >/dev/null
+init_output="$(state init --task-id state-cli-test --target-module /tmp/example)"
+initial_start_confirmation="$(start_confirmation "$task_dir")"
+ruby -rjson -e 'payload=JSON.parse(ARGV[0]); abort "init did not expose exact start confirmation" unless payload["start_confirmation"] == ARGV[1]' "$init_output" "$initial_start_confirmation"
+
+if ruby "$repo_root/scripts/task-state.rb" start-node --task-dir "$task_dir" --actor workflow-orchestrator \
+  --node requirement-intake --expected-revision 0 >/dev/null 2>&1; then
+  echo 'ERROR: start-node without confirmation was accepted' >&2
+  exit 1
+fi
+if ruby "$repo_root/scripts/task-state.rb" start-node --task-dir "$task_dir" --actor workflow-orchestrator \
+  --node requirement-intake --confirmation '继续' --expected-revision 0 >/dev/null 2>&1; then
+  echo 'ERROR: an ambiguous start confirmation was accepted' >&2
+  exit 1
+fi
+if ruby "$repo_root/scripts/task-state.rb" start-node --task-dir "$task_dir" --actor workflow-orchestrator \
+  --node requirement-intake --confirmation '执行节点：state-cli-test/requirement-intake@1' --expected-revision 0 >/dev/null 2>&1; then
+  echo 'ERROR: a stale start confirmation was accepted' >&2
+  exit 1
+fi
 
 cp "$task_dir/task.yaml" "$task_dir/task.yaml.valid"
 ruby -ryaml - "$task_dir/task.yaml" <<'RUBY'
@@ -203,7 +232,23 @@ if ruby "$repo_root/scripts/task-state.rb" approve-gate --task-dir "$task_dir" -
   echo 'ERROR: a stale gate confirmation was accepted' >&2
   exit 1
 fi
-state approve-gate --gate-owner workflow-owner --decision-note approved --expected-revision 2 >/dev/null
+approval_output="$(state approve-gate --gate-owner workflow-owner --decision-note approved --expected-revision 2)"
+routing_start_confirmation="$(start_confirmation "$task_dir")"
+ruby -rjson -e 'payload=JSON.parse(ARGV[0]); abort "gate approval did not expose exact start confirmation" unless payload["start_confirmation"] == ARGV[1]' "$approval_output" "$routing_start_confirmation"
+
+audit_output="$(state audit)"
+ruby -rjson -e 'payload=JSON.parse(ARGV[0]); abort "audit did not expose exact start confirmation" unless payload["start_confirmation"] == ARGV[1]' "$audit_output" "$routing_start_confirmation"
+
+if ruby "$repo_root/scripts/task-state.rb" start-node --task-dir "$task_dir" --actor workflow-orchestrator \
+  --node requirement-routing --expected-revision 3 >/dev/null 2>&1; then
+  echo 'ERROR: a ready node started without its fixed confirmation' >&2
+  exit 1
+fi
+if ruby "$repo_root/scripts/task-state.rb" start-node --task-dir "$task_dir" --actor workflow-orchestrator \
+  --node requirement-routing --confirmation '继续' --expected-revision 3 >/dev/null 2>&1; then
+  echo 'ERROR: a ready node accepted an ambiguous confirmation' >&2
+  exit 1
+fi
 
 if state start-node --node requirement-routing --expected-revision 2 >/dev/null 2>&1; then
   echo 'ERROR: stale revision was accepted' >&2

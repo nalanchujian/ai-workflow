@@ -222,6 +222,12 @@ def gate_confirmation(state, action)
   "#{label}：#{state['task_id']}/#{gate['node']}@#{state['revision']}"
 end
 
+def start_confirmation(state)
+  return nil unless state['status'] == 'active' && state['next_node']
+
+  "执行节点：#{state['task_id']}/#{state['next_node']}@#{state['revision']}"
+end
+
 def state_response(state)
   response = {
     task_id: state['task_id'],
@@ -232,6 +238,7 @@ def state_response(state)
     response[:approve_confirmation] = gate_confirmation(state, :approve)
     response[:reject_confirmation] = gate_confirmation(state, :reject)
   end
+  response[:start_confirmation] = start_confirmation(state) if start_confirmation(state)
   response
 end
 
@@ -1214,7 +1221,7 @@ common_options = %i[actor task_dir]
 command_options = {
   'init' => %i[task_id target_module],
   'audit' => [],
-  'start-node' => %i[expected_revision node],
+  'start-node' => %i[expected_revision node confirmation],
   'record-result' => %i[expected_revision node next_node result task_status gate_owner blocker],
   'request-gate' => %i[expected_revision gate_owner],
   'approve-gate' => %i[expected_revision gate_owner confirmation decision_note],
@@ -1255,7 +1262,7 @@ when 'init'
     }
     validate_task_state!(state)
     write_yaml_atomically(File.join(options[:task_dir], 'task.yaml'), state)
-    puts JSON.generate({ task_id: state['task_id'], revision: 0, status: state['status'] })
+    puts JSON.generate(state_response(state))
   end
 when 'audit'
   with_task_lock(options[:task_dir], options[:actor]) do
@@ -1275,6 +1282,10 @@ when 'start-node'
     fail_with('Blocked tasks must be resumed with invalidate-from') if state['status'] == 'blocked'
     expected = state['next_node']
     fail_with("Node #{options[:node]} is not next; expected #{expected || 'none'}") unless expected == options[:node]
+    expected_confirmation = start_confirmation(state)
+    unless options[:confirmation] == expected_confirmation
+      fail_with("--confirmation must exactly equal #{expected_confirmation.inspect}")
+    end
     if state['path']
       fail_with("Node #{options[:node]} is not part of #{state['path']}") unless PATHS.fetch(state['path']).include?(options[:node])
     else

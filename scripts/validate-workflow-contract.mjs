@@ -393,9 +393,11 @@ for (const requiredText of [
   'awaiting_confirmation',
   'approve_confirmation',
   'reject_confirmation',
+  'start_confirmation',
   '--confirmation must exactly equal',
   '确认节点',
   '拒绝节点',
+  '执行节点',
 ]) {
   assert(taskStateCli.includes(requiredText), `Task state CLI must enforce gate confirmation text: ${requiredText}`);
 }

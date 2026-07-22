@@ -30,7 +30,7 @@
 - `<tasks-root>` 优先读取 `AI_WORKFLOW_TASKS_DIR`；未设置时根据已安装 skill 的真实路径定位 ai-workflow 仓库根目录，并使用 `./runtime/tasks`
 - 如需覆盖默认值，使用环境变量 `AI_WORKFLOW_TASKS_DIR`
 
-`task-id` 默认使用 `<YYYYMMDD-HHMMSS>-<模块名>`。目录根部必须有 `task.yaml`，记录目标模块、当前节点、任务状态、产物清单、下一节点、人工关口和阻塞项。机器字段以 [任务状态 Schema](./skills/workflow-orchestrator/references/contracts/task-state.schema.json) 为准，转换方式参见 [任务生命周期指南](./skills/workflow-orchestrator/references/guides/task-lifecycle.md)。`start-node` 会消费 `next_node`：有下一节点表示待启动，`current_node` 存在且下一节点为空表示正在执行。
+`task-id` 默认使用 `<YYYYMMDD-HHMMSS>-<模块名>`。目录根部必须有 `task.yaml`，记录目标模块、当前节点、任务状态、产物清单、下一节点、人工关口和阻塞项。机器字段以 [任务状态 Schema](./skills/workflow-orchestrator/references/contracts/task-state.schema.json) 为准，转换方式参见 [任务生命周期指南](./skills/workflow-orchestrator/references/guides/task-lifecycle.md)。有下一节点表示待启动，CLI 此时返回 `执行节点：<task-id>/<node-id>@<revision>`；只有用户原样提交该固定指令后，`start-node` 才会消费 `next_node`。`current_node` 存在且下一节点为空表示正在执行。
 
 结构化产物和任务状态中的节点标识统一使用无编号的语义化 canonical id，例如 `requirement-intake`、`requirement-routing`、`implementation-design`。以下字段都使用这套 id：
 
@@ -55,7 +55,7 @@
 | 质量验证 | `quality-verification.md` |
 | 变更评审 | `change-review.md` |
 
-节点启动时必须先读取其路径级准入产物文件；文件缺失或状态不是 `completed` 时，任务为 `blocked`。每个节点产物都必须经过对应人工 gate；聊天中只输出摘要、产物路径和 CLI 返回的精确确认指令，不作为正式交接物。“继续”“执行下一节点”等近似表达不能视为批准。
+节点启动时必须先读取其路径级准入产物文件；文件缺失或状态不是 `completed` 时，任务为 `blocked`。每个节点产物都必须经过对应人工 gate；聊天中只输出摘要、产物路径和 CLI 返回的精确确认指令，不作为正式交接物。“继续”“下一个”“执行下一节点”等近似表达既不能批准 Gate，也不能启动节点。
 
 节点重跑使用受控覆盖：编排器先调用 `task-state.rb invalidate-from`，由 CLI 删除当前节点及全部下游产物，同时清除失效范围内的当前批准、blocker 和交付证据。`task.yaml.attempts` 保留每个节点最后一次 attempt，新产物必须使用下一次 attempt；旧产物不保留历史文件。`blocked` 任务完成处置决策后也先执行该命令，不能直接覆盖文件或调用 `start-node`。
 

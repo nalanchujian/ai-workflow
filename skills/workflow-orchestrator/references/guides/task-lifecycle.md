@@ -6,7 +6,7 @@
 
 `completed` 和 `cancelled` 是不可变终态，状态 CLI 拒绝后续 gate、交付证据、重跑和取消写入。`blocked` 任务不能直接启动下一节点；确定处理方式后，编排器先按节点重跑指南调用 `invalidate-from`，清除当前 blocker 并恢复为 `active`。
 
-`active` 只有两种合法形态：待启动时有 `next_node`；执行中有 `current_node` 且 `next_node=null`。`awaiting_confirmation` 表示当前产物已登记并存在 pending gate；非终点 gate 同时保存批准后的 `next_node`，终点 gate 的 `next_node=null`。`start-node` 会消费 `next_node`，同一节点不能重复启动。
+`active` 只有两种合法形态：待启动时有 `next_node`；执行中有 `current_node` 且 `next_node=null`。`awaiting_confirmation` 表示当前产物已登记并存在 pending gate；非终点 gate 同时保存批准后的 `next_node`，终点 gate 的 `next_node=null`。待启动状态会派生唯一 `start_confirmation`：`执行节点：<task-id>/<next-node>@<revision>`。`start-node` 只接受完全匹配的用户原文并消费 `next_node`，同一节点不能重复启动。
 
 ## 状态转换矩阵
 
@@ -14,7 +14,7 @@
 | --- | --- | --- | --- |
 | `init` | 不存在 | 任务目录没有 `task.yaml` | `active`，下一节点为需求受理 |
 | `audit` | 任意已存在状态 | `task.yaml`、当前产物、attempt 计数、gate 和交付证据满足契约 | 只读校验，不修改状态和 revision |
-| `start-node` | `active` | 节点等于 `next_node`；路径和 gate 准入满足 | `current_node` 为该节点，`next_node=null` |
+| `start-node` | `active` | 节点等于 `next_node`；路径和 gate 准入满足；`--confirmation` 精确匹配当前 `start_confirmation` | `current_node` 为该节点，`next_node=null` |
 | `record-result` | `active` 执行中 | 当前节点匹配；产物身份、attempt、摘要有效；完成结果提供 gate owner | 完成时创建 pending gate 并进入 `awaiting_confirmation`；失败时进入 `blocked` |
 | `request-gate` | `active` 已登记产物 | 旧任务当前产物已登记、尚未批准且下一节点正确 | 补建 pending gate 并进入 `awaiting_confirmation` |
 | `approve-gate` | `awaiting_confirmation` | `workflow-owner` actor；Owner 和精确确认指令匹配；当前产物未变化 | 非终点 gate 为 `approved` 并恢复 `active`；终点 gate 将任务写为 `completed` |

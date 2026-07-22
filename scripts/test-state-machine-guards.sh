@@ -11,11 +11,19 @@ gate_confirmation() {
   ruby -ryaml -e 'state=YAML.safe_load(File.read(ARGV[0]), aliases: false); gate=state["gate"] || {}; puts "#{ARGV[1]}：#{state["task_id"]}/#{gate["node"]}@#{state["revision"]}"' "$task_dir/task.yaml" "$label"
 }
 
+start_confirmation() {
+  local task_dir="$1"
+  ruby -ryaml -e 'state=YAML.safe_load(File.read(ARGV[0]), aliases: false); node=state["next_node"]; node=node["name"] if node.is_a?(Hash); puts "执行节点：#{state["task_id"]}/#{node}@#{state["revision"]}"' "$task_dir/task.yaml"
+}
+
 state() {
   local task_dir="$1" command="$2" actor=workflow-orchestrator
   local confirmation=""
   shift 2
   case "$command" in
+    start-node)
+      confirmation="$(start_confirmation "$task_dir")"
+      ;;
     approve-gate)
       actor=workflow-owner
       confirmation="$(gate_confirmation "$task_dir" 确认节点)"
