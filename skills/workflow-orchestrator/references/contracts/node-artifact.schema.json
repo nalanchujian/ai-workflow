@@ -11,8 +11,20 @@
   "properties": {
     "task_id": { "type": "string", "minLength": 1 },
     "node": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
-    "status": { "enum": ["completed", "blocked"] },
+    "status": { "enum": ["awaiting_confirmation", "completed", "blocked"] },
     "attempt": { "type": "integer", "minimum": 1 },
-    "template_version": { "const": 2 }
-  }
+    "artifact_schema_version": { "const": 1 },
+    "template_version": { "enum": [2, 3] }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["status"],
+        "properties": { "status": { "const": "awaiting_confirmation" } }
+      },
+      "then": {
+        "properties": { "node": { "const": "requirement-intake" } }
+      }
+    }
+  ]
 }

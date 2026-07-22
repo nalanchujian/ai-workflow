@@ -156,7 +156,7 @@ run_path() {
   step record-result --node change-review --result completed --gate-owner "$gate_owner"
   ruby -ryaml - "$task_dir/task.yaml" <<'RUBY'
 task = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
-abort 'terminal task completed before human approval' unless task['status'] == 'active'
+abort 'terminal task is not waiting for human approval' unless task['status'] == 'awaiting_confirmation'
 abort 'terminal gate is not pending' unless task.dig('gate', 'status') == 'pending'
 abort 'terminal gate unexpectedly has a next node' unless task['next_node'].nil?
 RUBY

@@ -24,7 +24,7 @@
     "target_module": { "type": "string", "minLength": 1 },
     "path": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]*$" },
     "current_node": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
-    "status": { "enum": ["active", "blocked", "completed", "cancelled"] },
+    "status": { "enum": ["active", "awaiting_confirmation", "blocked", "completed", "cancelled"] },
     "artifacts": { "$ref": "#/$defs/artifactIndex" },
     "attempts": { "$ref": "#/$defs/attemptIndex" },
     "gate": {
@@ -111,6 +111,22 @@
         "properties": {
           "blocked_by": { "maxItems": 0 },
           "cancellation": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "awaiting_confirmation" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "blocked_by": { "maxItems": 0 },
+          "cancellation": { "type": "null" },
+          "gate": {
+            "type": "object",
+            "properties": { "status": { "const": "pending" } }
+          }
         }
       }
     },

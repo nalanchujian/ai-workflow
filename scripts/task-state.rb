@@ -48,9 +48,9 @@ PRE_PATH_NODES = %w[requirement-intake requirement-routing].freeze
 REMOVED_NODES = %w[requirement-clarification solution-review].freeze
 TRANSACTION_FILE = '.workflow-transaction.json'
 DISCARD_DIR = '.workflow-discard'
-MARKDOWN_TEMPLATE_VERSION = 2
-MARKDOWN_SECTIONS = %w[结果 交付 未决项 交接].freeze
-MARKDOWN_NODE_SECTIONS = {
+ARTIFACT_SCHEMA_VERSION = 1
+MARKDOWN_V2_SECTIONS = %w[结果 交付 未决项 交接].freeze
+MARKDOWN_V2_NODE_SECTIONS = {
   'requirement-intake' => %w[范围 需求事实 待澄清项 确认决策 分流线索],
   'acceptance-design' => %w[验收范围 验收用例 测试数据],
   'impact-analysis' => %w[影响概览 改动候选 调用链 回归范围],
@@ -59,6 +59,29 @@ MARKDOWN_NODE_SECTIONS = {
   'quality-verification' => %w[验收结果 工程检查 缺陷详情 交付证据],
   'change-review' => %w[审查范围 发现项 一致性检查 交付证据]
 }.freeze
+MARKDOWN_V3_SECTIONS = ['1. 结果', '2. 产出', '3. 待确认', '4. 下一步'].freeze
+MARKDOWN_V3_NODE_LABELS = {
+  'requirement-intake' => %w[范围 需求事实],
+  'acceptance-design' => %w[验收范围 验收用例 测试数据],
+  'impact-analysis' => %w[影响概览 改动候选 调用链 回归范围],
+  'implementation-design' => %w[方案边界 工作包与文件 行为契约 验证与回滚],
+  'development-implementation' => %w[实际变更 计划偏差 自测结果 交付证据],
+  'quality-verification' => %w[验收与工程检查 缺陷详情 交付证据],
+  'change-review' => %w[审查范围 发现项 一致性与交付证据]
+}.freeze
+CURRENT_MARKDOWN_NODE_LABELS = {
+  'requirement-intake' => %w[范围 需求事实],
+  'acceptance-design' => %w[验收范围 验收用例 测试数据],
+  'impact-analysis' => %w[影响项 调用链 回归范围],
+  'implementation-design' => %w[工作包与文件 行为契约 验证与回滚],
+  'development-implementation' => %w[实际变更 计划偏差 自测结果 交付证据],
+  'quality-verification' => %w[验收与工程检查 缺陷详情 交付证据],
+  'change-review' => %w[审查范围 发现项 一致性与交付证据]
+}.freeze
+COMMON_PENDING_HEADERS = %w[ID 类型 事项与影响 Owner 责任节点 完成条件].freeze
+NEXT_STEP_FIELDS = %w[当前动作 完成条件].freeze
+MAX_MARKDOWN_TABLES = 3
+MAX_MARKDOWN_TABLE_COLUMNS = 6
 
 def fail_with(message)
   warn "ERROR: #{message}"
@@ -301,7 +324,8 @@ def validate_task_state!(state)
   end
 
   if state['gate']
-    fail_with('Only active tasks may have a current gate') unless state['status'] == 'active'
+    expected_status = state['gate']['status'] == 'pending' ? 'awaiting_confirmation' : 'active'
+    fail_with("Task with #{state['gate']['status']} gate must be #{expected_status}") unless state['status'] == expected_status
     fail_with('Current gate must belong to current_node') unless state['current_node'] == state['gate']['node']
     fail_with('Current gate artifact is not registered') unless artifact_recorded?(state, state['gate']['node'])
     if state['next_node'].nil? && !terminal_gate?(state, state['gate']['node'])
@@ -328,8 +352,8 @@ def validate_task_state!(state)
       fail_with("Current node #{state['current_node']} is not part of #{state['path']}")
     end
     next_name = state['next_node']
-    if state['status'] == 'active' && next_name && !sequence.include?(next_name)
-      fail_with("Active next node #{next_name} is not part of #{state['path']}")
+    if %w[active awaiting_confirmation].include?(state['status']) && next_name && !sequence.include?(next_name)
+      fail_with("Next node #{next_name} is not part of #{state['path']}")
     end
   end
 
@@ -340,6 +364,8 @@ def validate_task_state!(state)
     elsif state['gate'].nil? && state['current_node'] && !artifact_recorded?(state, state['current_node'])
       fail_with('Ready task current_node must have a recorded artifact')
     end
+  elsif state['status'] == 'awaiting_confirmation'
+    fail_with('Awaiting-confirmation task must have a pending gate') unless state.dig('gate', 'status') == 'pending'
   elsif state['status'] == 'blocked'
     fail_with('Blocked task must identify the source node') unless state['current_node']
     fail_with('Blocked task source artifact is not recorded') unless artifact_recorded?(state, state['current_node'])
@@ -371,25 +397,143 @@ end
 
 def validate_markdown_artifact_structure!(path, node, artifact)
   return unless path.end_with?('.md')
-  return unless artifact['template_version'] == MARKDOWN_TEMPLATE_VERSION
+  layout = artifact_layout!(artifact)
+  return unless layout
 
   content = File.read(path)
+  if layout == :legacy_v2
+    actual_h1 = content.scan(/^#\s+(.+?)\s*$/).flatten
+    unless actual_h1 == MARKDOWN_V2_SECTIONS
+      fail_with("Markdown template v2 sections for #{node} must be: #{MARKDOWN_V2_SECTIONS.join(' -> ')}")
+    end
+
+    MARKDOWN_V2_SECTIONS.each { |heading| markdown_h1_body!(content, heading, path) }
+
+    expected_h2 = MARKDOWN_V2_NODE_SECTIONS.fetch(node)
+    actual_h2 = content.scan(/^##\s+(.+?)\s*$/).flatten
+    unless actual_h2 == expected_h2
+      fail_with("Markdown template v2 delivery sections for #{node} must be: #{expected_h2.join(' -> ')}")
+    end
+
+    unresolved = markdown_h1_body!(content, '未决项', path).strip
+    if artifact['status'] == 'blocked' && unresolved.match?(/\A无[。.]?\z/)
+      fail_with("Blocked Markdown artifact must describe at least one unresolved item: #{path}")
+    end
+    return
+  end
+
   actual_h1 = content.scan(/^#\s+(.+?)\s*$/).flatten
-  unless actual_h1 == MARKDOWN_SECTIONS
-    fail_with("Markdown template v#{MARKDOWN_TEMPLATE_VERSION} sections for #{node} must be: #{MARKDOWN_SECTIONS.join(' -> ')}")
+  unless actual_h1 == MARKDOWN_V3_SECTIONS
+    fail_with("Four-section Markdown headings for #{node} must be: #{MARKDOWN_V3_SECTIONS.join(' -> ')}")
   end
 
-  MARKDOWN_SECTIONS.each { |heading| markdown_h1_body!(content, heading, path) }
+  MARKDOWN_V3_SECTIONS.each { |heading| markdown_h1_body!(content, heading, path) }
+  fail_with("Four-section Markdown must not use level-2 headings: #{path}") unless content.scan(/^##\s+/).empty?
 
-  expected_h2 = MARKDOWN_NODE_SECTIONS.fetch(node)
-  actual_h2 = content.scan(/^##\s+(.+?)\s*$/).flatten
-  unless actual_h2 == expected_h2
-    fail_with("Markdown template v#{MARKDOWN_TEMPLATE_VERSION} delivery sections for #{node} must be: #{expected_h2.join(' -> ')}")
+  output = markdown_h1_body!(content, '2. 产出', path)
+  expected_labels = layout == :current ? CURRENT_MARKDOWN_NODE_LABELS.fetch(node) : MARKDOWN_V3_NODE_LABELS.fetch(node)
+  actual_labels = output.scan(/^\*\*(.+?)\*\*\s*$/).flatten
+  allowed_extra = node == 'implementation-design' ? ['最小验收条件'] : []
+  unless actual_labels.take(expected_labels.length) == expected_labels && (actual_labels - expected_labels - allowed_extra).empty?
+    fail_with("Markdown output labels for #{node} must start with: #{expected_labels.join(' -> ')}")
   end
 
-  unresolved = markdown_h1_body!(content, '未决项', path).strip
-  if artifact['status'] == 'blocked' && unresolved.match?(/\A无[。.]?\z/)
-    fail_with("Blocked Markdown artifact must describe at least one unresolved item: #{path}")
+  pending = markdown_h1_body!(content, '3. 待确认', path).strip
+  pending_is_empty = pending.match?(/\A无[。.]?\z/)
+  if %w[awaiting_confirmation blocked].include?(artifact['status']) && pending_is_empty
+    fail_with("#{artifact['status']} Markdown artifact must describe at least one unresolved item: #{path}")
+  end
+
+  return unless layout == :current
+
+  tables = markdown_tables(content)
+  fail_with("Markdown artifact may contain at most #{MAX_MARKDOWN_TABLES} tables: #{path}") if tables.length > MAX_MARKDOWN_TABLES
+  tables.each do |table|
+    next if table[:headers].length <= MAX_MARKDOWN_TABLE_COLUMNS
+
+    fail_with("Markdown table may contain at most #{MAX_MARKDOWN_TABLE_COLUMNS} columns: #{path}")
+  end
+
+  unless node == 'requirement-intake' || pending_is_empty
+    rows = markdown_table_rows_contiguous!(pending, COMMON_PENDING_HEADERS, 'Unresolved items table', exact: true)
+    fail_with("Unresolved items table must contain at least one item: #{path}") if rows.empty?
+  end
+
+  next_step = markdown_h1_body!(content, '4. 下一步', path)
+  actual_fields = next_step.scan(/^-\s+([^：:]+)[：:]/).flatten.map(&:strip)
+  unless actual_fields == NEXT_STEP_FIELDS
+    fail_with("Next step fields must be: #{NEXT_STEP_FIELDS.join(' -> ')}")
+  end
+end
+
+def artifact_layout!(artifact)
+  if artifact.key?('artifact_schema_version') && artifact.key?('template_version')
+    fail_with('Artifact must not combine artifact_schema_version with legacy template_version')
+  end
+  return :current if artifact['artifact_schema_version'] == ARTIFACT_SCHEMA_VERSION
+  return :legacy_v2 if artifact['template_version'] == 2
+  return :legacy_v3 if artifact['template_version'] == 3
+
+  nil
+end
+
+def markdown_artifact_layout(path)
+  match = File.read(path).match(/\A---\n(.*?)\n---/m)
+  return nil unless match
+
+  artifact_layout!(YAML.safe_load(match[1], permitted_classes: [], aliases: false))
+end
+
+def markdown_tables(content)
+  groups = []
+  current = []
+  content.each_line do |line|
+    stripped = line.strip
+    if stripped.start_with?('|') && stripped.end_with?('|')
+      current << stripped
+    elsif !current.empty?
+      groups << current
+      current = []
+    end
+  end
+  groups << current unless current.empty?
+
+  groups.each_with_object([]) do |lines, tables|
+    next if lines.length < 2
+
+    headers = lines.first.delete_prefix('|').delete_suffix('|').split('|').map(&:strip)
+    separator = lines[1].delete_prefix('|').delete_suffix('|').split('|').map(&:strip)
+    next unless separator.length == headers.length && separator.all? { |cell| cell.match?(/\A:?-{3,}:?\z/) }
+
+    tables << { headers: headers, lines: lines }
+  end
+end
+
+def markdown_table_rows_contiguous!(section, required_headers, label, exact: false)
+  lines = section.lines
+  header_index = lines.index do |line|
+    stripped = line.strip
+    next false unless stripped.start_with?('|') && stripped.end_with?('|')
+
+    cells = stripped.delete_prefix('|').delete_suffix('|').split('|').map(&:strip)
+    required_headers.all? { |header| cells.include?(header) }
+  end
+  fail_with("#{label} must contain columns: #{required_headers.join(', ')}") unless header_index
+
+  table_lines = lines.drop(header_index).take_while do |line|
+    stripped = line.strip
+    stripped.start_with?('|') && stripped.end_with?('|')
+  end
+  headers = table_lines.first.strip.delete_prefix('|').delete_suffix('|').split('|').map(&:strip)
+  if exact && headers != required_headers
+    fail_with("#{label} columns must exactly equal: #{required_headers.join(', ')}")
+  end
+  table_lines.drop(1).each_with_object([]) do |line, rows|
+    cells = line.strip.delete_prefix('|').delete_suffix('|').split('|').map(&:strip)
+    next if cells.all? { |cell| cell.match?(/\A:?-{3,}:?\z/) }
+    next if cells.all?(&:empty?)
+
+    rows << headers.zip(cells).to_h
   end
 end
 
@@ -423,6 +567,19 @@ end
 def requirement_question_ids!(task_dir)
   path = File.join(task_dir, NODES.fetch('requirement-intake').fetch('output'))
   content = File.read(path)
+  if %i[current legacy_v3].include?(markdown_artifact_layout(path))
+    section = markdown_h1_body!(content, '3. 待确认', path)
+    return [] if section.match?(/^\s*无[。.]?\s*$/)
+
+    rows = markdown_table_rows_contiguous!(section, ['问题 ID', '决策 ID'], 'Requirement intake confirmation table')
+    values = rows.map { |row| row.fetch('问题 ID', '').strip }
+    malformed = values.reject { |value| value.match?(/\ARQ-\d{3}\z/) }
+    fail_with("Requirement intake contains invalid question IDs: #{malformed.join(', ')}") unless malformed.empty?
+    duplicates = values.group_by(&:itself).select { |_id, occurrences| occurrences.length > 1 }.keys
+    fail_with("Requirement intake contains duplicate questions: #{duplicates.join(', ')}") unless duplicates.empty?
+    return values
+  end
+
   legacy_heading = !content.match?(/^(?:##|###)\s+待澄清项\s*$/) && content.match?(/^(?:##|###)\s+待确认项\s*$/)
   section = markdown_section!(path, ['待澄清项', '待确认项'])
   return [] if section.match?(/^\s*无[。.]?\s*$/)
@@ -448,6 +605,25 @@ def validate_requirement_intake!(task_dir, expected_status)
 
   expected_questions = requirement_question_ids!(task_dir)
   path = File.join(task_dir, NODES.fetch('requirement-intake').fetch('output'))
+  if %i[current legacy_v3].include?(markdown_artifact_layout(path))
+    return if expected_questions.empty?
+
+    section = markdown_h1_body!(File.read(path), '3. 待确认', path)
+    rows = markdown_table_rows_contiguous!(section, ['问题 ID', '决策 ID', '采用规则', '状态'], 'Requirement intake confirmation table')
+    decision_ids = rows.map { |row| row.fetch('决策 ID', '').strip }
+    malformed = decision_ids.reject { |value| value.match?(/\ACL-\d{3}\z/) }
+    fail_with("Requirement intake contains invalid decision IDs: #{malformed.join(', ')}") unless malformed.empty?
+    duplicates = decision_ids.group_by(&:itself).select { |_id, occurrences| occurrences.length > 1 }.keys
+    fail_with("Requirement intake contains duplicate decisions: #{duplicates.join(', ')}") unless duplicates.empty?
+
+    rows.each do |row|
+      rule = row.fetch('采用规则', '').strip
+      fail_with("Decision #{row.fetch('决策 ID')} must provide an adopted rule") if rule.empty? || %w[- 待定 待确认].include?(rule)
+      fail_with("Decision #{row.fetch('决策 ID')} must be individually confirmed by the owner") unless row.fetch('状态', '').strip == '已人工确认'
+    end
+    return
+  end
+
   section = markdown_section!(path, ['确认决策'])
   if expected_questions.empty?
     fail_with('Requirement intake must state no decisions when it has no clarification items') unless section.match?(/^\s*无[。.]?\s*$/)
@@ -713,6 +889,10 @@ def normalize_task_state!(task_dir, state)
     state['next_node'] = nil
     changed = true
   end
+  if state['status'] == 'active' && state.dig('gate', 'status') == 'pending'
+    state['status'] = 'awaiting_confirmation'
+    changed = true
+  end
 
   changed
 end
@@ -748,6 +928,9 @@ def parse_artifact_file!(path, state, node)
   end
 
   fail_with("Invalid artifact mapping: #{path}") unless artifact.is_a?(Hash)
+  if artifact.key?('artifact_schema_version') && artifact.key?('template_version')
+    fail_with("Artifact must not combine artifact_schema_version with legacy template_version: #{path}")
+  end
   validate_schema!(artifact, NODE_SCHEMAS[node] || ARTIFACT_SCHEMA, File.basename(path))
   validate_markdown_artifact_structure!(path, node, artifact)
   fail_with("Artifact task_id does not match task state: #{path}") unless artifact['task_id'] == state['task_id']
@@ -832,7 +1015,7 @@ def validate_path_progress!(state, artifacts)
     fail_with("Path #{state['path']} has an unreachable downstream artifact #{node}") if artifacts.key?(node)
   end
 
-  if current && artifacts[current] && %w[active completed].include?(state['status']) && artifacts[current]['status'] != 'completed'
+  if current && artifacts[current] && %w[active awaiting_confirmation completed].include?(state['status']) && artifacts[current]['status'] != 'completed'
     fail_with("Current artifact #{current} must be completed while task is #{state['status']}")
   end
 
@@ -1149,7 +1332,7 @@ when 'record-result'
       fail_with('--task-status is no longer accepted; terminal nodes complete after gate approval') if options[:task_status]
 
       if options[:gate_owner]
-        state['status'] = 'active'
+        state['status'] = 'awaiting_confirmation'
         state['gate'] = {
           'node' => options[:node], 'status' => 'pending',
           'owner' => options[:gate_owner],
@@ -1212,6 +1395,7 @@ when 'request-gate'
       'node' => node, 'status' => 'pending',
       'owner' => options[:gate_owner],
     }
+    state['status'] = 'awaiting_confirmation'
     persist!(options[:task_dir], state)
   end
 when 'approve-gate', 'reject-gate'
@@ -1220,7 +1404,7 @@ when 'approve-gate', 'reject-gate'
   end
   with_task_lock(options[:task_dir], options[:actor]) do
     state = task_state!(options[:task_dir], options[:expected_revision])
-    fail_with('Only active tasks can decide a gate') unless state['status'] == 'active'
+    fail_with('Only awaiting-confirmation tasks can decide a gate') unless state['status'] == 'awaiting_confirmation'
     gate = state['gate']
     fail_with('No pending gate exists') unless gate && gate['status'] == 'pending'
     fail_with('--gate-owner must match the pending gate owner') unless options[:gate_owner] == gate['owner']

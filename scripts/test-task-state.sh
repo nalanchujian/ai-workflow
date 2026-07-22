@@ -117,8 +117,11 @@ write_json_artifact() {
     "  \"node\": \"$node\"," \
     "  \"status\": \"$status\"," \
     "  \"attempt\": $attempt," \
+    '  "artifact_schema_version": 1,' \
     '  "path": "lightweight",' \
-    '  "reason": "Validate the state workflow"' \
+    '  "reason": "Validate the state workflow",' \
+    '  "evidence": ["RF-001: single-module boundary"],' \
+    '  "unresolved_items": []' \
     '}' >"$dir/$file"
 }
 
@@ -167,6 +170,11 @@ if state record-result --node requirement-intake --result completed --next-node 
   exit 1
 fi
 state record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1 >/dev/null
+
+ruby -ryaml - "$task_dir/task.yaml" <<'RUBY'
+task = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
+abort 'pending requirement gate did not use awaiting_confirmation' unless task['status'] == 'awaiting_confirmation'
+RUBY
 
 approval_confirmation="$(gate_confirmation "$task_dir" 确认节点)"
 audit_output="$(state audit)"
@@ -229,6 +237,20 @@ write_json_artifact requirement-routing.json requirement-routing completed
 ruby -rjson - "$task_dir/requirement-routing.json" <<'RUBY'
 path = ARGV.fetch(0)
 artifact = JSON.parse(File.read(path))
+artifact['template_version'] = 2
+File.write(path, JSON.pretty_generate(artifact))
+RUBY
+if state record-result --node requirement-routing --result completed --gate-owner workflow-owner --expected-revision 4 >/dev/null 2>&1; then
+  echo 'ERROR: routing artifact combined current and legacy version fields' >&2
+  exit 1
+fi
+write_json_artifact requirement-routing.json requirement-routing completed
+ruby -rjson - "$task_dir/requirement-routing.json" <<'RUBY'
+path = ARGV.fetch(0)
+artifact = JSON.parse(File.read(path))
+artifact.delete('artifact_schema_version')
+artifact.delete('evidence')
+artifact.delete('unresolved_items')
 artifact['template_version'] = 2
 File.write(path, JSON.pretty_generate(artifact))
 RUBY
@@ -340,7 +362,7 @@ fi
 state record-result --node change-review --result completed --gate-owner workflow-owner --expected-revision 24 >/dev/null
 ruby -ryaml - "$task_dir/task.yaml" <<'RUBY'
 task = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
-abort 'terminal result completed before approval' unless task['status'] == 'active'
+abort 'terminal result is not awaiting confirmation' unless task['status'] == 'awaiting_confirmation'
 abort 'terminal result did not create a pending gate' unless task.dig('gate', 'status') == 'pending'
 RUBY
 state approve-gate --gate-owner workflow-owner --decision-note approved --expected-revision 25 >/dev/null

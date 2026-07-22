@@ -12,6 +12,6 @@
 
 `invalidate-from` 删除文件前先写入 `.workflow-transaction.json`，并把待删除文件临时移动到 `.workflow-discard/`。状态未提交时自动移回原位；状态已提交时永久删除临时文件。事务结束后临时目录和日志都必须消失。
 
-恢复中断任务时，先调用 `task-state.rb audit` 对账任务状态、当前产物、attempt 计数、gate 和交付证据。`audit` 获取任务锁并处理遗留事务日志，但不修改 `task.yaml` 或 revision。`active` 执行中任务的当前节点产物存在但未登记时，可以在验证身份、状态和连续 `attempt` 后用 `record-result` 补登记；需要重做或任务已为 `blocked` 时，先用 `invalidate-from` 清理并恢复。`completed`、`cancelled` 只允许审计，不得补写或重开；发现终态证据异常时创建新任务处理。
+恢复中断任务时，先调用 `task-state.rb audit` 对账任务状态、当前产物、attempt 计数、gate 和交付证据。旧任务中的 `active + pending gate` 会按字段形态读取为 `awaiting_confirmation`，并在下一次成功写入时持久化。`audit` 获取任务锁并处理遗留事务日志，但不修改 `task.yaml` 或 revision。`active` 执行中任务的当前节点产物存在但未登记时，可以在验证身份、状态和连续 `attempt` 后用 `record-result` 补登记；需要重做或任务已为 `blocked` 时，先用 `invalidate-from` 清理并恢复。`completed`、`cancelled` 只允许审计，不得补写或重开；发现终态证据异常时创建新任务处理。
 
 CLI 在 pending Gate 的写入结果和 `audit` 输出中返回 `approve_confirmation`、`reject_confirmation`。调用方必须原样展示；批准格式固定为 `确认节点：<task-id>/<node-id>@<revision>`，拒绝格式固定为 `拒绝节点：<task-id>/<node-id>@<revision>`，不能自行生成近似文本。revision 变化后旧指令自动失效。

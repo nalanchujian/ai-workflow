@@ -78,8 +78,20 @@ write_blocked_routing() {
   "node": "requirement-routing",
   "status": "blocked",
   "attempt": 1,
+  "artifact_schema_version": 1,
   "path": null,
-  "reason": "Clarify the missing requirement"
+  "reason": "Clarify the missing requirement",
+  "evidence": ["RF-001 lacks a confirmed boundary"],
+  "unresolved_items": [
+    {
+      "id": "BLK-RR-001",
+      "type": "material_dependency",
+      "issue_and_impact": "Missing scope blocks routing",
+      "owner": "owner",
+      "retry_node": "requirement-intake",
+      "completion_condition": "Confirm the missing scope"
+    }
+  ]
 }
 EOF
 }
@@ -194,6 +206,143 @@ EOF
   fi
 }
 
+write_current_intake() {
+  local task_dir="$1" task_id="$2" mode="${3:-valid}"
+  local decision_status="已人工确认"
+  if [ "$mode" = unresolved ]; then
+    decision_status="待人工确认"
+  fi
+  cat >"$task_dir/requirement-analysis.md" <<EOF
+---
+task_id: $task_id
+node: requirement-intake
+status: completed
+attempt: 1
+artifact_schema_version: 1
+---
+
+# 1. 结果
+
+> **状态：** 完成
+> **结论：** Example
+> **规模：** 1 fact, 1 decision
+
+# 2. 产出
+
+**范围**
+
+| 类型 | 内容 | 依据 |
+| --- | --- | --- |
+| 包含 | Example | Owner |
+
+**需求事实**
+
+| 事实 ID | 模块 | 目标行为 | 当前差异 | 来源 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| RF-001 | Example | Example | None | Owner | 已确认 |
+
+# 3. 待确认
+
+| 问题 ID | 决策 ID | 来源事实 | 需要确认 | 采用规则 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| RQ-001 | CL-001 | RF-001 | Example | Use rule one | $decision_status |
+
+# 4. 下一步
+
+- 当前动作：确认剩余问题
+- 完成条件：全部确认
+EOF
+  if [ "$mode" = extra-heading ]; then
+    printf '%s\n' '## Extra heading' >>"$task_dir/requirement-analysis.md"
+  elif [ "$mode" = extra-table ]; then
+    cat >>"$task_dir/requirement-analysis.md" <<'EOF'
+
+| Extra | Table |
+| --- | --- |
+| One | Two |
+EOF
+  elif [ "$mode" = extra-next-field ]; then
+    printf '%s\n' '- 后续节点：requirement-routing' >>"$task_dir/requirement-analysis.md"
+  elif [ "$mode" = wide-table ]; then
+    ruby -pi -e 'gsub("| 类型 | 内容 | 依据 |", "| 类型 | 内容 | 依据 | A | B | C | D |"); gsub("| --- | --- | --- |", "| --- | --- | --- | --- | --- | --- | --- |"); gsub("| 包含 | Example | Owner |", "| 包含 | Example | Owner | 1 | 2 | 3 | 4 |")' "$task_dir/requirement-analysis.md"
+  fi
+}
+
+write_current_routing() {
+  local task_dir="$1" task_id="$2"
+  cat >"$task_dir/requirement-routing.json" <<EOF
+{
+  "task_id": "$task_id",
+  "node": "requirement-routing",
+  "status": "completed",
+  "attempt": 1,
+  "artifact_schema_version": 1,
+  "path": "lightweight",
+  "reason": "Single-module change",
+  "evidence": ["RF-001: no complex trigger"],
+  "unresolved_items": []
+}
+EOF
+}
+
+write_current_blocked_plan() {
+  local task_dir="$1" task_id="$2" mode="${3:-valid}"
+  local pending_header='| ID | 类型 | 事项与影响 | Owner | 责任节点 | 完成条件 |'
+  local pending_separator='| --- | --- | --- | --- | --- | --- |'
+  local pending_row='| BLK-ID-001 | 资料依赖 | Missing API field blocks implementation | api-owner | implementation-design | Confirm the field |'
+  if [ "$mode" = malformed-pending ]; then
+    pending_header='| ID | 事项 | 影响 | Owner | 完成条件 |'
+    pending_separator='| --- | --- | --- | --- | --- |'
+    pending_row='| BLK-ID-001 | Missing API field | Implementation blocked | api-owner | Confirm the field |'
+  fi
+  cat >"$task_dir/implementation-plan.md" <<EOF
+---
+task_id: $task_id
+node: implementation-design
+status: blocked
+attempt: 1
+artifact_schema_version: 1
+---
+
+# 1. 结果
+
+> **状态：** 阻塞
+> **结论：** Missing API field
+> **规模：** 1 blocker
+
+# 2. 产出
+
+**工作包与文件**
+
+| 工作包 | 目标 | 文件或目录 | 动作 | 上游引用 | 完成标志 |
+| --- | --- | --- | --- | --- | --- |
+| WP-01 | Implement | /tmp/example | 修改 | RF-001 | API confirmed |
+
+**行为契约**
+
+| 契约 ID | 类型 | 输入或触发 | 处理规则 | 输出与异常 | 上游引用 |
+| --- | --- | --- | --- | --- | --- |
+| CT-001 | API | Request | Map response | Show error | RF-001 |
+
+**验证与回滚**
+
+- 验证：Run tests
+- 灰度：无
+- 回滚：Revert WP-01
+
+# 3. 待确认
+
+$pending_header
+$pending_separator
+$pending_row
+
+# 4. 下一步
+
+- 当前动作：Confirm the API field
+- 完成条件：Close BLK-ID-001
+EOF
+}
+
 coverage_dir="$root_dir/requirement-decision-coverage"
 state "$coverage_dir" init --task-id requirement-decision-coverage --target-module /tmp/example >/dev/null
 state "$coverage_dir" start-node --node requirement-intake --expected-revision 0 >/dev/null
@@ -228,6 +377,67 @@ expect_failure 'template v2 accepted an unknown delivery section' "$template_v2_
   record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1
 write_v2_intake "$template_v2_dir" template-v2
 state "$template_v2_dir" record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1 >/dev/null
+
+template_v3_dir="$root_dir/template-v3-compatibility"
+state "$template_v3_dir" init --task-id template-v3-compatibility --target-module /tmp/example >/dev/null
+state "$template_v3_dir" start-node --node requirement-intake --expected-revision 0 >/dev/null
+write_current_intake "$template_v3_dir" template-v3-compatibility
+ruby -pi -e 'gsub(/^artifact_schema_version: 1$/, "template_version: 3")' "$template_v3_dir/requirement-analysis.md"
+state "$template_v3_dir" record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1 >/dev/null
+
+current_template_dir="$root_dir/current-template"
+state "$current_template_dir" init --task-id current-template --target-module /tmp/example >/dev/null
+state "$current_template_dir" start-node --node requirement-intake --expected-revision 0 >/dev/null
+write_current_intake "$current_template_dir" current-template unresolved
+expect_failure 'current template accepted an unresolved decision' "$current_template_dir" \
+  record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1
+write_current_intake "$current_template_dir" current-template extra-heading
+expect_failure 'current template accepted a level-2 heading' "$current_template_dir" \
+  record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1
+write_current_intake "$current_template_dir" current-template extra-table
+expect_failure 'current template accepted more than three tables' "$current_template_dir" \
+  record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1
+write_current_intake "$current_template_dir" current-template wide-table
+expect_failure 'current template accepted more than six table columns' "$current_template_dir" \
+  record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1
+write_current_intake "$current_template_dir" current-template extra-next-field
+expect_failure 'current template accepted redundant next-step fields' "$current_template_dir" \
+  record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1
+write_current_intake "$current_template_dir" current-template
+state "$current_template_dir" record-result --node requirement-intake --result completed --gate-owner workflow-owner --expected-revision 1 >/dev/null
+ruby -ryaml - "$current_template_dir/task.yaml" <<'RUBY'
+task = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
+abort 'current template gate did not enter awaiting_confirmation' unless task['status'] == 'awaiting_confirmation'
+RUBY
+
+pending_table_dir="$root_dir/common-pending-table"
+advance_to_pending_requirement_gate "$pending_table_dir" common-pending-table
+state "$pending_table_dir" approve-gate --gate-owner workflow-owner --decision-note approved --expected-revision 2 >/dev/null
+state "$pending_table_dir" start-node --node requirement-routing --expected-revision 3 >/dev/null
+write_current_routing "$pending_table_dir" common-pending-table
+state "$pending_table_dir" record-result --node requirement-routing --result completed --gate-owner workflow-owner --expected-revision 4 >/dev/null
+state "$pending_table_dir" approve-gate --gate-owner workflow-owner --decision-note approved --expected-revision 5 >/dev/null
+state "$pending_table_dir" start-node --node implementation-design --expected-revision 6 >/dev/null
+write_current_blocked_plan "$pending_table_dir" common-pending-table malformed-pending
+expect_failure 'current non-requirement artifact accepted a nonstandard pending table' "$pending_table_dir" \
+  record-result --node implementation-design --result blocked \
+  --blocker '{"code":"missing_api","reason":"API field missing","owner":"api-owner","retry_node":"implementation-design"}' \
+  --expected-revision 7
+write_current_blocked_plan "$pending_table_dir" common-pending-table
+state "$pending_table_dir" record-result --node implementation-design --result blocked \
+  --blocker '{"code":"missing_api","reason":"API field missing","owner":"api-owner","retry_node":"implementation-design"}' \
+  --expected-revision 7 >/dev/null
+
+draft_dir="$root_dir/awaiting-draft"
+state "$draft_dir" init --task-id awaiting-draft --target-module /tmp/example >/dev/null
+state "$draft_dir" start-node --node requirement-intake --expected-revision 0 >/dev/null
+write_current_intake "$draft_dir" awaiting-draft unresolved
+ruby -pi -e 'gsub(/^status: completed$/, "status: awaiting_confirmation")' "$draft_dir/requirement-analysis.md"
+state "$draft_dir" invalidate-from --node requirement-intake --reason 'replace confirmation draft' --expected-revision 1 >/dev/null
+ruby -ryaml - "$draft_dir/task.yaml" <<'RUBY'
+task = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
+abort 'confirmation draft was treated as a blocker' unless task['status'] == 'active' && task['blocked_by'].empty?
+RUBY
 
 duplicate_dir="$root_dir/duplicate-start"
 state "$duplicate_dir" init --task-id duplicate-start --target-module /tmp/example >/dev/null
@@ -359,6 +569,7 @@ task.delete('invalidation_history')
 task.fetch('gate')['name'] = 'legacy-gate-name'
 task.fetch('gate').delete('artifact_attempt')
 task.fetch('gate').delete('artifact_sha256')
+task['status'] = 'active'
 File.write(path, YAML.dump(task))
 RUBY
 state "$gate_migration_dir" approve-gate --gate-owner workflow-owner --decision-note approved --expected-revision 2 >/dev/null
@@ -378,6 +589,7 @@ ruby -ryaml - "$request_gate_dir/task.yaml" <<'RUBY'
 path = ARGV.fetch(0)
 task = YAML.safe_load(File.read(path), aliases: false)
 task['gate'] = nil
+task['status'] = 'active'
 task.dig('artifacts', 'requirement-intake')&.delete('approved')
 File.write(path, YAML.dump(task))
 RUBY
@@ -385,6 +597,7 @@ state "$request_gate_dir" request-gate --gate-owner workflow-owner --expected-re
 ruby -ryaml - "$request_gate_dir/task.yaml" <<'RUBY'
 task = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false)
 abort 'request-gate did not create a pending gate' unless task.dig('gate', 'status') == 'pending'
+abort 'request-gate did not enter awaiting_confirmation' unless task['status'] == 'awaiting_confirmation'
 abort 'request-gate changed the existing next node' unless task['next_node'] == 'requirement-routing'
 abort 'request-gate used the wrong owner' unless task.dig('gate', 'owner') == 'workflow-owner'
 RUBY

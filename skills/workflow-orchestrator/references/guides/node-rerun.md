@@ -18,4 +18,4 @@ scripts/task-state.rb invalidate-from --actor workflow-orchestrator --task-dir <
 
 删除前 CLI 写入恢复日志并临时移动文件；若进程在事务期间中断，下一次状态命令会自动回滚未提交删除，或完成已提交删除。不得在恢复日志存在时手工移动产物或修改 revision。
 
-正式产物只允许 `completed` 或 `blocked`。执行过程使用临时文件，不创建 `in_progress` 产物；gate 状态变化不修改产物，也不增加 attempt。
+已登记的正式产物只允许 `completed` 或 `blocked`。需求受理尚未登记的逐项确认草稿使用 `awaiting_confirmation`；gate 状态变化不修改已登记产物，也不增加 attempt。

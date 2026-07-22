@@ -34,6 +34,34 @@ function frontmatter(content) {
   return match?.[1] ?? '';
 }
 
+function h1Body(content, heading) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return content.match(new RegExp(`^#\\s+${escaped}\\s*$\\n([\\s\\S]*?)(?=^#\\s+|(?![\\s\\S]))`, 'm'))?.[1] ?? '';
+}
+
+function markdownTables(content) {
+  const groups = [];
+  let current = [];
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      current.push(trimmed);
+    } else if (current.length > 0) {
+      groups.push(current);
+      current = [];
+    }
+  }
+  if (current.length > 0) groups.push(current);
+  return groups.flatMap((lines) => {
+    if (lines.length < 2) return [];
+    const cells = (line) => line.slice(1, -1).split('|').map((cell) => cell.trim());
+    const headers = cells(lines[0]);
+    const separator = cells(lines[1]);
+    if (separator.length !== headers.length || !separator.every((cell) => /^:?-{3,}:?$/.test(cell))) return [];
+    return [{ headers, lines }];
+  });
+}
+
 assert(
   JSON.stringify(Object.keys(manifest.contracts).sort()) ===
     JSON.stringify(['artifacts', 'deliveryEvidence', 'gates', 'nodes', 'paths', 'taskState']),
@@ -58,7 +86,7 @@ const deliveryStages = ['development-implementation', 'quality-verification', 'c
 const taskPathSchema = contracts.taskState?.properties?.path ?? {};
 const taskPathTypes = Array.isArray(taskPathSchema.type) ? taskPathSchema.type : [taskPathSchema.type];
 const nodeSchemas = new Map();
-const markdownArtifactSections = ['结论', '内容', '风险与阻塞', '下一步'];
+const markdownArtifactSections = ['1. 结果', '2. 产出', '3. 待确认', '4. 下一步'];
 const fourSectionTemplatePath = 'skills/workflow-orchestrator/references/four-section-artifact-template.md';
 
 for (const [name, contract] of Object.entries({ manifest, ...contracts })) {
@@ -108,7 +136,7 @@ nodeIds.forEach((node) => {
 
 assert(exists(fourSectionTemplatePath), 'Missing shared four-section Markdown artifact template');
 const fourSectionTemplate = read(fourSectionTemplatePath);
-const sharedTemplateHeadings = [...fourSectionTemplate.matchAll(/^##\s+(.+)$/gm)].map((match) => match[1].trim());
+const sharedTemplateHeadings = [...fourSectionTemplate.matchAll(/^#\s+([1-4]\.\s+.+)$/gm)].map((match) => match[1].trim());
 assert(
   JSON.stringify(sharedTemplateHeadings) === JSON.stringify(markdownArtifactSections),
   'Shared Markdown artifact template must contain only the four standard sections in order',
@@ -121,6 +149,36 @@ for (const node of markdownNodes) {
 }
 assert(!read(nodes['requirement-routing'].skill).includes('four-section-artifact-template.md'), 'Requirement routing JSON must not use the Markdown template');
 
+const currentTemplatePaths = {
+  'requirement-intake': 'skills/requirement-intake/references/output-template.md',
+  'acceptance-design': 'skills/acceptance-design/references/checklist-template.md',
+  'impact-analysis': 'skills/impact-analysis/references/output-template.md',
+  'implementation-design': 'skills/implementation-design/references/output-template.md',
+  'development-implementation': 'skills/development-implementation/references/output-template.md',
+  'quality-verification': 'skills/quality-verification/references/output-template.md',
+  'change-review': 'skills/change-review/references/output-template.md',
+};
+const commonPendingHeader = '| ID | 类型 | 事项与影响 | Owner | 责任节点 | 完成条件 |';
+for (const [node, templatePath] of Object.entries(currentTemplatePaths)) {
+  const template = read(templatePath);
+  assert(template.includes('artifact_schema_version: 1'), `${node} template must use artifact_schema_version 1`);
+  assert(!template.includes('template_version:'), `${node} template must not use legacy template_version`);
+  const headings = [...template.matchAll(/^#\s+([1-4]\.\s+.+)$/gm)].map((match) => match[1].trim());
+  assert(JSON.stringify(headings) === JSON.stringify(markdownArtifactSections), `${node} template must use the four standard headings`);
+  assert(!/^##\s+/m.test(template), `${node} template must not use level-2 headings`);
+  const tables = markdownTables(template);
+  assert(tables.length <= 3, `${node} template must contain at most three tables`);
+  assert(tables.every((table) => table.headers.length <= 6), `${node} template tables must contain at most six columns`);
+  const nextFields = [...h1Body(template, '4. 下一步').matchAll(/^-\s+([^：:]+)[：:]/gm)].map((match) => match[1].trim());
+  assert(JSON.stringify(nextFields) === JSON.stringify(['当前动作', '完成条件']), `${node} next step must contain only action and completion condition`);
+  if (node !== 'requirement-intake') {
+    assert(h1Body(template, '3. 待确认').includes(commonPendingHeader), `${node} must use the common unresolved-item table`);
+  }
+}
+const routingSkill = read(nodes['requirement-routing'].skill);
+assert(routingSkill.includes('"artifact_schema_version": 1'), 'Requirement routing template must use artifact_schema_version 1');
+assert(routingSkill.includes('"unresolved_items": []'), 'Requirement routing template must expose unresolved_items');
+
 assert(!contracts.artifacts.required?.includes('artifact'), 'Common artifact Schema must not require a duplicate artifact type');
 assert(!contracts.artifacts.properties?.artifact, 'Common artifact Schema must not define a duplicate artifact type');
 assert(
@@ -132,7 +190,7 @@ for (const removedField of ['schema_version', 'supersedes', 'inputs', 'depends_o
 }
 
 assert(
-  JSON.stringify(taskStatuses) === JSON.stringify(['active', 'blocked', 'completed', 'cancelled']),
+  JSON.stringify(taskStatuses) === JSON.stringify(['active', 'awaiting_confirmation', 'blocked', 'completed', 'cancelled']),
   'Task state Schema has unexpected statuses',
 );
 assert(
@@ -144,8 +202,13 @@ assert(
   'Task state Schema has unexpected terminal statuses',
 );
 assert(
-  JSON.stringify(artifactStatuses) === JSON.stringify(['completed', 'blocked']),
+  JSON.stringify(artifactStatuses) === JSON.stringify(['awaiting_confirmation', 'completed', 'blocked']),
   'Artifact Schema has unexpected statuses',
+);
+assert(contracts.artifacts.properties?.artifact_schema_version?.const === 1, 'Current artifacts must use artifact_schema_version 1');
+assert(
+  JSON.stringify(contracts.artifacts.properties?.template_version?.enum) === JSON.stringify([2, 3]),
+  'Artifact Schema must retain legacy template_version 2/3 compatibility',
 );
 assert(
   JSON.stringify(gateStatuses) === JSON.stringify(['pending', 'approved', 'rejected']),
@@ -243,9 +306,16 @@ assert(!requirementRoutingExtension?.properties?.path?.enum, 'Requirement routin
 for (const removedField of ['acceptanceCriteria', 'rollback']) {
   assert(!requirementRoutingExtension?.properties?.[removedField], `Requirement routing still defines ${removedField}`);
 }
-for (const field of ['decisionState', 'confidence', 'matchedRules', 'evidence', 'complexTriggers', 'requiredNodes', 'requiredArtifacts', 'executionBrief', 'requiresOwnerApproval']) {
+for (const field of ['decisionState', 'confidence', 'matchedRules', 'complexTriggers', 'requiredNodes', 'requiredArtifacts', 'executionBrief', 'requiresOwnerApproval']) {
   assert(!requirementRoutingExtension?.properties?.[field], `Requirement routing schema still defines removed field ${field}`);
 }
+assert(requirementRoutingExtension?.properties?.evidence?.type === 'array', 'Requirement routing must expose evidence');
+assert(requirementRoutingExtension?.properties?.unresolved_items?.type === 'array', 'Requirement routing must expose unresolved_items');
+assert(
+  JSON.stringify(requirementRoutingExtension?.properties?.unresolved_items?.items?.required) ===
+    JSON.stringify(['id', 'type', 'issue_and_impact', 'owner', 'retry_node', 'completion_condition']),
+  'Requirement routing unresolved items must use the common six-field contract',
+);
 
 const requirementIntakeSkill = read('skills/requirement-intake/SKILL.md');
 const requirementIntakeTemplate = read('skills/requirement-intake/references/output-template.md');
@@ -264,14 +334,9 @@ assert(
   'Requirement intake template must expose fact, question, and decision identifiers',
 );
 assert(
-  requirementIntakeTemplate.includes('### 待澄清项') && !requirementIntakeTemplate.includes('### 待确认项'),
-  'Requirement intake must distinguish clarification items from human confirmation',
-);
-assert(
-  requirementIntakeTemplate.includes('### 确认决策') &&
-    requirementIntakeTemplate.includes('| 决策 ID | 来源问题 ID |') &&
+  requirementIntakeTemplate.includes('| 问题 ID | 决策 ID | 来源事实 | 需要确认 | 采用规则 | 状态 |') &&
     requirementIntakeTemplate.includes('已人工确认'),
-  'Requirement intake template must map confirmed CL decisions to RQ questions',
+  'Requirement intake template must combine RQ questions with confirmed CL decisions',
 );
 assert(
   requirementIntakeSkill.includes('一轮对话只展示一个 `RQ-*`') &&
@@ -309,6 +374,10 @@ assert(
     orchestrator.includes('--confirmation'),
   'Orchestrator must require an exact owner confirmation instead of inferring approval',
 );
+assert(
+  orchestrator.includes('awaiting_confirmation') && orchestrator.includes('`blocked` 只用于'),
+  'Orchestrator must distinguish normal confirmation waits from real blockers',
+);
 const taskStateCli = read('scripts/task-state.rb');
 for (const requiredText of [
   'validate_requirement_intake!',
@@ -320,6 +389,8 @@ for (const requiredText of [
 }
 for (const requiredText of [
   "GATE_ACTOR = 'workflow-owner'",
+  'ARTIFACT_SCHEMA_VERSION = 1',
+  'awaiting_confirmation',
   'approve_confirmation',
   'reject_confirmation',
   '--confirmation must exactly equal',
