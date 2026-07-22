@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task-state.schema.json",
+  "title": "Workflow task state",
+  "type": "object",
+  "required": [
+    "revision",
+    "task_id",
+    "target_module",
+    "path",
+    "current_node",
+    "status",
+    "artifacts",
+    "attempts",
+    "gate",
+    "cancellation",
+    "next_node",
+    "blocked_by",
+    "delivery"
+  ],
+  "properties": {
+    "revision": { "type": "integer", "minimum": 0 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "target_module": { "type": "string", "minLength": 1 },
+    "path": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]*$" },
+    "current_node": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+    "status": { "enum": ["active", "blocked", "completed", "cancelled"] },
+    "artifacts": { "$ref": "#/$defs/artifactIndex" },
+    "attempts": { "$ref": "#/$defs/attemptIndex" },
+    "gate": {
+      "anyOf": [
+        { "$ref": "#/$defs/gate" },
+        { "type": "null" }
+      ]
+    },
+    "cancellation": {
+      "anyOf": [
+        { "$ref": "#/$defs/cancellation" },
+        { "type": "null" }
+      ]
+    },
+    "next_node": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "blocked_by": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/blocker" }
+    },
+    "delivery": { "$ref": "delivery-evidence.schema.json" }
+  },
+  "$defs": {
+    "artifactIndex": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+      "additionalProperties": { "$ref": "#/$defs/artifactRecord" }
+    },
+    "artifactRecord": {
+      "type": "object",
+      "required": ["attempt", "sha256"],
+      "properties": {
+        "attempt": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "approved": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "attemptIndex": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+      "additionalProperties": { "type": "integer", "minimum": 1 }
+    },
+    "gate": {
+      "type": "object",
+      "required": ["node", "status", "owner"],
+      "properties": {
+        "node": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+        "status": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "cancellation": {
+      "type": "object",
+      "required": ["cancelled_by", "reason"],
+      "properties": {
+        "cancelled_by": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "blocker": {
+      "type": "object",
+      "required": ["code", "reason", "owner", "retry_node"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "retry_node": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "active" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "blocked_by": { "maxItems": 0 },
+          "cancellation": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "blocked" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "blocked_by": { "minItems": 1 },
+          "gate": { "type": "null" },
+          "cancellation": { "type": "null" },
+          "next_node": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "completed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "blocked_by": { "maxItems": 0 },
+          "gate": { "type": "null" },
+          "cancellation": { "type": "null" },
+          "next_node": { "type": "null" },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "repository_root": { "type": "string", "minLength": 1 },
+              "base_commit": { "type": "string", "minLength": 1 },
+              "candidate_tree": { "type": "string", "minLength": 1 },
+              "change_fingerprint": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "cancelled" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "blocked_by": { "maxItems": 0 },
+          "gate": { "type": "null" },
+          "cancellation": { "$ref": "#/$defs/cancellation" },
+          "next_node": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "x-terminalStatuses": ["completed", "cancelled"],
+  "additionalProperties": false
+}

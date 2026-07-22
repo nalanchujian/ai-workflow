@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求受理与确认"
+  short_description: "分析需求并逐条确认疑点"
+  default_prompt: "使用 $requirement-intake 读取需求资料和目标模块，整理需求事实并逐条与我确认疑点，最终生成需求定义产物。"

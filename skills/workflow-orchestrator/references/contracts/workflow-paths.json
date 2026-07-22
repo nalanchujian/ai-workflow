@@ -1,0 +1,22 @@
+{
+  "paths": {
+    "lightweight": [
+      "requirement-intake",
+      "requirement-routing",
+      "implementation-design",
+      "development-implementation",
+      "quality-verification",
+      "change-review"
+    ],
+    "complex": [
+      "requirement-intake",
+      "requirement-routing",
+      "acceptance-design",
+      "impact-analysis",
+      "implementation-design",
+      "development-implementation",
+      "quality-verification",
+      "change-review"
+    ]
+  }
+}

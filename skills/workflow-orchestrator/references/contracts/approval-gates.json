@@ -1,0 +1,38 @@
+{
+  "statuses": ["pending", "approved", "rejected"],
+  "gates": {
+    "requirement-intake": {
+      "beforePathSelection": true,
+      "approvedNext": "requirement-routing",
+      "rejectedNext": "requirement-intake"
+    },
+    "requirement-routing": {
+      "paths": ["lightweight", "complex"],
+      "rejectedNext": "requirement-routing"
+    },
+    "acceptance-design": {
+      "paths": ["complex"],
+      "rejectedNext": "acceptance-design"
+    },
+    "impact-analysis": {
+      "paths": ["complex"],
+      "rejectedNext": "impact-analysis"
+    },
+    "implementation-design": {
+      "paths": ["lightweight", "complex"],
+      "rejectedNext": "implementation-design"
+    },
+    "development-implementation": {
+      "paths": ["lightweight", "complex"],
+      "rejectedNext": "development-implementation"
+    },
+    "quality-verification": {
+      "paths": ["lightweight", "complex"],
+      "rejectedNext": "quality-verification"
+    },
+    "change-review": {
+      "paths": ["lightweight", "complex"],
+      "rejectedNext": "change-review"
+    }
+  }
+}

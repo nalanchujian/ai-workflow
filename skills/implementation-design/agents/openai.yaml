@@ -1,0 +1,4 @@
+interface:
+  display_name: "实施设计"
+  short_description: "生成文件级实现方案与验证回滚计划"
+  default_prompt: "使用 $implementation-design 读取当前任务目录，生成可实施的开发计划。"

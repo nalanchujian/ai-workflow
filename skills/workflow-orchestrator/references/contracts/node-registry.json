@@ -1,0 +1,37 @@
+{
+  "nodes": {
+    "requirement-intake": {
+      "skill": "skills/requirement-intake/SKILL.md",
+      "output": "requirement-analysis.md"
+    },
+    "requirement-routing": {
+      "skill": "skills/requirement-routing/SKILL.md",
+      "output": "requirement-routing.json",
+      "schema": "skills/workflow-orchestrator/references/contracts/artifacts/requirement-routing.schema.json"
+    },
+    "acceptance-design": {
+      "skill": "skills/acceptance-design/SKILL.md",
+      "output": "acceptance-checklist.md"
+    },
+    "impact-analysis": {
+      "skill": "skills/impact-analysis/SKILL.md",
+      "output": "impact-analysis.md"
+    },
+    "implementation-design": {
+      "skill": "skills/implementation-design/SKILL.md",
+      "output": "implementation-plan.md"
+    },
+    "development-implementation": {
+      "skill": "skills/development-implementation/SKILL.md",
+      "output": "development-record.md"
+    },
+    "quality-verification": {
+      "skill": "skills/quality-verification/SKILL.md",
+      "output": "quality-verification.md"
+    },
+    "change-review": {
+      "skill": "skills/change-review/SKILL.md",
+      "output": "change-review.md"
+    }
+  }
+}

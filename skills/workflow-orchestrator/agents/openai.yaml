@@ -1,0 +1,4 @@
+interface:
+  display_name: "研发流程编排"
+  short_description: "串联研发节点，并在每个节点后等待人工确认"
+  default_prompt: "使用 $workflow-orchestrator 从需求受理开始执行研发工作流，或继续指定任务目录；每个节点产出后暂停并等待我的确认。"

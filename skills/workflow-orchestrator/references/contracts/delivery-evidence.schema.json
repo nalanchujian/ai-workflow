@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delivery-evidence.schema.json",
+  "type": "object",
+  "properties": {
+    "repository_root": { "type": ["string", "null"] },
+    "base_commit": { "type": ["string", "null"] },
+    "candidate_tree": { "type": ["string", "null"] },
+    "change_fingerprint": { "type": ["string", "null"] }
+  },
+  "required": [
+    "repository_root",
+    "base_commit",
+    "candidate_tree",
+    "change_fingerprint"
+  ],
+  "additionalProperties": false
+}

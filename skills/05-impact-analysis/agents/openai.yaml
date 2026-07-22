@@ -1,4 +1,0 @@
-interface:
-  display_name: "影响分析"
-  short_description: "扫描复杂需求的真实代码影响范围"
-  default_prompt: "使用 $05-impact-analysis 读取当前任务目录，扫描代码影响范围并生成报告。"

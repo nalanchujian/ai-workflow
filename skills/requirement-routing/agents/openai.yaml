@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求分流"
+  short_description: "按风险选择研发执行路径"
+  default_prompt: "使用 $requirement-routing 读取当前任务目录，将需求分流到轻量或复杂路径。"

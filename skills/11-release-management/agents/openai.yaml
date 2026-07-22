@@ -1,4 +1,0 @@
-interface:
-  display_name: "发布管理"
-  short_description: "整理发布、灰度和回滚记录"
-  default_prompt: "使用 $11-release-management 读取当前任务目录，生成可执行的发布记录和灰度观察要点。"

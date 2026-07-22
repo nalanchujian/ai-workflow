@@ -1,1 +1,5 @@
 .DS_Store
+/runtime/tasks/*
+!/runtime/tasks/.gitkeep
+/runtime/test-runs/*
+!/runtime/test-runs/.gitkeep

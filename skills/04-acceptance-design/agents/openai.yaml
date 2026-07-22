@@ -1,4 +1,0 @@
-interface:
-  display_name: "验收设计"
-  short_description: "生成可执行验收清单和测试用例"
-  default_prompt: "使用 $04-acceptance-design 读取当前任务目录，生成并保存结构化验收清单。"

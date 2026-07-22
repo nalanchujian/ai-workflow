@@ -1,0 +1,16 @@
+{
+  "contracts": {
+    "nodes": "contracts/node-registry.json",
+    "paths": "contracts/workflow-paths.json",
+    "taskState": "contracts/task-state.schema.json",
+    "gates": "contracts/approval-gates.json",
+    "artifacts": "contracts/node-artifact.schema.json",
+    "deliveryEvidence": "contracts/delivery-evidence.schema.json"
+  },
+  "guides": {
+    "taskState": "guides/task-lifecycle.md",
+    "stateStorage": "guides/state-storage.md",
+    "rerun": "guides/node-rerun.md",
+    "deliveryEvidence": "guides/delivery-evidence.md"
+  }
+}

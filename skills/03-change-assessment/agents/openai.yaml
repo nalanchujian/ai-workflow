@@ -1,4 +1,0 @@
-interface:
-  display_name: "变更评估"
-  short_description: "评估风险并选择研发执行路径"
-  default_prompt: "使用 $03-change-assessment 读取当前任务目录，评估变更风险和执行路径。"

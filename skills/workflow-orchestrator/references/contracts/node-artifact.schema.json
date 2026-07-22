@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "node-artifact.schema.json",
+  "type": "object",
+  "required": [
+    "task_id",
+    "node",
+    "status",
+    "attempt"
+  ],
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "node": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$" },
+    "status": { "enum": ["completed", "blocked"] },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "template_version": { "const": 2 }
+  }
+}
