@@ -1,0 +1,87 @@
+# AI Workflow MVP 需求与验收标准
+
+## 目标
+
+交付可在开发者本机运行的 `aiw` CLI。它能安装声明式团队技能、建立包含来源快照的任务、以可审批的 DAG 管理分析与设计节点，并通过可验证的 Codex Adapter 请求启动或预演一次节点运行。
+
+## 技术约束
+
+- Node.js 22 或更高版本；TypeScript 严格模式；pnpm 管理依赖。
+- 使用 Commander 解析 CLI、Zod 校验外部 YAML/JSON、Vitest 执行测试。
+- 运行状态仅写入项目根目录的 `.aiw/`，该目录不得提交到 Git。
+- 所有 CLI 成功输出必须可供人阅读；`--json` 时输出单个 JSON 对象到 stdout。
+- MVP 只支持单 Agent、单节点串行执行。
+
+## 功能需求
+
+### FR-1：CLI 基础
+
+- `aiw --help`、`aiw --version`、`aiw <command> --help` 可用。
+- 错误命令以非零退出码结束，错误信息写入 stderr。
+- `--json` 不能与正常文本混写；进度信息写入 stderr。
+
+### FR-2：技能安装与查询
+
+- `aiw skills install <git-url> [--ref <tag-or-commit>]` 将仓库克隆到用户级缓存目录。
+- 安装仅接受含 `skills/<skill-name>/SKILL.md` 的仓库；无有效技能时失败且不写入 Registry。
+- `aiw skills list` 输出已安装技能的名称、版本、来源 URL 与锁定 revision。
+- 同一个来源再次安装应更新该来源，而不创建重复 Registry 条目。
+- 技能 front matter 必须含 `name`、`version`、`description` 与 `phases`；任一字段无效时拒绝该技能。
+
+### FR-3：任务创建与来源快照
+
+- `aiw task init <task-id> --project <path> --source <file-or-url>` 创建 `.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照。
+- 本地来源必须解析为真实文件，且不得是目录；其文本保存为 `sources/<source-id>/snapshot.md`。
+- URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。
+- URL 请求必须拒绝回环、私网、链路本地及保留 IP，并限制重定向次数、响应大小与请求超时。
+- 快照元数据记录来源、获取时间、内容 SHA-256 与提取器版本。
+
+### FR-4：默认任务图与状态机
+
+- 初始化生成 `intake`、`analysis`、`design`、`implementation`、`testing` 五个节点及其线性依赖。
+- 节点仅在全部依赖 `completed` 时变为 `ready`；MVP 调度器一次只允许运行一个节点。
+- 需要审批的 `analysis`、`design`、`testing` 节点，在运行成功后进入 `awaiting_approval`。
+- `aiw approve <task-id> <node-id>` 仅可批准当前 revision 的 `awaiting_approval` 节点，并将其置为 `completed`。
+- `aiw revise <task-id> <node-id> --note <text>` 将该节点置为 `pending`，并递归将所有已开始下游节点置为 `invalidated`。
+- `aiw task status <task-id>` 显示全部节点状态、依赖、revision、审批与失效原因。
+
+### FR-5：上下文包与运行预演
+
+- `aiw task run <task-id> <node-id> --dry-run` 仅对 `ready` 节点有效；它不调用 Codex。
+- Runner 根据阶段规则生成 `context-manifest.json` 和 `context.md`，仅包含被允许且已确认的任务文件、指定技能和用户任务。
+- 单次上下文预算默认 12,000 tokens；估算超限必须失败并列出超限文件，不得静默截断。
+- `--include <relative-path>` 允许显式增加项目内文件，必须写入 manifest；任务目录外和项目根目录外的路径必须拒绝。
+- dry-run 输出符合 `aiw.run-result/v1` 的 `RunResult`，状态为 `succeeded`，并列出将传递给 Codex 的参数与上下文文件。
+
+### FR-6：Codex Adapter 执行接口
+
+- `aiw task run <task-id> <node-id>` 使用 `CodexAdapter` 构建请求并启动已配置的 Codex CLI。
+- Codex 可执行文件默认名为 `codex`，可由 `AIW_CODEX_BIN` 环境变量覆盖。MVP 以 `codex exec --cd <project-root> --sandbox workspace-write --ask-for-approval never --output-last-message <run-dir>/last-message.md -` 启动，并将 `context.md` 写入 stdin。
+- 缺少 Codex 可执行文件时返回 `unavailable`；非零退出码返回 `failed`；取消信号返回 `cancelled`。
+- Adapter 创建的 `request.json`、`context-manifest.json`、`stdout.log`、`stderr.log`、`result.json` 全部位于该任务的 `runs/<run-id>/`。
+- 只有进程退出码为 0 且节点声明的产物存在于任务目录内，节点才能进入后续状态。
+
+## 非功能需求
+
+- 所有外部输入（CLI、YAML、JSON、Git、文件路径、URL、子进程输出）必须在信任边界校验。
+- 来源、技能、用户任务与 Runner 指令在 Agent 上下文中必须以带路径的显式分隔块呈现。
+- 任何失败不应破坏已有快照、已批准产物、审批事件或历史运行记录。
+- 单元测试不得调用真实网络、真实 Git 远程或真实 Codex；通过可注入的 Fetch、Git 与 Process 接口进行替身测试。
+
+## 验收场景
+
+| ID | 场景 | 通过条件 |
+|---|---|---|
+| AC-1 | 安装有效技能仓库 | Registry 记录 revision；`skills list` 显示技能元数据。 |
+| AC-2 | 安装没有有效技能的仓库 | 命令非零退出，Registry 未新增条目。 |
+| AC-3 | 从本地 Markdown 建立任务 | 创建默认 DAG、快照与含 SHA-256 的元数据。 |
+| AC-4 | URL 解析到 `127.0.0.1` 或私网 | 请求在连接前被拒绝，任务目录不创建来源快照。 |
+| AC-5 | 未批准分析节点时运行设计 | 命令失败，提示设计节点尚未 `ready`。 |
+| AC-6 | 批准分析后修改并退回分析 | 设计及其下游被标记 `invalidated`，旧产物保留。 |
+| AC-7 | 对可运行节点执行 dry-run | 生成 manifest 与 `context.md`，不启动子进程。 |
+| AC-8 | 上下文超过预算 | 命令失败并列出造成超限的文件；任何文件内容未被截断。 |
+| AC-9 | Codex 可执行文件缺失 | 生成 `RunResult(status=unavailable)`，节点转为 `failed`，保留日志。 |
+
+## 完成定义
+
+所有验收场景均有自动化 Vitest 覆盖；`pnpm test`、`pnpm lint`、`pnpm typecheck` 通过；README 的命令示例与实际 CLI 一致。

@@ -42,9 +42,11 @@ aiw task run req-123 implementation --skill implementation
 ## 文档
 
 - [架构设计](docs/superpowers/specs/2026-08-11-agent-skill-orchestrator-design.md)：分层、任务 DAG、人工关卡、上下文与安全边界。
+- [MVP 需求与验收标准](docs/specs/mvp-requirements.md)：功能范围、错误行为与自动化验收场景。
 - [任务模型规范](docs/specs/task-model.md)：节点状态、审批、依赖和失效传播。
 - [上下文包规范](docs/specs/context-package.md)：任务产物、来源快照、注入规则和 URL 安全边界。
 - [Codex Adapter 契约](docs/specs/codex-adapter-contract.md)：运行请求、结果、失败处理和适配边界。
+- [MVP 实施计划](docs/superpowers/plans/2026-08-11-aiw-mvp-implementation.md)：按测试驱动分解的框架与功能实现步骤。
 
 ## 计划中的目录
 

@@ -58,6 +58,21 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、上下文�
 
 `dry-run` 只执行第 1、2 步并输出将要执行的 Codex 调用，绝不启动 Codex。
 
+## Codex CLI 调用（MVP）
+
+Adapter 将 `AIW_CODEX_BIN` 解析为可执行文件；变量未设置时使用 `codex`。执行模式下，它必须以如下形式启动非交互式会话：
+
+```text
+<AIW_CODEX_BIN|codex> exec
+  --cd <projectRoot>
+  --sandbox workspace-write
+  --ask-for-approval never
+  --output-last-message <runDirectory>/last-message.md
+  -
+```
+
+`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`workspace-write` 将 Agent 写入范围限制为项目工作目录；`never` 仅适用于用户显式运行的 `aiw task run`，并且不得替换为绕过 sandbox 的参数。Adapter 必须将实际二进制路径、参数和运行模式写入 `request.json`。
+
 ## 失败与恢复
 
 - Runner 将 `failed`、`cancelled` 或 `unavailable` 映射为节点 `failed`，保留运行记录。
