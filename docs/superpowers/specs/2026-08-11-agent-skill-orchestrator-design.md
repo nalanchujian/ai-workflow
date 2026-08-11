@@ -50,12 +50,15 @@ skills/
 需求分析、方案设计和最终验证后默认存在人工关卡：
 
 ```text
-pending → running → awaiting_approval → approved → completed
-                         ↓
-                    needs_revision → running
+pending → ready → running → awaiting_approval → completed
+                    │                 │
+                    ├→ failed         └→ pending（要求修改）
+                    └→ cancelled
+
+任意节点 → invalidated（上游 revision 变化）
 ```
 
-每个子任务有 ID、标题、依赖、显式技能、状态、审批要求和产物路径。上游任务未获批准时，下游任务不得执行。
+审批决定独立于节点状态；需要审批的节点仅在获批后进入 `completed`。每个子任务有 ID、标题、依赖、显式技能、状态、审批要求和产物路径。上游任务未完成时，下游任务不得执行；上游被修订后，已开始的下游任务会标记为 `invalidated`。
 
 ## 任务上下文
 
@@ -100,3 +103,9 @@ contextPolicy:
 - 记录技能版本、来源 revision、任务 ID、审批决定和注入文件清单，但默认不保存完整会话。
 
 MVP 验收：能够安装和列出 Git 技能；从本地 Markdown 与公开 URL 创建快照；创建至少两个有依赖的子任务；阻止未批准的下游任务；组装限定上下文并通过 Codex Adapter 启动调用；记录可复现的本地运行元数据。
+
+## 配套规范
+
+- [任务模型规范](../../specs/task-model.md)
+- [上下文包规范](../../specs/context-package.md)
+- [Codex Adapter 契约](../../specs/codex-adapter-contract.md)
