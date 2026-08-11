@@ -1,63 +1,67 @@
-# AI Workflow MVP Implementation Plan
+# AI Workflow MVP 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **供智能体执行：** 必须逐任务执行，并使用复选框跟踪进度。每个任务必须先编写失败测试，再实现最小功能、运行验证并提交。
 
-**Goal:** Build the local `aiw` CLI MVP for versioned skills, task DAGs, approval-gated context packages, and Codex execution.
+**目标：** 构建本地 `aiw` CLI MVP：支持版本化技能、任务 DAG、人工审批的上下文包，以及通过 Codex Adapter 预演或执行任务节点。
 
-**Architecture:** The CLI calls application services through ports for Git, HTTP/DNS, filesystem and child processes. Task state and artifacts live under `.aiw/tasks/<task-id>`; the Runner validates the task and context manifest before a Codex Adapter may invoke the external CLI. The domain model remains independent of Commander, Node process APIs and Codex-specific arguments.
+**架构：** CLI 通过 Git、网络、文件系统和子进程端口调用应用服务。任务状态和产物保存在 `.aiw/tasks/<task-id>`；Runner 在调用 Codex Adapter 前校验任务与上下文清单。领域模型不依赖 Commander、Node 子进程 API 或 Codex 参数。
 
-**Tech Stack:** Node.js 22+, TypeScript strict mode, pnpm, Commander, Zod, yaml, Vitest, ESLint, native `fetch`, Node `crypto`, `child_process`.
+**技术栈：** Node.js 22+、TypeScript 严格模式、pnpm、Commander、Zod、yaml、Vitest、ESLint、原生 `fetch`、Node `crypto`、`child_process`。
 
-## Global Constraints
+## 全局约束
 
-- Persist all task state only beneath `<projectRoot>/.aiw/`; `.aiw/` is Git-ignored.
-- Support one local Agent and one running task node at a time.
-- Validate all CLI arguments, YAML/JSON data, paths, URLs and process results with Zod or explicit boundary checks.
-- Never use real network, Git remotes or Codex in unit tests; inject ports and use fakes.
-- Only inject a rule-approved, hash-recorded context manifest; never silently truncate a file above the 12,000-token default budget.
-- Keep source, skill, user task and Runner constraints in distinct labeled blocks when creating Agent context.
+- 所有任务状态仅可写入 `<projectRoot>/.aiw/`，并且 `.aiw/` 不得提交到 Git。
+- MVP 只支持一个本地 Agent，并且同一时间只运行一个任务节点。
+- 所有 CLI 参数、YAML/JSON、路径、URL 和子进程结果都必须在边界处校验。
+- 单元测试不得访问真实网络、远程 Git 或真实 Codex；通过可注入的端口和替身测试。
+- 只允许注入有哈希记录、符合规则的上下文；默认 12,000 token 超限时必须失败，不能静默截断。
+- 生成 Agent 上下文时，必须区分 Runner 约束、技能、用户任务和不可信来源/产物区块。
 
-## Planned File Structure
+## 计划中的文件结构
 
 ```text
-package.json                         # scripts, dependencies and aiw bin entry
-tsconfig.json                        # strict TypeScript compiler configuration
-eslint.config.js                     # TypeScript lint rules
-src/cli.ts                           # executable entry point
-src/cli/create-program.ts            # Commander program and command registration
-src/cli/output.ts                    # human and --json output formatting
-src/domain/task.ts                   # task/node schemas and state types
-src/domain/skill.ts                  # skill and registry schemas
-src/domain/run.ts                    # RunRequest and RunResult schemas
-src/ports/git-client.ts              # clone/fetch/revision port
-src/ports/network-client.ts          # DNS and HTTP port
-src/ports/process-runner.ts          # child-process port
-src/services/task-store.ts           # atomic task.yaml and event persistence
-src/services/task-state-machine.ts   # legal transition and invalidation logic
-src/services/source-intake.ts        # local/URL snapshot creation
-src/services/skill-registry.ts       # user-level registry persistence
-src/services/skill-installer.ts      # Git skill install and validation
-src/services/context-builder.ts      # phase selection, manifest and context.md
-src/services/task-runner.ts          # ready-node validation and run lifecycle
-src/adapters/codex-adapter.ts        # Codex process preparation and collection
-tests/...                            # mirrored unit and CLI integration tests
+package.json                         # 脚本、依赖和 aiw bin 入口
+tsconfig.json                        # 严格 TypeScript 配置
+eslint.config.js                     # TypeScript lint 规则
+src/cli.ts                           # 可执行入口
+src/cli/create-program.ts            # Commander 程序和命令注册
+src/cli/output.ts                    # 人类可读与 --json 输出
+src/domain/task.ts                   # 任务、节点和状态 schema
+src/domain/skill.ts                  # 技能和 Registry schema
+src/domain/context.ts                # Context Manifest schema
+src/domain/run.ts                    # RunRequest 和 RunResult schema
+src/ports/git-client.ts              # clone/fetch/revision 端口
+src/ports/network-client.ts          # DNS 和 HTTP 端口
+src/ports/process-runner.ts          # 子进程端口
+src/services/task-store.ts           # task.yaml 和事件持久化
+src/services/task-state-machine.ts   # 状态迁移和失效传播
+src/services/source-intake.ts        # 本地/URL 快照
+src/services/task-initializer.ts     # 默认任务图创建
+src/services/skill-registry.ts       # 用户级 Registry
+src/services/skill-installer.ts      # Git 技能安装与校验
+src/services/context-builder.ts      # 上下文选择、manifest 和 context.md
+src/services/task-runner.ts          # 节点运行生命周期
+src/adapters/codex-adapter.ts        # Codex 调用与结果收集
+tests/                               # 与 src 对应的单元和集成测试
 ```
 
 ---
 
-### Task 1: Initialize the typed CLI foundation
+### 任务 1：初始化类型安全的 CLI 基础
 
-**Files:**
-- Create: `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `eslint.config.js`, `.npmrc`
-- Create: `src/cli.ts`, `src/cli/create-program.ts`, `src/cli/output.ts`
-- Create: `tests/cli/help.test.ts`, `tests/cli/output.test.ts`, `tests/helpers/run-cli.ts`
-- Modify: `README.md`
+**文件：**
 
-**Interfaces:**
-- Produces `createProgram(deps: CliDependencies): Command`.
-- Produces `writeResult(value: unknown, options: { json: boolean; stdout: NodeJS.WriteStream }): void`.
+- 新建：`package.json`、`pnpm-lock.yaml`、`tsconfig.json`、`eslint.config.js`、`.npmrc`
+- 新建：`src/cli.ts`、`src/cli/create-program.ts`、`src/cli/output.ts`
+- 新建：`tests/cli/help.test.ts`、`tests/cli/output.test.ts`、`tests/helpers/run-cli.ts`
+- 修改：`README.md`
 
-- [ ] **Step 1: Write the failing CLI tests**
+**接口：**
+
+- 提供 `createProgram(deps: CliDependencies): Command`。
+- 提供 `writeResult(value: unknown, options: { json: boolean; stdout: NodeJS.WriteStream }): void`。
+
+- [ ] **步骤 1：编写失败的 CLI 测试**
 
 ```ts
 it('prints the command list for --help', async () => {
@@ -74,12 +78,12 @@ it('prints one JSON document when --json is selected', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify the missing CLI fails**
+- [ ] **步骤 2：确认测试在实现前失败**
 
-Run: `pnpm vitest run tests/cli/help.test.ts tests/cli/output.test.ts`
-Expected: FAIL because the package scripts and `runCli` implementation do not exist.
+运行：`pnpm vitest run tests/cli/help.test.ts tests/cli/output.test.ts`
+预期：因脚本和 `runCli` 尚不存在而失败。
 
-- [ ] **Step 3: Add the package scripts and minimal Commander program**
+- [ ] **步骤 3：实现最小 CLI 程序**
 
 ```ts
 export function createProgram(deps: CliDependencies): Command {
@@ -92,32 +96,34 @@ export function createProgram(deps: CliDependencies): Command {
 }
 ```
 
-Define `build`, `test`, `lint`, `typecheck` and `dev` scripts in `package.json`; make `src/cli.ts` call `createProgram` and route exceptions to stderr with exit code `1`. Implement `runCli(args)` in `tests/helpers/run-cli.ts` by creating the program with fake dependencies and capturing stdout, stderr and exit code.
+在 `package.json` 定义 `build`、`test`、`lint`、`typecheck` 和 `dev` 脚本。`src/cli.ts` 调用 `createProgram`，捕获异常后写入 stderr 并以状态码 `1` 退出。`tests/helpers/run-cli.ts` 使用伪依赖创建程序、捕获 stdout/stderr/退出码。
 
-- [ ] **Step 4: Run the foundation checks**
+- [ ] **步骤 4：运行基础验证**
 
-Run: `pnpm lint && pnpm typecheck && pnpm test`
-Expected: all commands exit `0`.
+运行：`pnpm lint && pnpm typecheck && pnpm test`
+预期：全部命令以 `0` 退出。
 
-- [ ] **Step 5: Commit the foundation**
+- [ ] **步骤 5：提交 CLI 基础**
 
 ```bash
 git add package.json pnpm-lock.yaml tsconfig.json eslint.config.js .npmrc src/cli.ts src/cli tests/cli tests/helpers README.md
 git commit -m "feat: initialize aiw CLI foundation"
 ```
 
-### Task 2: Implement the task domain model and state machine
+### 任务 2：实现任务领域模型和状态机
 
-**Files:**
-- Create: `src/domain/task.ts`, `src/services/task-state-machine.ts`
-- Create: `tests/domain/task.test.ts`, `tests/services/task-state-machine.test.ts`
+**文件：**
 
-**Interfaces:**
-- Produces `TaskSchema`, `TaskNodeSchema`, `TaskStatus`, `NodeStatus` and `Task`.
-- Produces `transitionNode(task: Task, nodeId: string, event: NodeEvent): Task`.
-- Produces `invalidateDependents(task: Task, upstreamNodeId: string, reason: string): Task`.
+- 新建：`src/domain/task.ts`、`src/services/task-state-machine.ts`
+- 新建：`tests/domain/task.test.ts`、`tests/services/task-state-machine.test.ts`
 
-- [ ] **Step 1: Write failing state-transition tests**
+**接口：**
+
+- 提供 `TaskSchema`、`TaskNodeSchema`、`TaskStatus`、`NodeStatus` 和 `Task`。
+- 提供 `transitionNode(task: Task, nodeId: string, event: NodeEvent): Task`。
+- 提供 `invalidateDependents(task: Task, upstreamNodeId: string, reason: string): Task`。
+
+- [ ] **步骤 1：编写状态迁移失败测试**
 
 ```ts
 it('only makes a node ready after every dependency completes', () => {
@@ -132,12 +138,12 @@ it('invalidates every started descendant when an approved upstream is revised', 
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm failure**
+- [ ] **步骤 2：运行测试并确认失败**
 
-Run: `pnpm vitest run tests/domain/task.test.ts tests/services/task-state-machine.test.ts`
-Expected: FAIL because state schemas and transitions are absent.
+运行：`pnpm vitest run tests/domain/task.test.ts tests/services/task-state-machine.test.ts`
+预期：因 schema 和状态机尚不存在而失败。
 
-- [ ] **Step 3: Implement immutable schemas and legal transitions**
+- [ ] **步骤 3：实现不可变 schema 和合法迁移**
 
 ```ts
 export type NodeEvent =
@@ -156,35 +162,35 @@ export interface OutputRecord {
 export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Task;
 ```
 
-Reject unknown node IDs and illegal events with a typed `TaskTransitionError`. Keep approval events separate from `NodeStatus`; add a DFS cycle check when parsing or creating a task.
+对未知节点和非法事件抛出 `TaskTransitionError`。审批事件与 `NodeStatus` 分离；解析或创建任务时执行 DFS 环检测。
 
-- [ ] **Step 4: Run state-model tests and all checks**
+- [ ] **步骤 4：验证状态模型**
 
-Run: `pnpm vitest run tests/domain/task.test.ts tests/services/task-state-machine.test.ts && pnpm lint && pnpm typecheck`
-Expected: all commands exit `0`.
+运行：`pnpm vitest run tests/domain/task.test.ts tests/services/task-state-machine.test.ts && pnpm lint && pnpm typecheck`
+预期：全部通过。
 
-- [ ] **Step 5: Commit the state machine**
+- [ ] **步骤 5：提交状态机**
 
 ```bash
 git add src/domain/task.ts src/services/task-state-machine.ts tests/domain/task.test.ts tests/services/task-state-machine.test.ts
 git commit -m "feat: add task DAG state machine"
 ```
 
-### Task 3: Persist tasks and create local source snapshots
+### 任务 3：持久化任务并创建来源快照
 
-**Files:**
-- Create: `src/ports/network-client.ts`, `src/services/task-store.ts`, `src/services/source-intake.ts`
-- Create: `src/services/task-initializer.ts`
-- Create: `src/cli/task-init-command.ts`
-- Create: `tests/services/task-store.test.ts`, `tests/services/source-intake.test.ts`, `tests/cli/task-init-command.test.ts`
+**文件：**
 
-**Interfaces:**
-- Consumes `Task` and `TaskSchema` from Task 2.
-- Produces `TaskStore.create(task: Task): Promise<void>`, `TaskStore.load(id: string): Promise<Task>`, `TaskStore.update(task: Task): Promise<void>`.
-- Produces `SourceIntake.snapshot(input: SourceInput): Promise<SnapshotRecord>`.
-- Produces `TaskInitializer.init(input: { id: string; projectRoot: string; source: string }): Promise<Task>`.
+- 新建：`src/ports/network-client.ts`、`src/services/task-store.ts`、`src/services/source-intake.ts`、`src/services/task-initializer.ts`
+- 新建：`src/cli/task-init-command.ts`
+- 新建：`tests/services/task-store.test.ts`、`tests/services/source-intake.test.ts`、`tests/cli/task-init-command.test.ts`
 
-- [ ] **Step 1: Write failing task-init and URL-security tests**
+**接口：**
+
+- 提供 `TaskStore.create(task: Task): Promise<void>`、`TaskStore.load(id: string): Promise<Task>`、`TaskStore.update(task: Task): Promise<void>`。
+- 提供 `SourceIntake.snapshot(input: SourceInput): Promise<SnapshotRecord>`。
+- 提供 `TaskInitializer.init(input: { id: string; projectRoot: string; source: string }): Promise<Task>`。
+
+- [ ] **步骤 1：编写任务初始化和 URL 安全失败测试**
 
 ```ts
 it('creates a task file and hashes a local Markdown snapshot', async () => {
@@ -200,40 +206,42 @@ it('rejects a URL that resolves to a loopback address before fetch', async () =>
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm failure**
+- [ ] **步骤 2：运行测试并确认失败**
 
-Run: `pnpm vitest run tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/cli/task-init-command.test.ts`
-Expected: FAIL because storage and intake services are absent.
+运行：`pnpm vitest run tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/cli/task-init-command.test.ts`
+预期：因存储和接入服务尚不存在而失败。
 
-- [ ] **Step 3: Implement atomic storage and safe source intake**
+- [ ] **步骤 3：实现原子存储与安全接入**
 
-Create `task.yaml`, `task.md`, `sources/<source-id>/snapshot.md` and `meta.json` under `.aiw/tasks/<id>`. `TaskInitializer` must mark `intake` as `completed` after a successful snapshot and evaluate `analysis` to `ready`. Write via a sibling temporary file followed by rename. Resolve every redirect through `NetworkClient.resolveHost`; reject non-HTTP(S), loopback, private, link-local and reserved addresses before any request. Enforce a 5-redirect limit, 5 MiB maximum response, 15-second timeout and `text/plain`, `text/markdown` or `text/html` content types; convert HTML with an HTML-to-text dependency.
+在 `.aiw/tasks/<id>` 创建 `task.yaml`、`task.md`、`sources/<source-id>/snapshot.md` 和 `meta.json`，先写同目录临时文件再重命名。快照成功后，`TaskInitializer` 将 `intake` 标记为 `completed`，并将 `analysis` 评估为 `ready`。每次重定向都通过 `NetworkClient.resolveHost` 解析；请求前拒绝非 HTTP(S)、回环、私网、链路本地与保留地址。限制 5 次重定向、5 MiB 响应体、15 秒超时和允许的文本内容类型；使用 HTML-to-text 依赖转换 HTML。
 
-- [ ] **Step 4: Run task-init tests and all checks**
+- [ ] **步骤 4：验证任务初始化**
 
-Run: `pnpm vitest run tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/cli/task-init-command.test.ts && pnpm lint && pnpm typecheck`
-Expected: all commands exit `0`.
+运行：`pnpm vitest run tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/cli/task-init-command.test.ts && pnpm lint && pnpm typecheck`
+预期：全部通过。
 
-- [ ] **Step 5: Commit task initialization**
+- [ ] **步骤 5：提交任务初始化**
 
 ```bash
 git add src/ports/network-client.ts src/services/task-store.ts src/services/source-intake.ts src/services/task-initializer.ts src/cli/task-init-command.ts tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/cli/task-init-command.test.ts
 git commit -m "feat: initialize tasks with source snapshots"
 ```
 
-### Task 4: Add Git-backed skill installation and registry
+### 任务 4：添加 Git 技能安装和 Registry
 
-**Files:**
-- Create: `src/domain/skill.ts`, `src/ports/git-client.ts`, `src/services/skill-registry.ts`, `src/services/skill-installer.ts`
-- Create: `src/cli/skills-commands.ts`
-- Create: `tests/services/skill-installer.test.ts`, `tests/services/skill-registry.test.ts`, `tests/cli/skills-commands.test.ts`
+**文件：**
 
-**Interfaces:**
-- Produces `SkillSchema`, `InstalledSkillSchema` and `SkillRegistry`.
-- Produces `SkillInstaller.install(input: { url: string; ref?: string }): Promise<InstalledSkill[]>`.
-- Produces `SkillRegistry.list(): Promise<InstalledSkill[]>` and `SkillRegistry.find(name: string, version?: string): Promise<InstalledSkill>`.
+- 新建：`src/domain/skill.ts`、`src/ports/git-client.ts`、`src/services/skill-registry.ts`、`src/services/skill-installer.ts`
+- 新建：`src/cli/skills-commands.ts`
+- 新建：`tests/services/skill-installer.test.ts`、`tests/services/skill-registry.test.ts`、`tests/cli/skills-commands.test.ts`
 
-- [ ] **Step 1: Write failing skill installation tests**
+**接口：**
+
+- 提供 `SkillSchema`、`InstalledSkillSchema` 和 `SkillRegistry`。
+- 提供 `SkillInstaller.install(input: { url: string; ref?: string }): Promise<InstalledSkill[]>`。
+- 提供 `SkillRegistry.list(): Promise<InstalledSkill[]>` 和 `SkillRegistry.find(name: string, version?: string): Promise<InstalledSkill>`。
+
+- [ ] **步骤 1：编写技能安装失败测试**
 
 ```ts
 it('records valid skills and their locked Git revision', async () => {
@@ -249,41 +257,42 @@ it('does not mutate the registry when no valid SKILL.md exists', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm failure**
+- [ ] **步骤 2：运行测试并确认失败**
 
-Run: `pnpm vitest run tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts`
-Expected: FAIL because the registry and installer are absent.
+运行：`pnpm vitest run tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts`
+预期：因 Registry 和安装器尚不存在而失败。
 
-- [ ] **Step 3: Implement registry and skill validation**
+- [ ] **步骤 3：实现 Registry 和技能校验**
 
-Define a `GitClient` port with `clone(url, destination, ref?)` and `revision(directory)`. Persist user-level registry JSON atomically under the platform data directory. Parse front matter with `yaml`; require non-empty `name`, semantic `version`, non-empty `description`, and a non-empty `phases` array. Replace an existing entry with the same normalized source URL instead of appending a duplicate.
+定义 `GitClient` 端口，提供 `clone(url, destination, ref?)` 和 `revision(directory)`。将用户级 Registry JSON 原子写入平台数据目录。用 `yaml` 解析 front matter，并要求非空 `name`、语义化 `version`、非空 `description` 与非空 `phases` 数组。相同规范化来源 URL 的安装覆盖旧条目，而非重复追加。
 
-- [ ] **Step 4: Run skill tests and all checks**
+- [ ] **步骤 4：验证技能功能**
 
-Run: `pnpm vitest run tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts && pnpm lint && pnpm typecheck`
-Expected: all commands exit `0`.
+运行：`pnpm vitest run tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts && pnpm lint && pnpm typecheck`
+预期：全部通过。
 
-- [ ] **Step 5: Commit skill support**
+- [ ] **步骤 5：提交技能支持**
 
 ```bash
 git add src/domain/skill.ts src/ports/git-client.ts src/services/skill-registry.ts src/services/skill-installer.ts src/cli/skills-commands.ts tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts
 git commit -m "feat: install and list versioned skills"
 ```
 
-### Task 5: Build approval commands and context manifests
+### 任务 5：实现审批命令和 Context Manifest
 
-**Files:**
-- Create: `src/services/context-builder.ts`, `src/cli/task-state-commands.ts`
-- Create: `src/domain/context.ts`
-- Create: `tests/services/context-builder.test.ts`, `tests/cli/task-state-commands.test.ts`
-- Modify: `src/services/task-store.ts`
+**文件：**
 
-**Interfaces:**
-- Consumes `TaskStore`, `transitionNode`, `SkillRegistry` and a loaded skill.
-- Produces `ContextBuilder.build(input: { task: Task; nodeId: string; skill: InstalledSkill; includes: string[] }): Promise<ContextManifest>`.
-- Produces `ContextManifestSchema` in `src/domain/context.ts` with `schemaVersion: 'aiw.context/v1'`.
+- 新建：`src/domain/context.ts`、`src/services/context-builder.ts`、`src/cli/task-state-commands.ts`
+- 新建：`tests/services/context-builder.test.ts`、`tests/cli/task-state-commands.test.ts`
+- 修改：`src/services/task-store.ts`
 
-- [ ] **Step 1: Write failing approval, invalidation and budget tests**
+**接口：**
+
+- 使用 `TaskStore`、`transitionNode`、`SkillRegistry` 与已加载技能。
+- 提供 `ContextBuilder.build(input: { task: Task; nodeId: string; skill: InstalledSkill; includes: string[] }): Promise<ContextManifest>`。
+- 在 `src/domain/context.ts` 提供 schemaVersion 为 `aiw.context/v1` 的 `ContextManifestSchema`。
+
+- [ ] **步骤 1：编写审批、失效和预算失败测试**
 
 ```ts
 it('approves the current analysis revision and unlocks design', async () => {
@@ -297,38 +306,40 @@ it('fails above the context budget without truncating any file', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm failure**
+- [ ] **步骤 2：运行测试并确认失败**
 
-Run: `pnpm vitest run tests/services/context-builder.test.ts tests/cli/task-state-commands.test.ts`
-Expected: FAIL because approval commands and context builder are absent.
+运行：`pnpm vitest run tests/services/context-builder.test.ts tests/cli/task-state-commands.test.ts`
+预期：因审批命令和 Context Builder 尚不存在而失败。
 
-- [ ] **Step 3: Implement manifest construction and command handlers**
+- [ ] **步骤 3：实现 manifest 构建和任务状态命令**
 
-Make `approve`, `revise` and `task status` delegate exclusively to the Task State Machine and Task Store. For `analysis`, include `task.md` and source snapshots; for `design`, require completed analysis and include `brief.md`, `questions.md`, `acceptance.md`; for `implementation` and `testing`, use only listed approved artifacts. Hash every selected file, estimate tokens deterministically as `Math.ceil(text.length / 4)`, enforce 12,000 tokens, and write `context-manifest.json` under the new run directory.
+`approve`、`revise` 和 `task status` 只能委托 Task State Machine 与 Task Store。`analysis` 注入 `task.md` 和来源快照；`design` 要求 `analysis` 已完成，并注入 `brief.md`、`questions.md`、`acceptance.md`；`implementation` 与 `testing` 只使用已批准产物。为每个选中文件计算哈希，以 `Math.ceil(text.length / 4)` 估算 token，强制 12,000 token 预算，并在新运行目录写入 `context-manifest.json`。
 
-- [ ] **Step 4: Run context and state command checks**
+- [ ] **步骤 4：验证审批和上下文功能**
 
-Run: `pnpm vitest run tests/services/context-builder.test.ts tests/cli/task-state-commands.test.ts && pnpm lint && pnpm typecheck`
-Expected: all commands exit `0`.
+运行：`pnpm vitest run tests/services/context-builder.test.ts tests/cli/task-state-commands.test.ts && pnpm lint && pnpm typecheck`
+预期：全部通过。
 
-- [ ] **Step 5: Commit task control and context logic**
+- [ ] **步骤 5：提交上下文逻辑**
 
 ```bash
 git add src/domain/context.ts src/services/context-builder.ts src/services/task-store.ts src/cli/task-state-commands.ts tests/services/context-builder.test.ts tests/cli/task-state-commands.test.ts
 git commit -m "feat: add approvals and context manifests"
 ```
 
-### Task 6: Implement the Codex Adapter and task runner
+### 任务 6：实现 Codex Adapter 和 Task Runner
 
-**Files:**
-- Create: `src/domain/run.ts`, `src/ports/process-runner.ts`, `src/adapters/codex-adapter.ts`, `src/services/task-runner.ts`, `src/cli/task-run-command.ts`
-- Create: `tests/adapters/codex-adapter.test.ts`, `tests/services/task-runner.test.ts`, `tests/cli/task-run-command.test.ts`
+**文件：**
 
-**Interfaces:**
-- Produces `RunRequestSchema`, `RunResultSchema`, `CodexAdapter.run(request: RunRequest): Promise<RunResult>`.
-- Produces `TaskRunner.run(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult>`.
+- 新建：`src/domain/run.ts`、`src/ports/process-runner.ts`、`src/adapters/codex-adapter.ts`、`src/services/task-runner.ts`、`src/cli/task-run-command.ts`
+- 新建：`tests/adapters/codex-adapter.test.ts`、`tests/services/task-runner.test.ts`、`tests/cli/task-run-command.test.ts`
 
-- [ ] **Step 1: Write failing dry-run and process-result tests**
+**接口：**
+
+- 提供 `RunRequestSchema`、`RunResultSchema`、`CodexAdapter.run(request: RunRequest): Promise<RunResult>`。
+- 提供 `TaskRunner.run(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult>`。
+
+- [ ] **步骤 1：编写 dry-run 和进程结果失败测试**
 
 ```ts
 it('writes a dry-run request without starting Codex', async () => {
@@ -345,38 +356,40 @@ it('maps a missing executable to unavailable and marks the node failed', async (
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm failure**
+- [ ] **步骤 2：运行测试并确认失败**
 
-Run: `pnpm vitest run tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts`
-Expected: FAIL because the Runner, adapter and process port are absent.
+运行：`pnpm vitest run tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts`
+预期：因 Runner、Adapter 和进程端口尚不存在而失败。
 
-- [ ] **Step 3: Implement bounded Codex execution**
+- [ ] **步骤 3：实现受限的 Codex 执行**
 
-Create a unique `runs/<run-id>/`; write `request.json`, `context-manifest.json`, `context.md`, `stdout.log`, `stderr.log`, and `result.json`. Add `runDirectory` to `RunResult` so callers can locate those files. Render the context with `<runner-constraints>`, `<skill path=...>`, `<user-task>` and `<artifact path=...>` blocks. In dry-run return a successful `RunResult` without calling `ProcessRunner`. For execute mode, resolve `AIW_CODEX_BIN` or `codex` and call `codex exec --cd <projectRoot> --sandbox workspace-write --ask-for-approval never --output-last-message <runDirectory>/last-message.md -`, piping `context.md` to stdin. Map start failure to `unavailable`, signal cancellation to `cancelled`, non-zero exit to `failed`, and exit code `0` plus validated declared artifacts to `succeeded`.
+创建唯一的 `runs/<run-id>/`，写入 `request.json`、`context-manifest.json`、`context.md`、`stdout.log`、`stderr.log` 与 `result.json`。在 `RunResult` 中增加 `runDirectory`。以 `<runner-constraints>`、`<skill path=...>`、`<user-task>`、`<artifact path=...>` 区块渲染上下文。dry-run 直接返回成功结果，绝不调用 `ProcessRunner`。执行模式解析 `AIW_CODEX_BIN` 或 `codex`，并调用 `codex exec --cd <projectRoot> --sandbox workspace-write --ask-for-approval never --output-last-message <runDirectory>/last-message.md -`，将 `context.md` 写入 stdin。将启动失败映射为 `unavailable`、取消映射为 `cancelled`、非零退出码映射为 `failed`，只有退出码为 0 且声明的产物均存在时返回 `succeeded`。
 
-- [ ] **Step 4: Run adapter and runner checks**
+- [ ] **步骤 4：验证 Adapter 和 Runner**
 
-Run: `pnpm vitest run tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts && pnpm lint && pnpm typecheck`
-Expected: all commands exit `0`.
+运行：`pnpm vitest run tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts && pnpm lint && pnpm typecheck`
+预期：全部通过。
 
-- [ ] **Step 5: Commit execution support**
+- [ ] **步骤 5：提交执行支持**
 
 ```bash
 git add src/domain/run.ts src/ports/process-runner.ts src/adapters/codex-adapter.ts src/services/task-runner.ts src/cli/task-run-command.ts tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts
 git commit -m "feat: run task nodes through Codex adapter"
 ```
 
-### Task 7: Add end-to-end coverage and publish the developer workflow
+### 任务 7：添加端到端覆盖并发布开发流程
 
-**Files:**
-- Create: `tests/e2e/mvp-workflow.test.ts`, `tests/fakes/fake-git-client.ts`, `tests/fakes/fake-network-client.ts`, `tests/fakes/fake-process-runner.ts`, `tests/helpers/complete-node.ts`
-- Modify: `README.md`, `docs/specs/mvp-requirements.md`
+**文件：**
 
-**Interfaces:**
-- Consumes all public CLI commands from Tasks 1–6.
-- Produces a deterministic fake-backed happy-path test and regression tests for AC-1 through AC-9.
+- 新建：`tests/e2e/mvp-workflow.test.ts`、`tests/fakes/fake-git-client.ts`、`tests/fakes/fake-network-client.ts`、`tests/fakes/fake-process-runner.ts`、`tests/helpers/complete-node.ts`
+- 修改：`README.md`、`docs/specs/mvp-requirements.md`
 
-- [ ] **Step 1: Write the failing complete workflow test**
+**接口：**
+
+- 使用任务 1–6 提供的所有公开 CLI 命令。
+- 产出基于确定性替身的完整主流程测试，以及 AC-1 至 AC-9 的回归测试。
+
+- [ ] **步骤 1：编写完整工作流失败测试**
 
 ```ts
 it('installs a skill, snapshots requirements, approves analysis, and dry-runs design', async () => {
@@ -389,29 +402,29 @@ it('installs a skill, snapshots requirements, approves analysis, and dry-runs de
 });
 ```
 
-- [ ] **Step 2: Run the end-to-end test to verify failure**
+- [ ] **步骤 2：运行端到端测试并确认失败**
 
-Run: `pnpm vitest run tests/e2e/mvp-workflow.test.ts`
-Expected: FAIL until every public command and fake port is wired.
+运行：`pnpm vitest run tests/e2e/mvp-workflow.test.ts`
+预期：在所有公开命令和替身端口接通前失败。
 
-- [ ] **Step 3: Wire composition roots and document the supported workflow**
+- [ ] **步骤 3：连接组合根并补充开发文档**
 
-Implement `completeNode(store, taskId, nodeId)` in `tests/helpers/complete-node.ts` by loading the task, applying the Task 2 `succeed` transition with declared fixture outputs, and saving it. Instantiate production ports only in `src/cli.ts`; inject fakes in tests. Update README with prerequisites, `pnpm install`, `pnpm build`, `pnpm test`, a local-file task example, and an explicit note that authenticated source connectors are outside MVP. Mark each AC-1 through AC-9 with its test filename in `docs/specs/mvp-requirements.md`.
+在 `src/cli.ts` 中实例化生产端口；测试注入替身。实现 `tests/helpers/complete-node.ts` 的 `completeNode(store, taskId, nodeId)`：加载任务、应用任务 2 的 `succeed` 迁移并使用声明的 fixture 产物保存任务。README 增加前置条件、`pnpm install`、`pnpm build`、`pnpm test`、本地文件任务示例，以及“认证来源连接器不在 MVP 范围内”的说明。为 `docs/specs/mvp-requirements.md` 的每个 AC-1 至 AC-9 标记对应测试文件。
 
-- [ ] **Step 4: Run the full verification suite**
+- [ ] **步骤 4：运行完整验证套件**
 
-Run: `pnpm lint && pnpm typecheck && pnpm test && pnpm build`
-Expected: all commands exit `0`; the e2e test performs no real network, Git or Codex process call.
+运行：`pnpm lint && pnpm typecheck && pnpm test && pnpm build`
+预期：全部以 `0` 退出；端到端测试不访问真实网络、Git 或 Codex 进程。
 
-- [ ] **Step 5: Commit the verified MVP**
+- [ ] **步骤 5：提交已验证的 MVP**
 
 ```bash
 git add README.md docs/specs/mvp-requirements.md tests/e2e tests/fakes src
 git commit -m "test: cover aiw MVP workflow"
 ```
 
-## Plan Self-Review
+## 计划自检
 
-- **Spec coverage:** FR-1 is Task 1; FR-2 is Task 4; FR-3 is Task 3; FR-4 is Tasks 2 and 5; FR-5 is Task 5; FR-6 is Task 6; AC-1 through AC-9 are mapped in Task 7.
-- **Placeholder scan:** No task relies on undeclared files, vague test instructions, or deferred error handling.
-- **Type consistency:** Task 2 provides `Task`, `NodeEvent` and state functions; Task 3 uses `Task`; Task 5 creates `ContextManifest`; Task 6 consumes the manifest in `RunRequest` and returns `RunResult`.
+- **规格覆盖：** FR-1 由任务 1 实现；FR-2 由任务 4 实现；FR-3 由任务 3 实现；FR-4 由任务 2 和 5 实现；FR-5 由任务 5 实现；FR-6 由任务 6 实现；AC-1 至 AC-9 在任务 7 中映射到自动化测试。
+- **占位符检查：** 各任务均定义了文件、接口、失败测试、验证命令和提交范围，没有依赖未声明文件或含糊的错误处理要求。
+- **类型一致性：** 任务 2 定义 `Task`、`NodeEvent` 与状态函数；任务 3 使用 `Task`；任务 5 创建 `ContextManifest`；任务 6 在 `RunRequest` 中使用 manifest 并返回 `RunResult`。
