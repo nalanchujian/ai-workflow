@@ -2,26 +2,26 @@
 
 ## 目标与范围
 
-构建本地 CLI 工具 `sp`，让团队从 Git 共享声明式 `SKILL.md` 技能，并将复杂需求组织为可审阅、可恢复的子任务图，交由 Codex CLI 执行。团队共享技能仓库，但所有业务代码、任务文档与执行数据都保留在每位成员的本机。
+构建本地 CLI 工具 `aiw`（AI Workflow），让团队从 Git 共享声明式 `SKILL.md` 技能，并将复杂需求组织为可审阅、可恢复的子任务图，交由 Codex CLI 执行。团队共享技能仓库，但所有业务代码、任务文档与执行数据都保留在每位成员的本机。
 
 MVP 不构建新的模型、聊天系统、云端调度器或多 Agent 协作系统；不允许技能包携带可执行代码；不自动选择技能；不读取未经授权的登录态在线文档。
 
 ## 命令体验
 
 ```bash
-sp install git@github.com:your-org/agent-skills.git
-sp list
-sp task init req-123 --source https://example.com/requirements
-sp task analyze req-123 --skill requirements-analysis
-sp approve req-123 analysis
-sp task run req-123 implementation --skill implementation
+aiw install git@github.com:your-org/agent-skills.git
+aiw list
+aiw task init req-123 --source https://example.com/requirements
+aiw task analyze req-123 --skill requirements-analysis
+aiw approve req-123 analysis
+aiw task run req-123 implementation --skill implementation
 ```
 
-`sp install` 在首次运行时克隆技能仓库到本地缓存，验证结构并记录来源与锁定的 Git revision；`sp update` 更新指定 revision。
+`aiw install` 在首次运行时克隆技能仓库到本地缓存，验证结构并记录来源与锁定的 Git revision；`aiw update` 更新指定 revision。
 
 ## 七层架构
 
-1. **交互层（sp CLI）**：解析安装、任务、审批和执行命令，输出人类可读和机器可读结果。
+1. **交互层（aiw CLI）**：解析安装、任务、审批和执行命令，输出人类可读和机器可读结果。
 2. **来源接入层**：读取本地文件、公开 URL 或受控连接器内容，转换为标准文本并生成来源快照。
 3. **任务上下文与状态层**：保存来源、已确认产物、上下文注入规则、任务 DAG、状态和审批记录。
 4. **技能目录层**：管理本地技能缓存，按名称定位 `SKILL.md`，记录来源、版本和校验结果。
@@ -29,7 +29,7 @@ sp task run req-123 implementation --skill implementation
 6. **Agent 适配层**：将通用运行请求转换为 Codex CLI 的参数、提示词和临时上下文文件。未来可增加其他适配器。
 7. **执行层（Codex CLI）**：外部执行者，负责分析、读写代码、调用工具和运行测试。
 
-`sp` 负责技能、任务图、上下文与关卡；Codex 负责实际执行。技能仓库由第 4 层读取，业务仓库只由第 7 层读写。
+`aiw` 负责技能、任务图、上下文与关卡；Codex 负责实际执行。技能仓库由第 4 层读取，业务仓库只由第 7 层读写。
 
 ## 技能包
 
@@ -59,10 +59,10 @@ pending → running → awaiting_approval → approved → completed
 
 ## 任务上下文
 
-`sp` 不保存完整聊天记录。它保存可追溯任务产物，并仅向当前阶段注入最小、已确认的上下文：
+`aiw` 不保存完整聊天记录。它保存可追溯任务产物，并仅向当前阶段注入最小、已确认的上下文：
 
 ```text
-.sp/tasks/req-123/
+.aiw/tasks/req-123/
   source.md        # 来源文档的文本快照
   source.meta.json # URL、获取时间、内容哈希
   brief.md         # 已确认的结构化需求
