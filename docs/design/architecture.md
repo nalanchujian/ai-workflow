@@ -108,6 +108,6 @@ MVP 验收：能够安装和列出 Git 技能；从本地 Markdown 与公开 URL
 
 ## 配套规范
 
-- [任务模型规范](../../specs/task-model.md)
-- [上下文包规范](../../specs/context-package.md)
-- [Codex Adapter 契约](../../specs/codex-adapter-contract.md)
+- [任务模型规范](../specs/task-model.md)
+- [上下文包规范](../specs/context-package.md)
+- [Codex Adapter 契约](../specs/codex-adapter-contract.md)
