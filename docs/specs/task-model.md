@@ -95,8 +95,8 @@ intake → analysis → [人工确认] → design → [人工确认] → impleme
 
 - `aiw task init <id>`：创建任务、资料接入节点和默认 DAG。
 - `aiw task run <id> <node-id> --skill <name>`：仅在节点为 `ready` 时运行；技能必须与节点记录的版本一致，除非显式更新任务图。
-- `aiw approve <id> <node-id>`：批准当前 revision 的 `awaiting_approval` 节点。
-- `aiw revise <id> <node-id> --note <text>`：退回当前节点并触发下游失效。
+- `aiw task approve <id> <node-id>`：批准当前 revision 的 `awaiting_approval` 节点。
+- `aiw task revise <id> <node-id> --note <text>`：退回当前节点并触发下游失效。
 - `aiw task status <id>`：显示节点、依赖、审批和失效原因。
 
 ## 验证规则

@@ -383,7 +383,7 @@ it('installs a skill, snapshots requirements, approves analysis, and dry-runs de
   await runCli(['skills', 'install', fixtureRepoUrl]);
   await runCli(['task', 'init', 'refund-123', '--project', projectRoot, '--source', requirementsPath]);
   await completeNode(taskStore, 'refund-123', 'analysis');
-  await runCli(['approve', 'refund-123', 'analysis']);
+  await runCli(['task', 'approve', 'refund-123', 'analysis']);
   const result = await runCli(['task', 'run', 'refund-123', 'design', '--dry-run', '--skill', 'architecture-design', '--json']);
   expect(JSON.parse(result.stdout)).toMatchObject({ status: 'succeeded' });
 });

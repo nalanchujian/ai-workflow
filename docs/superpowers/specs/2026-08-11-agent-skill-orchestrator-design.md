@@ -9,15 +9,17 @@ MVP 不构建新的模型、聊天系统、云端调度器或多 Agent 协作系
 ## 命令体验
 
 ```bash
-aiw install git@github.com:your-org/agent-skills.git
-aiw list
-aiw task init req-123 --source https://example.com/requirements
-aiw task analyze req-123 --skill requirements-analysis
-aiw approve req-123 analysis
+aiw skills install git@github.com:your-org/agent-skills.git
+aiw skills list
+aiw task init req-123 --project . --source https://example.com/requirements
+aiw task run req-123 analysis --skill requirements-analysis
+aiw task approve req-123 analysis
+aiw task run req-123 design --skill architecture-design
+aiw task approve req-123 design
 aiw task run req-123 implementation --skill implementation
 ```
 
-`aiw install` 在首次运行时克隆技能仓库到本地缓存，验证结构并记录来源与锁定的 Git revision；`aiw update` 更新指定 revision。
+`aiw skills install` 在首次运行时克隆技能仓库到本地缓存，验证结构并记录来源与锁定的 Git revision；`aiw skills update` 更新指定 revision。
 
 ## 七层架构
 

@@ -24,10 +24,13 @@ MVP 聚焦“本机单 Agent + 团队共享技能仓库”。它不会：
 ## 目标工作流
 
 ```bash
-aiw install git@github.com:your-org/agent-skills.git
-aiw task init req-123 --source https://example.com/requirements
-aiw task analyze req-123 --skill requirements-analysis
-aiw approve req-123 analysis
+aiw skills install git@github.com:your-org/agent-skills.git
+aiw skills list
+aiw task init req-123 --project . --source https://example.com/requirements
+aiw task run req-123 analysis --skill requirements-analysis
+aiw task approve req-123 analysis
+aiw task run req-123 design --skill architecture-design
+aiw task approve req-123 design
 aiw task run req-123 implementation --skill implementation
 ```
 

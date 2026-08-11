@@ -41,8 +41,8 @@
 - 初始化生成 `intake`、`analysis`、`design`、`implementation`、`testing` 五个节点及其线性依赖。
 - 节点仅在全部依赖 `completed` 时变为 `ready`；MVP 调度器一次只允许运行一个节点。
 - 需要审批的 `analysis`、`design`、`testing` 节点，在运行成功后进入 `awaiting_approval`。
-- `aiw approve <task-id> <node-id>` 仅可批准当前 revision 的 `awaiting_approval` 节点，并将其置为 `completed`。
-- `aiw revise <task-id> <node-id> --note <text>` 将该节点置为 `pending`，并递归将所有已开始下游节点置为 `invalidated`。
+- `aiw task approve <task-id> <node-id>` 仅可批准当前 revision 的 `awaiting_approval` 节点，并将其置为 `completed`。
+- `aiw task revise <task-id> <node-id> --note <text>` 将该节点置为 `pending`，并递归将所有已开始下游节点置为 `invalidated`。
 - `aiw task status <task-id>` 显示全部节点状态、依赖、revision、审批与失效原因。
 
 ### FR-5：上下文包与运行预演
