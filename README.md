@@ -61,7 +61,7 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 
 ## 当前状态
 
-**设计审阅中，命令尚未实现。**
+**MVP 实施中。** 已完成任务 1 的 CLI 基础：`aiw --help`、`aiw --version`、全局 `--json` 选项，以及 `skills`、`task` 两个命令分组；其余命令将在后续实施任务中接入。
 
 固定七阶段、任务失效传播、上下文产物契约、Lark MCP 来源接入、来源安全规则、Superpowers 方法论引用和 Codex Adapter 接口已完成文档定义，下一步是按实施计划初始化框架并编写测试。
 

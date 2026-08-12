@@ -154,7 +154,7 @@ it('invalidates every started downstream stage when clarify is revised', () => {
   expect(next.nodes.test.status).toBe('invalidated');
 });
 
-it('rebinds an initialized profile skill only by an explicit exception event and records an approval change request separately', () => {
+it('rebinds an initialized profile skill only by an explicit exception event and records an approval change request separately', async () => {
   const rebound = transitionNode(readyClarifyTask(), 'clarify', { type: 'rebind_skill', skill: replacementClarificationSkill(), note: '需要补充合规检查' });
   expect(rebound.nodes.clarify.skill?.sha256).toMatch(/^[a-f0-9]{64}$/);
   const changed = transitionNode(awaitingPlanTask(), 'plan', { type: 'request_changes', actor: 'tech-lead', note: '补充回滚方案' });
