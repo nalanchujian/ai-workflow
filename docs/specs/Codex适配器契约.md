@@ -12,24 +12,24 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
   "runId": "run_01JABC",
   "task": {
     "id": "refund-123",
-    "nodeId": "design",
+    "nodeId": "plan",
     "nodeRevision": 0,
     "projectRoot": "/absolute/path/to/repository"
   },
   "instruction": "为退款功能生成实施计划。",
   "skill": {
-    "name": "architecture-design",
+    "name": "implementation-planning",
     "version": "1.0.0",
     "contentPath": "/absolute/path/to/SKILL.md",
     "sha256": "<hex>"
   },
-  "contextManifestPath": "/absolute/path/to/context-manifest.json",
-  "runDirectory": "/absolute/path/to/.aiw/tasks/refund-123/runs/run_01JABC",
+  "contextManifestPath": "/absolute/path/to/repository/.aiw/tasks/refund-123/runs/run_01JABC/context-manifest.json",
+  "runDirectory": "/absolute/path/to/user-home/.aiw/runtime/run_01JABC",
   "mode": "execute"
 }
 ```
 
-Runner 在调用 Adapter 前负责验证所有路径、技能版本、上下文审批条件和 token 预算。`projectRoot` 必须存在；`runDirectory` 必须位于任务目录内；`mode` 仅能是 `dry-run` 或 `execute`。
+Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
 
 ## 输出：RunResult
 
@@ -41,7 +41,7 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、上下文�
   "startedAt": "2026-08-11T12:00:00Z",
   "finishedAt": "2026-08-11T12:02:00Z",
   "process": {"exitCode": 0, "signal": null},
-  "artifacts": ["artifacts/plan.md"],
+  "artifacts": ["artifacts/implementation-plan.md"],
   "error": null
 }
 ```
@@ -51,10 +51,12 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、上下文�
 ## 执行步骤
 
 1. `validate(request)`：验证 schema、路径边界、文件哈希和运行模式。
-2. `prepare(request)`：在 `runDirectory` 生成只读的 `context.md`，其中包含技能、用户任务和 manifest 列出的文件，并保留路径边界。
-3. `execute(request)`：以 `projectRoot` 为工作目录启动 Codex CLI；将 stdout、stderr 和退出信息写入运行目录。
-4. `collect(request)`：校验预期产物并写入 `result.json`。
-5. `cleanup(request)`：仅删除 Adapter 创建的临时文件；不得删除任务产物、来源快照或业务代码。
+2. `prepare(request)`：在本机 `runDirectory` 生成只读的 `context.md`，其中包含技能、用户任务和 manifest 列出的文件，并保留路径边界。
+3. `execute(request)`：以 `projectRoot` 为工作目录启动 Codex CLI；将 stdout、stderr 和退出信息写入本机运行目录。
+4. `collect(request)`：校验预期产物并返回去敏 `RunResult`。
+5. `cleanup(request)`：仅删除 Adapter 创建的本机临时文件；不得删除任务产物、来源快照或业务代码。
+
+Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业务仓库 `.aiw/tasks/<id>/runs/<run-id>/`；完整请求、`context.md`、标准输出、标准错误和最后消息不得进入共享任务目录。
 
 `dry-run` 只执行第 1、2 步并输出将要执行的 Codex 调用，绝不启动 Codex。
 
@@ -71,7 +73,7 @@ Adapter 将 `AIW_CODEX_BIN` 解析为可执行文件；变量未设置时使用 
   -
 ```
 
-`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`workspace-write` 将 Agent 写入范围限制为项目工作目录；`never` 仅适用于用户显式运行的 `aiw task run`，并且不得替换为绕过 sandbox 的参数。Adapter 必须将实际二进制路径、参数和运行模式写入 `request.json`。
+`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`workspace-write` 将 Agent 写入范围限制为项目工作目录；`never` 仅适用于用户显式运行的 `aiw task run`，并且不得替换为绕过 sandbox 的参数。Adapter 必须将实际二进制路径、参数和运行模式写入本机 `request.json`；共享任务目录只记录去敏摘要。
 
 ## 失败与恢复
 

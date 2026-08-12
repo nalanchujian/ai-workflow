@@ -5,7 +5,7 @@
 - 命令名为 `aiw`。
 - 常规模式输出面向人阅读的结果；`--json` 时 stdout 仅输出一个 JSON 对象，进度与诊断写入 stderr。
 - 所有失败均以非零退出码结束，错误信息写入 stderr；MVP 不承诺稳定的细分退出码。
-- 路径参数必须通过真实路径校验；任务运行状态只写入项目根目录的 `.aiw/`，不得提交到 Git。
+- 路径参数必须通过真实路径校验；项目根目录的 `.aiw/` 保存共享任务事实，必须通过既有 Git 流程提交。技能缓存和原始运行数据只写入用户目录的 `~/.aiw/`。
 - `<...>` 是必填参数，`[...]` 是可选参数。
 
 ## 全局命令
@@ -70,7 +70,7 @@ aiw task init refund-123 --project /workspace/shop --source https://example.com/
 | `--project <path>` | 必填。业务项目根目录。 |
 | `--source <file-or-url>` | 必填。本地文件或符合安全规则的公开 HTTP(S) 来源。 |
 
-成功后创建 `.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/snapshot.md`。默认节点为：
+成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/snapshot.md`。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
 ```text
 intake → clarify → solution → plan → implement → verify → test
@@ -78,7 +78,7 @@ intake → clarify → solution → plan → implement → verify → test
 
 来源快照成功后，`intake` 自动完成，`clarify` 成为 `ready`。`clarify`、`plan`、`test` 完成执行后等待人工审批；`intake` 不允许通过 `task run` 运行。
 
-失败情形包括：任务 ID 非法或重复、项目路径无效、来源是目录、URL 不符合协议或 IP 安全限制、来源类型不受支持。失败不得留下不完整来源快照。
+失败情形包括：任务 ID 非法或重复、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、来源类型不受支持。失败不得留下不完整来源快照。
 
 ### `aiw task status <task-id>`
 
@@ -111,17 +111,24 @@ aiw task run refund-123 implement --skill implementation --include docs/api-cont
 
 节点仅在 `ready` 时可运行。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点执行状态。
 
+运行前，Runner 必须确认所有默认上游产物、审批文件与状态变化已经提交到当前 Git 分支；否则拒绝运行并列出待提交路径。`task run` 不自动执行 Git 操作。共享 `runs/` 仅写入 manifest 和去敏结果，完整提示词与原始日志位于 `~/.aiw/runtime/`。
+
 失败情形包括：节点不存在或未 `ready`、技能不存在或版本不匹配、任务产物未获批准、附加路径越出项目根目录、上下文超出预算、Codex 不可用或执行失败。
 
-### `aiw task approve <task-id> <node-id>`
+### `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]`
 
 批准一个等待审批的当前节点 revision。
 
 ```bash
-aiw task approve refund-123 clarify
+aiw task approve refund-123 clarify --actor jeffrey --note "验收标准完整"
 ```
 
-仅当节点处于 `awaiting_approval` 时可执行。成功后写入不可变审批事件，并将节点置为 `completed`；否则失败且不改变状态。
+| 参数 | 说明 |
+|---|---|
+| `--actor <name>` | 可选。审批人的声明性身份；未提供时读取当前仓库的 `git config user.name`，读取失败则拒绝审批。 |
+| `--note <text>` | 可选。审批备注。 |
+
+仅当节点处于 `awaiting_approval`，且待审产物**及该等待审批状态**均已提交时可执行。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入不可变审批事实（含产物哈希），并将节点置为 `completed`；调用者必须提交该审批文件与状态变化后，下游节点才可运行。`actor` 仅用于记录，不替代受保护分支、CODEOWNERS、签名提交或 Git 平台 PR 审批。否则失败且不改变状态。
 
 ### `aiw task revise <task-id> <node-id> --note <text>`
 
