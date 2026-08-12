@@ -55,22 +55,23 @@ aiw skills list --json
 
 ## 任务命令
 
-### `aiw task init <task-id> --project <path> --source <file-or-url>`
+### `aiw task init <task-id> --project <path> --source <source>`
 
 在目标项目创建任务、来源快照和默认任务图。
 
 ```bash
 aiw task init refund-123 --project . --source ./requirements.md
 aiw task init refund-123 --project /workspace/shop --source https://example.com/requirements
+aiw task init refund-123 --project . --source https://<tenant>.larksuite.com/docx/<token>
 ```
 
 | 参数 | 说明 |
 |---|---|
 | `<task-id>` | 必填。匹配 `[a-z][a-z0-9-]{1,63}`，且在项目内唯一。 |
 | `--project <path>` | 必填。业务项目根目录。 |
-| `--source <file-or-url>` | 必填。本地文件或符合安全规则的公开 HTTP(S) 来源。 |
+| `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark 文档 URL。 |
 
-成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/snapshot.md`。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
+成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`。Lark URL 由本机已配置的 Lark MCP Server 读取；MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
 ```text
 intake → clarify → solution → plan → implement → verify → test
@@ -78,7 +79,24 @@ intake → clarify → solution → plan → implement → verify → test
 
 来源快照成功后，`intake` 自动完成，`clarify` 成为 `ready`。`clarify`、`plan`、`test` 完成执行后等待人工审批；`intake` 不允许通过 `task run` 运行。
 
-失败情形包括：任务 ID 非法或重复、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、来源类型不受支持。失败不得留下不完整来源快照。
+失败情形包括：任务 ID 非法或重复、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、Lark Connector 未配置或无权限、来源类型不受支持。失败不得留下不完整来源快照。
+
+### `aiw task source refresh <task-id> <source-id>`
+
+显式重新读取一个已有来源；MVP 不轮询或订阅在线文档变化。
+
+```bash
+aiw task source refresh refund-123 requirements
+```
+
+| 参数 | 说明 |
+|---|---|
+| `<task-id>` | 必填。目标任务。 |
+| `<source-id>` | 必填。任务中的来源标识。 |
+
+若正文哈希不变，命令返回“未变化”，不创建新 revision，也不改变任务状态。若正文变化，命令在 `sources/<source-id>/r<revision>/` 创建新快照和元数据，保留旧 revision，更新 `intake` 的当前输出并递归使已开始下游节点 `invalidated`。调用者必须提交新 revision 与状态变化，下游节点才可重新运行。
+
+来源不存在、公共 URL 不符合安全规则、Lark Connector 不可用或无权限、正文为空或超限时，命令失败且不改变已有快照或任务状态。
 
 ### `aiw task status <task-id>`
 
@@ -151,6 +169,7 @@ aiw task revise refund-123 clarify --note "补充退款权限和异常场景"
 | 命令 | 状态影响 |
 |---|---|
 | `task init` | 创建默认任务图与初始节点状态。 |
+| `task source refresh` | 内容变化时创建新的来源 revision，并使已开始下游节点失效。 |
 | `task status` | 无。 |
 | `task run --dry-run` | 无；仅创建运行预演记录。 |
 | `task run` | `ready → running → completed`，或在需要审批时进入 `awaiting_approval`。 |

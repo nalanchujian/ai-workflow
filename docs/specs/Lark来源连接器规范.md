@@ -1,10 +1,12 @@
-# Lark 来源连接器设计
+# Lark 来源连接器规范（v1）
 
 ## 目标
 
 将团队已部署、可由 `aiw` 在本机直接调用的 Lark MCP Server 纳入 MVP，使 `aiw` 能在不依赖浏览器登录态的前提下读取 Lark 在线需求文档，并将其固化为可审阅、可版本化的 Git 共享来源快照。
 
-本设计只覆盖“读取并固化需求来源”。Lark MCP Server 负责鉴权和内容获取；`aiw` 不重复实现 Lark OpenAPI 客户端，也不管理 Lark 应用凭据。
+本规范只覆盖“读取并固化 Lark 需求来源”。Lark MCP Server 负责鉴权和内容获取；`aiw` 不重复实现 Lark OpenAPI 客户端，也不管理 Lark 应用凭据。
+
+来源快照目录和 Context Manifest 以《上下文包规范》为准，来源 revision 导致的状态变化以《任务模型规范》为准，安全限制以《安全设计》为准，用户命令与 MVP 验收分别以《CLI命令参考》和《最小可行产品需求与验收标准》为准。
 
 ## 边界与责任
 

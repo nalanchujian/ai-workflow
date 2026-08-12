@@ -62,7 +62,7 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 
 **设计审阅中，命令尚未实现。**
 
-固定七阶段、任务失效传播、上下文产物契约、URL 抓取安全规则、Superpowers 方法论引用和 Codex Adapter 接口已完成文档定义，下一步是按实施计划初始化框架并编写测试。
+固定七阶段、任务失效传播、上下文产物契约、Lark MCP 来源接入、来源安全规则、Superpowers 方法论引用和 Codex Adapter 接口已完成文档定义，下一步是按实施计划初始化框架并编写测试。
 
 ## 文档
 
@@ -79,6 +79,7 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 - [研发工作流阶段规范](docs/specs/研发工作流阶段规范.md)：固定七阶段、产物、审批、方法论引用与失效规则。
 - [技能包规范](docs/specs/技能包规范.md)：团队技能的目录、元数据、版本锁定和安全边界。
 - [安全设计](docs/specs/安全设计.md)：来源接入、技能供应链、提示词隔离与 Codex 进程边界。
+- [Lark来源连接器规范](docs/specs/Lark来源连接器规范.md)：通过已配置 MCP 获取、快照和刷新 Lark 需求资料。
 - [任务模型规范](docs/specs/任务模型规范.md)：Git 共享的节点状态、审批、依赖和失效传播。
 - [上下文包规范](docs/specs/上下文包规范.md)：共享任务产物、来源快照、注入规则和本机运行数据边界。
 - [Codex 适配器契约](docs/specs/Codex适配器契约.md)：运行请求、结果、失败处理和适配边界。
