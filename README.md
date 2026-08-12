@@ -68,10 +68,10 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 
 ### 决策与方案
 
-- [立项申请](docs/product/立项申请.md)：立项价值、MVP、风险、衡量指标与阶段决策。
-- [方案调研](docs/product/方案调研.md)：三条路径的取舍，以及 aiw 补齐的团队治理能力。
-- [产品设计](docs/product/产品设计.md)：研发角色、日常工作流、产物和协作边界。
-- [架构设计](docs/design/架构设计.md)：分层、任务 DAG、人工关卡、上下文与安全边界。
+- [立项申请](docs/product/立项申请.md)：说明为何立项、MVP 范围、投入风险、试点指标与阶段决策。
+- [方案调研](docs/product/方案调研.md)：比较直接使用 Codex、Superpowers、Trellis 三条路径，明确 aiw 的治理定位。
+- [产品设计](docs/product/产品设计.md)：定义用户角色、核心流程、任务产物与团队协作方式。
+- [架构设计](docs/design/架构设计.md)：定义系统分层、任务模型、审批机制、上下文与安全边界。
 
 ### 规范与参考
 
