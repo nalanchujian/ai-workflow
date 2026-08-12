@@ -1,6 +1,6 @@
 # AI Workflow
 
-`aiw`（AI Workflow）是一个面向开发团队的本地 CLI。它将团队沉淀的开发方法保存为版本化 `SKILL.md` 技能，并把复杂需求组织为可审阅的任务流程，交由 Codex CLI 执行。
+`aiw`（AI Workflow）是一个面向开发团队、Git 原生的 AI 研发变更治理 CLI。它将需求来源、阶段产物、审批和运行证据固化为可追溯事实；仅在这些事实有效的前提下，复用团队技能并交由 Codex CLI 执行。
 
 ## 项目定位
 
