@@ -69,8 +69,8 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 ### 产品与协作
 
 - [管理层决策方案](docs/product/管理层决策方案.md)：立项价值、MVP、风险、衡量指标与阶段决策。
-- [AI Workflow 与 Codex、Superpowers、Trellis 的方案对比](docs/product/方案选型与替代方案评估.md)：三条路径的取舍，以及 aiw 补齐的团队治理能力。
-- [研发使用与协作方案](docs/product/研发使用与协作方案.md)：研发角色、日常工作流、产物和协作边界。
+- [AI Workflow 方案对比](docs/product/方案选型与替代方案评估.md)：三条路径的取舍，以及 aiw 补齐的团队治理能力。
+- [产品设计方案](docs/product/产品设计方案.md)：研发角色、日常工作流、产物和协作边界。
 - [架构设计](docs/design/架构设计.md)：分层、任务 DAG、人工关卡、上下文与安全边界。
 
 ### MVP 规范与参考
