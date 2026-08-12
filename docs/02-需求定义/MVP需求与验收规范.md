@@ -31,8 +31,9 @@
 - `aiw skills list` 输出已安装技能的名称、版本、来源 URL 与锁定 revision。
 - 同一个来源再次安装应更新该来源，而不创建重复 Registry 条目。
 - 技能 front matter 必须含 `name`、`version`、`description` 与 `phases`；阶段只能是 `clarify`、`solution`、`plan`、`implement`、`verify` 或 `test`。
-- 默认七阶段的技能必须声明至少一个 `methodSources`；MVP 记录每项已配置上游方法论的 ID、版本、解析 revision 与正文 SHA-256，不自动下载或更新该上游方法论。
-- `methodSources` 缺少字段、无法解析为本机已配置来源，或正文哈希无法记录时，拒绝整个技能来源安装。
+- 默认七阶段的技能必须声明至少一个 `methodSources`；MVP 仅通过 `~/.aiw/config.yaml` 中显式配置的本机 Profile 解析上游方法论，不自动扫描 Codex 插件缓存、下载或更新该上游方法论。
+- Registry 与节点锁定记录每项方法论的 ID、来源标识、版本、解析 revision 与 `SKILL.md` SHA-256；本机绝对路径不进入共享任务事实或运行清单。
+- `methodSources` 缺少字段、本机 Profile 不存在/版本不匹配、方法入口不合法，或 `SKILL.md` 哈希无法记录时，拒绝整个技能来源安装。
 
 ### FR-3：任务创建、来源快照与刷新
 
@@ -94,7 +95,7 @@
 | AC-7 | 对可运行的计划节点执行 dry-run | 生成含方法论来源的 manifest 与 `context.md`，不启动子进程。 |
 | AC-8 | 上下文超过预算 | 命令失败并列出造成超限的文件；任何文件内容未被截断。 |
 | AC-9 | Codex 可执行文件缺失 | 生成 `RunResult(status=unavailable)`，节点转为 `failed`，保留日志。 |
-| AC-10 | 安装引用未配置 Superpowers 方法的技能 | 命令非零退出，Registry 未新增条目。 |
+| AC-10 | 安装引用未配置或版本不匹配的 Superpowers Profile 的技能 | 命令非零退出，Registry 未新增条目；不读取 Codex 缓存或网络作为回退。 |
 | AC-11 | 下游节点依赖未提交的审批事实 | 命令非零退出并列出待提交路径；不启动 Codex。 |
 | AC-12 | 审批当前澄清 revision | 生成含审批人和全部产物 SHA-256 的审批文件；待审批状态或审批文件未提交时 `solution` 不可运行。 |
 | AC-13 | 敏感来源未脱敏 | 命令拒绝将正文写入共享 `.aiw/`。 |

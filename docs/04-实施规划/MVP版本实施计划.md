@@ -52,7 +52,8 @@ src/services/source-refresher.ts     # 创建来源 revision 与失效传播
 src/services/task-initializer.ts     # 默认任务图创建
 src/services/skill-registry.ts       # 用户级 Registry
 src/services/skill-installer.ts      # Git 技能安装与校验
-src/services/method-source-resolver.ts # 上游方法论的本机解析与哈希记录
+src/services/local-config.ts           # ~/.aiw/config.yaml 的非敏感 Profile 解析
+src/services/method-source-resolver.ts # 上游方法论的本机解析、边界校验与哈希记录
 src/services/context-builder.ts      # 上下文选择、manifest 和 context.md
 src/services/task-runner.ts          # 节点运行生命周期
 src/adapters/codex-adapter.ts        # Codex 调用与结果收集
@@ -256,9 +257,9 @@ git commit -m "feat: initialize and refresh task sources"
 
 **文件：**
 
-- 新建：`src/domain/skill.ts`、`src/domain/method-source.ts`、`src/ports/git-client.ts`、`src/ports/method-source-resolver.ts`、`src/services/method-source-resolver.ts`、`src/services/skill-registry.ts`、`src/services/skill-installer.ts`
+- 新建：`src/domain/skill.ts`、`src/domain/method-source.ts`、`src/ports/git-client.ts`、`src/ports/method-source-resolver.ts`、`src/services/local-config.ts`、`src/services/method-source-resolver.ts`、`src/services/skill-registry.ts`、`src/services/skill-installer.ts`
 - 新建：`src/cli/skills-commands.ts`
-- 新建：`tests/services/skill-installer.test.ts`、`tests/services/method-source-resolver.test.ts`、`tests/services/skill-registry.test.ts`、`tests/cli/skills-commands.test.ts`
+- 新建：`tests/services/skill-installer.test.ts`、`tests/services/local-config.test.ts`、`tests/services/method-source-resolver.test.ts`、`tests/services/skill-registry.test.ts`、`tests/cli/skills-commands.test.ts`
 
 **接口：**
 
@@ -274,7 +275,7 @@ it('records valid skills, locked Git revisions, and resolved Superpowers methods
   fakeGit.cloneResult = { revision: 'abc123', directory: fixture('valid-skill-repo') };
   const installed = await installer.install({ url: 'https://example.test/skills.git' });
   expect(installed[0]).toMatchObject({ name: 'requirements-clarification', version: '1.0.0', revision: 'abc123' });
-  expect(installed[0].methodSources[0]).toMatchObject({ id: 'superpowers:brainstorming', version: '6.2.0', sha256: expect.any(String) });
+  expect(installed[0].methodSources[0]).toMatchObject({ id: 'superpowers:brainstorming', source: 'configured:superpowers', version: '6.2.0', revision: '6.2.0', sha256: expect.any(String) });
 });
 
 it('does not mutate the registry when a method source is not configured', async () => {
@@ -286,22 +287,22 @@ it('does not mutate the registry when a method source is not configured', async 
 
 - [ ] **步骤 2：运行测试并确认失败**
 
-运行：`pnpm vitest run tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts`
+运行：`pnpm vitest run tests/services/local-config.test.ts tests/services/method-source-resolver.test.ts tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts`
 预期：因 Registry 和安装器尚不存在而失败。
 
 - [ ] **步骤 3：实现 Registry 和技能校验**
 
-按[技能包规范](../03-方案设计/02-核心规范/技能包规范.md)实现 `GitClient`、`MethodSourceResolver`、`SkillRegistry` 与 `SkillInstaller`；实现顺序为 Git 来源锁定、`SKILL.md` 解析与校验、上游方法论解析、Registry 原子写入、CLI 命令接入。所有外部 Git 与文件操作均经可替换端口完成。
+按[技能包规范](../03-方案设计/02-核心规范/技能包规范.md)实现 `GitClient`、`LocalConfig`、`MethodSourceResolver`、`SkillRegistry` 与 `SkillInstaller`；实现顺序为 Git 来源锁定、`SKILL.md` 解析与校验、显式本机 Profile 解析、上游方法论入口的 `realpath`/版本/revision/哈希校验、Registry 原子写入、CLI 命令接入。必须覆盖 Profile 缺失、版本不匹配、入口越界和运行时哈希变化时拒绝；不得实现 Codex 缓存扫描、网络下载或“最接近版本”回退。所有外部 Git 与文件操作均经可替换端口完成。
 
 - [ ] **步骤 4：验证技能功能**
 
-运行：`pnpm vitest run tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts && pnpm lint && pnpm typecheck`
+运行：`pnpm vitest run tests/services/local-config.test.ts tests/services/method-source-resolver.test.ts tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts && pnpm lint && pnpm typecheck`
 预期：全部通过。
 
 - [ ] **步骤 5：提交技能支持**
 
 ```bash
-git add src/domain/skill.ts src/domain/method-source.ts src/ports/git-client.ts src/ports/method-source-resolver.ts src/services/method-source-resolver.ts src/services/skill-registry.ts src/services/skill-installer.ts src/cli/skills-commands.ts tests/services/skill-installer.test.ts tests/services/method-source-resolver.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts
+git add src/domain/skill.ts src/domain/method-source.ts src/ports/git-client.ts src/ports/method-source-resolver.ts src/services/local-config.ts src/services/method-source-resolver.ts src/services/skill-registry.ts src/services/skill-installer.ts src/cli/skills-commands.ts tests/services/skill-installer.test.ts tests/services/local-config.test.ts tests/services/method-source-resolver.test.ts tests/services/skill-registry.test.ts tests/cli/skills-commands.test.ts
 git commit -m "feat: install skills with locked methods"
 ```
 
@@ -336,7 +337,7 @@ it('rejects a downstream run when its approval fact is not committed', async () 
 
 it('builds a plan manifest with the locked writing-plans method', async () => {
   const manifest = await builder.build(planInput());
-  expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', version: '6.2.0' }));
+  expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', source: 'configured:superpowers', version: '6.2.0', revision: '6.2.0' }));
 });
 
 it('fails above the context budget without truncating any file', async () => {
@@ -437,7 +438,7 @@ it('initializes seven phases and dry-runs clarify with a locked Superpowers meth
   await fakeRepository.commitTaskFacts('refund-123');
   const result = await runCli(['task', 'run', 'refund-123', 'clarify', '--dry-run', '--skill', 'requirements-clarification', '--json']);
   expect(JSON.parse(result.stdout)).toMatchObject({ status: 'succeeded' });
-  expect(JSON.parse(result.stdout).contextManifest.skill.methodSources[0]).toMatchObject({ id: 'superpowers:brainstorming', version: '6.2.0' });
+  expect(JSON.parse(result.stdout).contextManifest.skill.methodSources[0]).toMatchObject({ id: 'superpowers:brainstorming', source: 'configured:superpowers', version: '6.2.0', revision: '6.2.0' });
 });
 ```
 

@@ -26,7 +26,7 @@
 
 ### `aiw skills install <git-url> [--ref <tag-or-commit>]`
 
-从 Git 来源安装技能到用户级缓存并记录锁定 revision。
+从 Git 来源安装技能到用户级缓存并记录锁定 revision。技能引用 `configured:superpowers` 时，必须先在 `~/.aiw/config.yaml` 配置对应的 Superpowers 本机 Profile；CLI 不自动扫描 Codex 插件缓存或下载方法论。
 
 ```bash
 aiw skills install git@github.com:your-org/agent-skills.git
@@ -38,9 +38,9 @@ aiw skills install https://github.com/your-org/agent-skills.git --ref v1.2.0
 | `<git-url>` | 必填。Git 仓库地址。 |
 | `--ref <tag-or-commit>` | 可选。要锁定的 tag 或 commit；未指定时使用来源默认分支解析到的 commit。 |
 
-成功时显示来源、锁定 revision 与已安装技能。相同来源再次安装时更新该来源记录，而不创建重复条目。
+成功时显示来源、锁定 revision 与已安装技能。相同来源再次安装时更新该来源记录，而不创建重复条目。安装记录中的每项方法论来源包含 ID、来源标识、版本、解析 revision 与 SHA-256；不输出本机绝对路径。
 
-失败情形包括：Git 来源不可访问、指定 ref 不存在、仓库不含有效技能，或任一技能不符合《技能包规范》。失败时 Registry 保持不变。
+失败情形包括：Git 来源不可访问、指定 ref 不存在、仓库不含有效技能、方法论 Profile 未配置/版本不匹配，或任一技能不符合《技能包规范》。失败时 Registry 保持不变。
 
 ### `aiw skills list`
 
