@@ -4,20 +4,23 @@
 
 **目标：** 构建本地 `aiw` CLI MVP：支持复用 Superpowers 方法论的版本化技能、Git 共享的固定七阶段任务 DAG、人工审批的上下文包、通过已配置 Lark MCP 接入需求来源，以及通过 Codex Adapter 预演或执行任务节点。
 
-**架构：** CLI 通过 Git、网络、文件系统和子进程端口调用应用服务。业务仓库 `.aiw/tasks/<task-id>` 保存共享任务状态与产物，`~/.aiw/runtime` 保存原始运行数据；Runner 在调用 Codex Adapter 前校验任务、Git 提交状态与上下文清单。领域模型不依赖 Commander、Node 子进程 API 或 Codex 参数。
+**实施方式：** 按任务 1 至 7 顺序建立 CLI、领域模型、来源接入、技能、上下文、执行器与端到端验证；每个任务先以替身端口编写失败测试，再实现最小功能并提交。
 
 **技术栈：** Node.js 22+、TypeScript 严格模式、pnpm、Commander、Zod、yaml、Vitest、ESLint、原生 `fetch`、Node `crypto`、`child_process`。
 
-## 全局约束
+## 实施必须遵守的设计约束
 
-- 所有共享任务状态仅可写入 `<projectRoot>/.aiw/` 并纳入 Git；技能缓存、完整提示词和原始运行日志只写入 `~/.aiw/`。`aiw` 不自动执行 Git 提交、推送或 PR 操作。
-- MVP 只支持一个本地 Agent，并且同一时间只运行一个任务节点；默认节点为 `intake → clarify → solution → plan → implement → verify → test`。
-- `intake` 自动完成；`clarify`、`plan`、`test` 默认需要审批。工作流终点为 `test` 获批，不管理 PR、发布或运维。
-- 默认阶段技能必须锁定 Superpowers 等上游方法论来源；MVP 不自动下载或更新这些来源。
-- 所有 CLI 参数、YAML/JSON、路径、URL 和子进程结果都必须在边界处校验。
-- 单元测试不得访问真实网络、远程 Git、真实 Lark MCP 或真实 Codex；通过可注入的端口和替身测试。
-- 只允许注入有哈希记录、符合规则的上下文；默认 12,000 token 超限时必须失败，不能静默截断。
-- 生成 Agent 上下文时，必须区分 Runner 约束、技能、用户任务和不可信来源/产物区块。
+本计划不重新定义任务、上下文、安全或外部接口规则；实现与测试必须以以下文档为权威来源。需求变更时，先更新相应规范，再调整本计划中的任务、文件和测试范围。
+
+| 实施关注点 | 权威文档 |
+|---|---|
+| MVP 范围、行为与产品验收 | [MVP需求与验收规范](../02-需求定义/MVP需求与验收规范.md) |
+| 固定阶段、产物、审批和方法论引用 | [研发工作流阶段规范](../03-方案设计/02-核心规范/研发工作流阶段规范.md) |
+| 状态机、审批、依赖与失效 | [任务模型规范](../03-方案设计/02-核心规范/任务模型规范.md) |
+| 任务目录、快照、Manifest 与注入 | [上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md) |
+| 技能格式、锁定与校验 | [技能包规范](../03-方案设计/02-核心规范/技能包规范.md) |
+| 来源、凭据、提示词与进程安全边界 | [安全规范](../03-方案设计/02-核心规范/安全规范.md) |
+| CLI、Lark MCP 与 Codex 的接口契约 | [CLI命令参考](../03-方案设计/03-接入与接口/CLI命令参考.md)、[Lark来源连接器规范](../03-方案设计/03-接入与接口/Lark来源连接器规范.md)、[Codex适配器规范](../03-方案设计/03-接入与接口/Codex适配器规范.md) |
 
 ## 计划中的文件结构
 
@@ -232,7 +235,7 @@ it('creates a new revision and invalidates downstream nodes when Lark content ch
 
 - [ ] **步骤 3：实现原子存储与安全接入**
 
-在 `.aiw/config.yaml`（首次）及 `.aiw/tasks/<id>` 创建 `task.yaml`、`task.md`、`sources/<source-id>/r1/snapshot.md` 和 `meta.json`，先写同目录临时文件再重命名。`config.yaml` 写入 `sourceSharing.default: repository` 与 `restricted: require-redacted-snapshot`。初始化前通过 `RepositoryStatus` 验证 `projectRoot` 是 Git 工作树且 `.aiw/` 未被忽略；否则不写入文件。共享 `meta.json` 不得写入绝对路径或凭据。`LarkSourceConnector` 仅对已配置 MCP 识别的 Lark URL 调用 `McpClient`，将正文标准化为 Markdown；MCP 配置、令牌与原始响应不得持久化。快照成功后，`TaskInitializer` 将 `intake` 标记为 `completed`，创建完整七阶段 DAG，并将 `clarify` 评估为 `ready`。每次公开 URL 重定向都通过 `NetworkClient.resolveHost` 解析；请求前拒绝非 HTTP(S)、回环、私网、链路本地与保留地址。限制 5 次重定向、5 MiB 响应体、15 秒超时和允许的文本内容类型；使用 HTML-to-text 依赖转换 HTML。`task source refresh` 仅在正文哈希变化时创建新 revision，并通过状态机使已开始下游节点失效。
+按[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)、[任务模型规范](../03-方案设计/02-核心规范/任务模型规范.md)、[安全规范](../03-方案设计/02-核心规范/安全规范.md)和[Lark来源连接器规范](../03-方案设计/03-接入与接口/Lark来源连接器规范.md)实现 `TaskStore`、`SourceIntake`、`LarkSourceConnector`、`SourceRefresher` 与 `TaskInitializer`。先完成原子持久化与本地来源，再接入公开 URL，最后接入 Lark MCP 与来源刷新；每一步只通过可注入端口访问文件、网络、Git 和 MCP。
 
 - [ ] **步骤 4：验证任务初始化**
 
@@ -285,7 +288,7 @@ it('does not mutate the registry when a method source is not configured', async 
 
 - [ ] **步骤 3：实现 Registry 和技能校验**
 
-定义 `GitClient` 端口，提供 `clone(url, destination, ref?)` 和 `revision(directory)`。定义 `MethodSourceResolver`，只从本机已配置来源（例如 `configured:superpowers`）解析上游方法论正文，返回稳定 ID、版本、revision 和 SHA-256；MVP 不自动下载上游方法论。将用户级 Registry JSON 原子写入平台数据目录。用 `yaml` 解析 front matter，并要求非空 `name`、语义化 `version`、非空 `description`、非空且属于六个 Agent 阶段的 `phases` 数组；默认阶段技能还必须含有效 `methodSources`。相同规范化来源 URL 的安装覆盖旧条目，而非重复追加。
+按[技能包规范](../03-方案设计/02-核心规范/技能包规范.md)实现 `GitClient`、`MethodSourceResolver`、`SkillRegistry` 与 `SkillInstaller`；实现顺序为 Git 来源锁定、`SKILL.md` 解析与校验、上游方法论解析、Registry 原子写入、CLI 命令接入。所有外部 Git 与文件操作均经可替换端口完成。
 
 - [ ] **步骤 4：验证技能功能**
 
@@ -346,7 +349,7 @@ it('fails above the context budget without truncating any file', async () => {
 
 - [ ] **步骤 3：实现 manifest 构建和任务状态命令**
 
-`approve`、`revise` 和 `task status` 只能委托 Task State Machine 与 Task Store。`approve` 仅接受已提交的待审产物与 `awaiting_approval` 状态，并写入 `approvals/<node-id>/r<revision>.yaml`（审批人、决定、时间、全部输出哈希）；`--actor` 未提供时读取 Git 用户名，缺失则失败；它不执行 Git 提交。实现 `RepositoryStatus` 与 `TaskFactGuard`：下游节点只能读取已提交的上游产物、审批文件和状态变化，失败时列出待提交路径。实现七阶段上下文策略：`clarify` 注入 `task.md` 和来源快照；`solution` 注入已批准需求产物；`plan` 注入需求产物与 `solution.md`；`implement` 注入已批准需求、方案和实施计划；`verify` 额外注入 `implementation.md`；`test` 额外注入 `verification.md`。为每个选中文件、阶段技能和锁定方法论计算哈希，以 `Math.ceil(text.length / 4)` 估算 token，强制 12,000 token 预算，并在共享任务目录的新运行目录写入 `context-manifest.json`。`intake` 不得进入 Context Builder。
+按[任务模型规范](../03-方案设计/02-核心规范/任务模型规范.md)、[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)和[CLI命令参考](../03-方案设计/03-接入与接口/CLI命令参考.md)实现审批、修订、状态查询、Git 事实校验与 Context Manifest。实施顺序为状态命令、已提交事实校验、默认阶段上下文选择、Manifest 生成及预算校验。
 
 - [ ] **步骤 4：验证审批和上下文功能**
 
@@ -396,7 +399,7 @@ it('maps a missing executable to unavailable and marks the node failed', async (
 
 - [ ] **步骤 3：实现受限的 Codex 执行**
 
-创建共享 `.aiw/tasks/<id>/runs/<run-id>/`（仅 `context-manifest.json` 和去敏 `result.json`）与本机 `~/.aiw/runtime/<run-id>/`（`request.json`、`context.md`、`stdout.log`、`stderr.log`、`last-message.md`）。在 `RunResult` 中分别增加 `sharedRunDirectory` 与 `localRunDirectory`。以 `<runner-constraints>`、`<phase-contract>`、`<method-source id=...>`、`<skill-overlay path=...>`、`<user-task>`、`<artifact path=...>` 区块在本机渲染上下文；`intake` 必须在调用 Adapter 前被拒绝。先通过 `TaskFactGuard` 验证共享上游事实已提交。dry-run 直接返回成功结果，绝不调用 `ProcessRunner`。执行模式解析 `AIW_CODEX_BIN` 或 `codex`，并调用 `codex exec --cd <projectRoot> --sandbox workspace-write --ask-for-approval never --output-last-message <localRunDirectory>/last-message.md -`，将 `context.md` 写入 stdin。将启动失败映射为 `unavailable`、取消映射为 `cancelled`、非零退出码映射为 `failed`，只有退出码为 0 且声明的阶段产物均存在时返回 `succeeded`。
+按[Codex适配器规范](../03-方案设计/03-接入与接口/Codex适配器规范.md)、[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)和[安全规范](../03-方案设计/02-核心规范/安全规范.md)实现 `ProcessRunner`、`CodexAdapter`、`TaskRunner` 与运行命令。实施顺序为运行请求/结果 schema、本机运行目录与上下文渲染、dry-run、执行结果映射、阶段产物校验与共享去敏结果写入。
 
 - [ ] **步骤 4：验证 Adapter 和 Runner**
 
@@ -415,12 +418,12 @@ git commit -m "feat: run task nodes through Codex adapter"
 **文件：**
 
 - 新建：`tests/e2e/mvp-workflow.test.ts`、`tests/fakes/fake-git-client.ts`、`tests/fakes/fake-network-client.ts`、`tests/fakes/fake-process-runner.ts`、`tests/helpers/complete-node.ts`
-- 修改：`README.md`、`docs/02-需求定义/MVP需求与验收规范.md`
+- 修改：`README.md`
 
 **接口：**
 
 - 使用任务 1–6 提供的所有公开 CLI 命令。
-- 产出基于确定性替身的完整主流程测试，以及 AC-1 至 AC-14 的回归测试。
+- 产出基于确定性替身的完整主流程测试，以及 AC-1 至 AC-23 的回归测试。
 
 - [ ] **步骤 1：编写完整工作流失败测试**
 
@@ -442,12 +445,12 @@ it('initializes seven phases and dry-runs clarify with a locked Superpowers meth
 
 - [ ] **步骤 3：连接组合根并补充开发文档**
 
-在 `src/cli.ts` 中实例化生产端口；测试注入替身。实现 `tests/helpers/complete-node.ts` 的 `completeNode(store, taskId, nodeId)`：加载任务、应用任务 2 的 `succeed` 迁移并使用声明的 fixture 产物保存任务。该 helper 必须覆盖 `clarify → solution → plan → implement → verify → test` 的阶段产物，并在 `clarify`、`plan`、`test` 后要求显式批准和模拟 Git 提交。README 增加前置条件、`pnpm install`、`pnpm build`、`pnpm test`、本地文件任务示例，以及“认证来源连接器和上游方法论自动下载不在 MVP 范围内”的说明。为 `docs/02-需求定义/MVP需求与验收规范.md` 的每个 AC-1 至 AC-14 标记对应测试文件。
+在 `src/cli.ts` 组合生产端口，测试仅注入替身；补全跨阶段测试辅助函数和 README 的本地开发说明。以[MVP需求与验收规范](../02-需求定义/MVP需求与验收规范.md)的 AC-1 至 AC-23 为唯一回归覆盖清单，在测试代码中维护 AC 与测试用例的映射，不在需求规范中回写实现文件名。
 
 - [ ] **步骤 4：运行完整验证套件**
 
 运行：`pnpm lint && pnpm typecheck && pnpm test && pnpm build`
-预期：全部以 `0` 退出；端到端测试不访问真实网络、Git 或 Codex 进程。
+预期：全部以 `0` 退出；端到端测试遵守[安全规范](../03-方案设计/02-核心规范/安全规范.md)规定的外部依赖隔离边界。
 
 - [ ] **步骤 5：提交已验证的 MVP**
 
@@ -458,6 +461,6 @@ git commit -m "test: cover aiw MVP workflow"
 
 ## 计划自检
 
-- **规格覆盖：** FR-1 由任务 1 实现；FR-2 由任务 4 实现；FR-3 由任务 3 实现；FR-4 由任务 2 和 5 实现；FR-5 由任务 5 实现；FR-6 由任务 6 实现；AC-1 至 AC-14 在任务 7 中映射到自动化测试。
-- **占位符检查：** 各任务均定义了文件、接口、失败测试、验证命令和提交范围，没有依赖未声明文件或含糊的错误处理要求。
-- **类型一致性：** 任务 2 定义 `Task`、`NodeEvent` 与状态函数；任务 3 使用 `Task`；任务 5 创建 `ContextManifest`；任务 6 在 `RunRequest` 中使用 manifest 并返回 `RunResult`。
+- **需求覆盖：** FR-1 至 FR-6 分别由任务 1 至 6 覆盖；AC-1 至 AC-23 在任务 7 中映射到自动化测试。
+- **执行完整性：** 各任务均定义文件、接口、失败测试、验证命令和提交范围；设计约束仅通过“实施必须遵守的设计约束”中的权威文档引用。
+- **依赖顺序：** 任务 2 提供任务状态能力；任务 3 至 6 依次建立来源、技能、上下文和执行能力；任务 7 在全部公开命令可用后完成端到端验证。

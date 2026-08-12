@@ -6,13 +6,15 @@
 
 本规范定义“必须实现什么、如何验收”；需求范围的来源、已确认取舍和待验证假设见[需求来源与关键决策记录](需求来源与关键决策记录.md)。
 
-## 技术约束
+## 产品边界与质量约束
 
-- Node.js 22 或更高版本；TypeScript 严格模式；pnpm 管理依赖。
-- 使用 Commander 解析 CLI、Zod 校验外部 YAML/JSON、Vitest 执行测试。
-- 项目根目录 `.aiw/` 保存共享任务事实，必须纳入 Git；技能缓存、完整 Agent 输出、临时提示词和会话运行态只写入 `~/.aiw/`。
+- MVP 仅支持开发者本机运行、单 Agent、单节点串行执行。
+- 共享任务事实必须由业务仓库读者通过 Git 审阅；敏感运行数据不得进入业务仓库。
 - 所有 CLI 成功输出必须可供人阅读；`--json` 时输出单个 JSON 对象到 stdout。
-- MVP 只支持单 Agent、单节点串行执行。
+- 所有外部输入必须在信任边界校验；失败不得破坏已有快照、已批准产物、审批事件或历史运行记录。
+- 系统必须能够调用已配置的 Codex 执行器，并区分不可用、失败和取消等执行结果。
+
+具体技术栈与验证工具以[MVP版本实施计划](../04-实施规划/MVP版本实施计划.md)为准；共享与本机数据边界以[架构设计](../03-方案设计/01-总体设计/架构设计.md)和[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)为准；Codex CLI 的调用约定以[Codex适配器规范](../03-方案设计/03-接入与接口/Codex适配器规范.md)为准。
 
 ## 功能需求
 
@@ -66,9 +68,8 @@
 ### FR-6：Codex Adapter 执行接口
 
 - `aiw task run <task-id> <node-id>` 使用 `CodexAdapter` 构建请求并启动已配置的 Codex CLI。
-- Codex 可执行文件默认名为 `codex`，可由 `AIW_CODEX_BIN` 环境变量覆盖。MVP 以 `codex exec --cd <project-root> --sandbox workspace-write --ask-for-approval never --output-last-message <run-dir>/last-message.md -` 启动，并将 `context.md` 写入 stdin。
 - 缺少 Codex 可执行文件时返回 `unavailable`；非零退出码返回 `failed`；取消信号返回 `cancelled`。
-- Adapter 将共享的 `context-manifest.json` 与去敏 `result.json` 写入任务的 `runs/<run-id>/`；`request.json`、`context.md`、`stdout.log`、`stderr.log` 和 `last-message.md` 只写入 `~/.aiw/runtime/<run-id>/`。
+- 一次运行必须在共享任务事实中保留可审阅的去敏结果，并将完整请求、上下文和原始日志仅保留在本机。
 - 只有进程退出码为 0 且节点声明的产物存在于任务目录内，节点才能进入后续状态。
 
 ## 非功能需求
@@ -76,16 +77,18 @@
 - 所有外部输入（CLI、YAML、JSON、Git、文件路径、URL、子进程输出）必须在信任边界校验。
 - 来源、技能、用户任务与 Runner 指令在 Agent 上下文中必须以带路径的显式分隔块呈现。
 - 任何失败不应破坏已有快照、已批准产物、审批事件或历史运行记录。
-- 单元测试不得调用真实网络、真实 Git 远程、真实 Lark MCP 或真实 Codex；通过可注入的 Fetch、Git、MCP 与 Process 接口进行替身测试。
+- 自动化验证必须隔离真实网络、远程 Git、Lark MCP 和 Codex，不依赖外部服务稳定性。
 
 ## 验收场景
+
+本表是 MVP 唯一的产品验收清单。安全、Lark 等专项规范只能引用对应 AC 编号说明其验证重点，不得另行定义产品通过标准。
 
 | ID | 场景 | 通过条件 |
 |---|---|---|
 | AC-1 | 安装有效技能仓库 | Registry 记录 revision；`skills list` 显示技能元数据。 |
 | AC-2 | 安装没有有效技能的仓库 | 命令非零退出，Registry 未新增条目。 |
 | AC-3 | 从本地 Markdown 建立任务 | 创建七阶段默认 DAG；`intake` 已完成、`clarify` 已就绪；快照含 SHA-256 元数据。 |
-| AC-4 | URL 解析到 `127.0.0.1` 或私网 | 请求在连接前被拒绝，任务目录不创建来源快照。 |
+| AC-4 | URL 初始地址或重定向地址解析到 `127.0.0.1` 或私网 | 请求在连接前被拒绝，任务目录不创建来源快照。 |
 | AC-5 | 未批准澄清节点时运行方案 | 命令失败，提示 `solution` 节点尚未 `ready`。 |
 | AC-6 | 批准澄清后修订澄清 | `solution` 至 `test` 被标记 `invalidated`，旧产物保留。 |
 | AC-7 | 对可运行的计划节点执行 dry-run | 生成含方法论来源的 manifest 与 `context.md`，不启动子进程。 |
@@ -97,10 +100,15 @@
 | AC-13 | 敏感来源未脱敏 | 命令拒绝将正文写入共享 `.aiw/`。 |
 | AC-14 | `.aiw/` 被 Git 忽略或项目不是 Git 工作树 | 初始化失败，不创建任务目录。 |
 | AC-15 | 从已配置 Lark MCP 读取需求 | 生成 `lark-mcp/v1` Markdown 快照与不含凭据的元数据；`intake` 完成。 |
-| AC-16 | Lark MCP 未配置、无权限或返回无效正文 | 命令失败，不创建或覆盖快照，不泄露 MCP 配置或令牌。 |
+| AC-16 | Lark MCP 未配置、无权限、超时、正文超限或返回无效正文 | 命令失败，不创建或覆盖快照，不泄露 MCP 配置或令牌。 |
 | AC-17 | 刷新 Lark 来源且正文未变化 | 不创建新 revision，任务状态与下游节点不变。 |
 | AC-18 | 刷新 Lark 来源且正文变化 | 保留旧快照，创建新 revision；`clarify` 至 `test` 的已开始节点失效。 |
+| AC-19 | 本地来源为目录、设备文件或符号链接逃逸 | 初始化失败，不创建来源快照。 |
+| AC-20 | `--include` 指向项目根目录外的文件 | 命令失败，Context Manifest 不包含该文件。 |
+| AC-21 | 来源或技能正文试图覆盖 Runner 规则 | 渲染的上下文将其标记为不可信数据，Runner 约束与阶段契约保持在前且不被覆盖。 |
+| AC-22 | Codex 子进程超时、取消或非零退出 | `RunResult` 正确标识失败或取消，节点不被标记为成功，已存在的共享事实保留。 |
+| AC-23 | Lark 来源进入后续节点运行 | Context Manifest 记录实际使用的快照路径、来源 revision 与 SHA-256，不记录 MCP 配置、令牌或原始响应。 |
 
 ## 完成定义
 
-所有验收场景均有自动化 Vitest 覆盖；`pnpm test`、`pnpm lint`、`pnpm typecheck` 通过；README 的命令示例与实际 CLI 一致。
+所有验收场景均有自动化覆盖；项目的测试、静态检查和类型检查通过；README 的命令示例与实际 CLI 一致。具体工具和执行命令以[MVP版本实施计划](../04-实施规划/MVP版本实施计划.md)为准。
