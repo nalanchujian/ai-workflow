@@ -70,7 +70,13 @@ aiw task init refund-123 --project /workspace/shop --source https://example.com/
 | `--project <path>` | 必填。业务项目根目录。 |
 | `--source <file-or-url>` | 必填。本地文件或符合安全规则的公开 HTTP(S) 来源。 |
 
-成功后创建 `.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/snapshot.md`。默认节点为 `intake → analysis → design → implementation → testing`。
+成功后创建 `.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/snapshot.md`。默认节点为：
+
+```text
+intake → clarify → solution → plan → implement → verify → test
+```
+
+来源快照成功后，`intake` 自动完成，`clarify` 成为 `ready`。`clarify`、`plan`、`test` 完成执行后等待人工审批；`intake` 不允许通过 `task run` 运行。
 
 失败情形包括：任务 ID 非法或重复、项目路径无效、来源是目录、URL 不符合协议或 IP 安全限制、来源类型不受支持。失败不得留下不完整来源快照。
 
@@ -90,20 +96,20 @@ aiw task status refund-123 --json
 使用指定技能运行一个已就绪节点；`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
 
 ```bash
-aiw task run refund-123 analysis --skill requirements-analysis
-aiw task run refund-123 design --skill architecture-design --dry-run
-aiw task run refund-123 implementation --skill implementation --include docs/api-contract.md
+aiw task run refund-123 clarify --skill requirements-clarification
+aiw task run refund-123 plan --skill implementation-planning --dry-run
+aiw task run refund-123 implement --skill implementation --include docs/api-contract.md
 ```
 
 | 参数 | 说明 |
 |---|---|
 | `<task-id>` | 必填。目标任务。 |
 | `<node-id>` | 必填。任务图中的节点。 |
-| `--skill <name>` | 必填。必须解析为节点记录的名称、版本和内容哈希，且适用于该节点阶段。 |
+| `--skill <name>` | 必填。必须解析为节点记录的名称、版本、内容哈希和上游方法论来源，且适用于该节点阶段。 |
 | `--dry-run` | 可选。不启动 Codex，只生成 `context.md`、manifest 和预演结果。 |
 | `--include <relative-path>` | 可重复。可显式加入项目根目录内的文件；每项必须记录到 manifest。 |
 
-节点仅在 `ready` 时可运行。执行成功后，无需审批的节点进入 `completed`；需要审批的节点进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点执行状态。
+节点仅在 `ready` 时可运行。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点执行状态。
 
 失败情形包括：节点不存在或未 `ready`、技能不存在或版本不匹配、任务产物未获批准、附加路径越出项目根目录、上下文超出预算、Codex 不可用或执行失败。
 
@@ -112,7 +118,7 @@ aiw task run refund-123 implementation --skill implementation --include docs/api
 批准一个等待审批的当前节点 revision。
 
 ```bash
-aiw task approve refund-123 analysis
+aiw task approve refund-123 clarify
 ```
 
 仅当节点处于 `awaiting_approval` 时可执行。成功后写入不可变审批事件，并将节点置为 `completed`；否则失败且不改变状态。
@@ -122,7 +128,7 @@ aiw task approve refund-123 analysis
 退回节点以要求修改，并使所有已开始的下游节点失效。
 
 ```bash
-aiw task revise refund-123 analysis --note "补充退款权限和异常场景"
+aiw task revise refund-123 clarify --note "补充退款权限和异常场景"
 ```
 
 | 参数 | 说明 |

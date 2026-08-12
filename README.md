@@ -7,8 +7,8 @@
 AI Workflow 不替代 Codex，也不创建新的聊天系统。它负责四件事：
 
 - 通过 Git 共享、审阅和版本化团队技能；
-- 将复杂需求拆为有依赖的子任务；
-- 在需求、方案和验证等关键阶段引入人工确认；
+- 将复杂需求拆为固定七阶段及其可扩展子任务；
+- 在需求澄清、实施计划和最终测试等关键阶段引入人工确认；
 - 只为当前阶段向 Codex 传递最小、已确认的上下文。
 
 业务代码、任务资料和运行记录默认保留在开发者本机。
@@ -27,20 +27,24 @@ MVP 聚焦“本机单 Agent + 团队共享技能仓库”。它不会：
 aiw skills install git@github.com:your-org/agent-skills.git
 aiw skills list
 aiw task init req-123 --project . --source https://example.com/requirements
-aiw task run req-123 analysis --skill requirements-analysis
-aiw task approve req-123 analysis
-aiw task run req-123 design --skill architecture-design
-aiw task approve req-123 design
-aiw task run req-123 implementation --skill implementation
+aiw task run req-123 clarify --skill requirements-clarification
+aiw task approve req-123 clarify
+aiw task run req-123 solution --skill technical-solution
+aiw task run req-123 plan --skill implementation-planning
+aiw task approve req-123 plan
+aiw task run req-123 implement --skill implementation
+aiw task run req-123 verify --skill implementation-verification
+aiw task run req-123 test --skill acceptance-testing
+aiw task approve req-123 test
 ```
 
-这个流程将在线需求资料固化为本地快照，经人工确认后逐步产出需求摘要、实施计划、代码与验证结果。
+这个流程将在线需求资料固化为本地快照，经人工确认后逐步产出需求澄清、技术方案、实施计划、实现说明、工程验证与测试证据。工作流在测试验证获批后结束，不管理 PR、发布或线上运维。
 
 ## 当前状态
 
 **设计审阅中，命令尚未实现。**
 
-在开始框架实现前，需先补充并确认任务失效传播、上下文产物契约、URL 抓取安全规则和 Codex Adapter 接口。
+固定七阶段、任务失效传播、上下文产物契约、URL 抓取安全规则、Superpowers 方法论引用和 Codex Adapter 接口已完成文档定义，下一步是按实施计划初始化框架并编写测试。
 
 ## 文档
 
@@ -54,6 +58,7 @@ aiw task run req-123 implementation --skill implementation
 ### MVP 规范与参考
 
 - [最小可行产品需求与验收标准](docs/specs/最小可行产品需求与验收标准.md)：功能范围、错误行为与自动化验收场景。
+- [研发工作流阶段规范](docs/specs/研发工作流阶段规范.md)：固定七阶段、产物、审批、方法论引用与失效规则。
 - [技能包规范](docs/specs/技能包规范.md)：团队技能的目录、元数据、版本锁定和安全边界。
 - [安全设计](docs/specs/安全设计.md)：来源接入、技能供应链、提示词隔离与 Codex 进程边界。
 - [任务模型规范](docs/specs/任务模型规范.md)：节点状态、审批、依赖和失效传播。
