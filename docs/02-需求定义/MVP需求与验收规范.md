@@ -27,8 +27,8 @@
 ### FR-2：技能安装与查询
 
 - `aiw skills install <git-url> [--ref <tag-or-commit>]` 将仓库克隆到用户级缓存目录。
-- 安装仅接受含 `skills/<skill-name>/SKILL.md` 的仓库；无有效技能时失败且不写入 Registry。
-- `aiw skills list` 输出已安装技能的名称、版本、来源 URL 与锁定 revision。
+- 安装仅接受含 `skills/<skill-name>/SKILL.md` 或 `profiles/<profile-name>/PROFILE.yaml` 的仓库；两者均无效时失败且不写入 Registry。
+- `aiw skills list` 输出已安装技能的名称、版本、来源 URL 与锁定 revision；`aiw skills profiles list` 输出可选工作流模板及其六阶段映射。
 - 同一个来源再次安装应更新该来源，而不创建重复 Registry 条目。
 - 技能 front matter 必须含 `name`、`version`、`description` 与 `phases`；阶段只能是 `clarify`、`solution`、`plan`、`implement`、`verify` 或 `test`。
 - 默认七阶段的技能必须声明至少一个 `methodSources`；MVP 仅通过 `~/.aiw/config.yaml` 中显式配置的本机 Profile 解析上游方法论，不自动扫描 Codex 插件缓存、下载或更新该上游方法论。
@@ -37,7 +37,7 @@
 
 ### FR-3：任务创建、来源快照与刷新
 
-- `aiw task init <task-id> --project <path> --source <source>` 创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照。
+- `aiw task init <task-id> --project <path> --source <source> --skill-profile <name[@version]>` 创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照。
 - `--project` 必须是 Git 工作树，且 `.aiw/` 不得被 Git 忽略；不满足时初始化失败且不写入任务事实。
 - 本地来源必须解析为真实文件，且不得是目录；其文本保存为 `sources/<source-id>/r1/snapshot.md`。
 - URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。
@@ -49,11 +49,14 @@
 
 ### FR-4：默认任务图与状态机
 
-- 初始化生成 `intake`、`clarify`、`solution`、`plan`、`implement`、`verify`、`test` 七个节点及其线性依赖；`intake` 在来源快照成功后自动 `completed`，不调用 Agent。
+- `task init` 必须接收一个已安装的 `--skill-profile <name[@version]>`，原子锁定模板及 `clarify` 至 `test` 六个阶段的技能、Git revision、内容哈希和方法论来源；模板或任一技能不可用时初始化失败且不写入任务目录。
+- 模板锁定提交前，`task run` 与 dry-run 均必须拒绝；运行命令不再接收或选择技能。
+- `aiw task skill rebind <task-id> <node-id> --skill <name[@version]> --note <text>` 是例外命令，仅允许对待执行或失效节点显式变更单个节点锁定；它记录前后锁定与原因，并递归使已开始下游节点失效。已完成节点必须先修订，待审批节点必须先获得审批决定。
 - 节点仅在全部依赖 `completed` 时变为 `ready`；MVP 调度器一次只允许运行一个节点。
 - 需要审批的 `clarify`、`plan`、`test` 节点，在运行成功后进入 `awaiting_approval`；`solution` 可由高风险任务模板额外设置审批。
 - `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]` 仅可批准当前 revision 的 `awaiting_approval` 节点；待审产物和当前状态均已提交时，写入绑定全部输出哈希的审批文件并将节点置为 `completed`。未提供 `--actor` 时必须读取 Git 用户名，否则失败。
 - `aiw task revise <task-id> <node-id> --note <text>` 将该节点置为 `pending`，并递归将所有已开始下游节点置为 `invalidated`。
+- `aiw task request-changes <task-id> <node-id> --note <text> [--actor <name>]` 仅用于 `awaiting_approval` 节点。它写入 `decision: changes_requested` 的审批事实、下一 revision 的修改说明，将当前节点置为 `pending` 并使已开始下游节点失效；不得用 `task revise` 代替该审批决定。
 - `aiw task status <task-id>` 显示全部节点状态、依赖、revision、审批与失效原因。
 
 ### FR-5：上下文包与运行预演
@@ -86,8 +89,8 @@
 
 | ID | 场景 | 通过条件 |
 |---|---|---|
-| AC-1 | 安装有效技能仓库 | Registry 记录 revision；`skills list` 显示技能元数据。 |
-| AC-2 | 安装没有有效技能的仓库 | 命令非零退出，Registry 未新增条目。 |
+| AC-1 | 安装有效技能与工作流模板仓库 | Registry 记录 revision；`skills list` 和 `skills profiles list` 显示对应元数据。 |
+| AC-2 | 安装不含有效技能或工作流模板的仓库 | 命令非零退出，Registry 未新增条目。 |
 | AC-3 | 从本地 Markdown 建立任务 | 创建七阶段默认 DAG；`intake` 已完成、`clarify` 已就绪；快照含 SHA-256 元数据。 |
 | AC-4 | URL 初始地址或重定向地址解析到 `127.0.0.1` 或私网 | 请求在连接前被拒绝，任务目录不创建来源快照。 |
 | AC-5 | 未批准澄清节点时运行方案 | 命令失败，提示 `solution` 节点尚未 `ready`。 |
@@ -109,6 +112,8 @@
 | AC-21 | 来源或技能正文试图覆盖 Runner 规则 | 渲染的上下文将其标记为不可信数据，Runner 约束与阶段契约保持在前且不被覆盖。 |
 | AC-22 | Codex 子进程超时、取消或非零退出 | `RunResult` 正确标识失败或取消，节点不被标记为成功，已存在的共享事实保留。 |
 | AC-23 | Lark 来源进入后续节点运行 | Context Manifest 记录实际使用的快照路径、来源 revision 与 SHA-256，不记录 MCP 配置、令牌或原始响应。 |
+| AC-24 | 以工作流模板创建并运行任务 | `task init --skill-profile` 原子写入模板及六阶段精确技能/方法来源锁定；提交前 `task run` 和 dry-run 均拒绝，提交后按节点锁定运行且不再传入技能。 |
+| AC-25 | 审批人要求修改当前计划 revision | `task request-changes` 写入含产物哈希的 `changes_requested` 审批记录和下一版修改说明；当前节点回到 `pending`，已开始下游节点失效，旧产物与审批记录保留。 |
 
 ## 完成定义
 

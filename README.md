@@ -37,27 +37,27 @@ MVP 聚焦“本机单 Agent + Git 共享任务事实与团队技能仓库”。
 
 ```bash
 aiw skills install git@github.com:your-org/agent-skills.git
-aiw skills list
-aiw task init req-123 --project . --source https://example.com/requirements
+aiw skills profiles list
+aiw task init req-123 --project . --source https://example.com/requirements --skill-profile standard-web-feature@1.0.0
 git add .aiw && git commit -m "chore(aiw): initialize req-123"
-aiw task run req-123 clarify --skill requirements-clarification
+aiw task run req-123 clarify
 git add .aiw && git commit -m "chore(aiw): clarify req-123"
 aiw task approve req-123 clarify --actor tech-lead
 git add .aiw && git commit -m "chore(aiw): approve clarification"
-aiw task run req-123 solution --skill technical-solution
-aiw task run req-123 plan --skill implementation-planning
+aiw task run req-123 solution
+aiw task run req-123 plan
 git add .aiw && git commit -m "chore(aiw): plan req-123"
 aiw task approve req-123 plan --actor tech-lead
 git add .aiw && git commit -m "chore(aiw): approve plan"
-aiw task run req-123 implement --skill implementation
-aiw task run req-123 verify --skill implementation-verification
-aiw task run req-123 test --skill acceptance-testing
+aiw task run req-123 implement
+aiw task run req-123 verify
+aiw task run req-123 test
 git add .aiw && git commit -m "chore(aiw): test req-123"
 aiw task approve req-123 test --actor tech-lead
 git add .aiw && git commit -m "chore(aiw): approve test"
 ```
 
-这是 MVP 流程：经允许共享的需求资料固化为业务仓库中的来源快照，经人工确认后逐步产出需求澄清、技术方案、实施计划、实现说明、工程验证与测试证据。每个阶段产物、待审批状态和审批记录均需通过 Git 固化后，才可作为下游依据；工作流在测试验证获批后结束，不管理 PR、发布或线上运维。后续自动模式只替换人工门禁的决定方式，不省略过程产物、策略版本或运行证据。
+这是 MVP 流程：经允许共享的需求资料固化为业务仓库中的来源快照，任务创建时一次选择并锁定团队工作流模板，再经人工确认逐步产出需求澄清、技术方案、实施计划、实现说明、工程验证与测试证据。每个阶段产物、待审批状态和审批记录均需通过 Git 固化后，才可作为下游依据；审批人要求修改时使用 `task request-changes`，它保留退回证据和下一版修改说明。仅在例外情况才使用 `task skill rebind` 替换单个节点的方法。工作流在测试验证获批后结束，不管理 PR、发布或线上运维。后续自动模式只替换人工门禁的决定方式，不省略过程产物、策略版本或运行证据。
 
 ## 当前状态
 

@@ -23,7 +23,7 @@ Lark 授权、应用凭据和 MCP 配置只能保留在本机受控环境中；�
 ## 使用方式
 
 ```bash
-aiw task init refund-123 --project . --source https://<tenant>.larksuite.com/docx/<token>
+aiw task init refund-123 --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@1.0.0
 aiw task source refresh refund-123 requirements
 ```
 
