@@ -1,4 +1,4 @@
-# AI Workflow MVP 需求与验收标准
+# AI Workflow MVP需求与验收规范
 
 ## 目标
 

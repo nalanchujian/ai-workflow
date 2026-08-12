@@ -69,25 +69,25 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 ### 产品与协作
 
 - [管理层决策方案](docs/product/管理层决策方案.md)：立项价值、MVP、风险、衡量指标与阶段决策。
-- [AI Workflow 方案对比](docs/product/方案选型与替代方案评估.md)：三条路径的取舍，以及 aiw 补齐的团队治理能力。
+- [AI Workflow 方案对比](docs/product/方案对比.md)：三条路径的取舍，以及 aiw 补齐的团队治理能力。
 - [产品设计方案](docs/product/产品设计方案.md)：研发角色、日常工作流、产物和协作边界。
 - [架构设计](docs/design/架构设计.md)：分层、任务 DAG、人工关卡、上下文与安全边界。
 
 ### MVP 规范与参考
 
-- [最小可行产品需求与验收标准](docs/specs/最小可行产品需求与验收标准.md)：功能范围、错误行为与自动化验收场景。
+- [MVP需求与验收规范](docs/specs/MVP需求与验收规范.md)：功能范围、错误行为与自动化验收场景。
 - [研发工作流阶段规范](docs/specs/研发工作流阶段规范.md)：固定七阶段、产物、审批、方法论引用与失效规则。
 - [技能包规范](docs/specs/技能包规范.md)：团队技能的目录、元数据、版本锁定和安全边界。
-- [安全设计](docs/specs/安全设计.md)：来源接入、技能供应链、提示词隔离与 Codex 进程边界。
+- [安全规范](docs/specs/安全规范.md)：来源接入、技能供应链、提示词隔离与 Codex 进程边界。
 - [Lark来源连接器规范](docs/specs/Lark来源连接器规范.md)：通过已配置 MCP 获取、快照和刷新 Lark 需求资料。
 - [任务模型规范](docs/specs/任务模型规范.md)：Git 共享的节点状态、审批、依赖和失效传播。
 - [上下文包规范](docs/specs/上下文包规范.md)：共享任务产物、来源快照、注入规则和本机运行数据边界。
-- [Codex 适配器契约](docs/specs/Codex适配器契约.md)：运行请求、结果、失败处理和适配边界。
+- [Codex适配器规范](docs/specs/Codex适配器规范.md)：运行请求、结果、失败处理和适配边界。
 - [CLI 命令参考](docs/reference/CLI命令参考.md)：MVP 命令、参数、输出和状态影响。
 
 ### MVP 实施
 
-- [最小可行产品实施计划](docs/plans/最小可行产品实施计划.md)：按测试驱动分解的框架与功能实现步骤。
+- [MVP版本实施计划](docs/plans/MVP版本实施计划.md)：按测试驱动分解的框架与功能实现步骤。
 
 ## 计划中的目录
 

@@ -1,4 +1,4 @@
-# Codex Adapter 契约（v1）
+# Codex适配器规范（v1）
 
 ## 目的
 
