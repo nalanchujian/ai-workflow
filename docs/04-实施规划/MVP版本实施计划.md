@@ -415,7 +415,7 @@ git commit -m "feat: run task nodes through Codex adapter"
 **文件：**
 
 - 新建：`tests/e2e/mvp-workflow.test.ts`、`tests/fakes/fake-git-client.ts`、`tests/fakes/fake-network-client.ts`、`tests/fakes/fake-process-runner.ts`、`tests/helpers/complete-node.ts`
-- 修改：`README.md`、`docs/specs/MVP需求与验收规范.md`
+- 修改：`README.md`、`docs/02-需求定义/MVP需求与验收规范.md`
 
 **接口：**
 
@@ -442,7 +442,7 @@ it('initializes seven phases and dry-runs clarify with a locked Superpowers meth
 
 - [ ] **步骤 3：连接组合根并补充开发文档**
 
-在 `src/cli.ts` 中实例化生产端口；测试注入替身。实现 `tests/helpers/complete-node.ts` 的 `completeNode(store, taskId, nodeId)`：加载任务、应用任务 2 的 `succeed` 迁移并使用声明的 fixture 产物保存任务。该 helper 必须覆盖 `clarify → solution → plan → implement → verify → test` 的阶段产物，并在 `clarify`、`plan`、`test` 后要求显式批准和模拟 Git 提交。README 增加前置条件、`pnpm install`、`pnpm build`、`pnpm test`、本地文件任务示例，以及“认证来源连接器和上游方法论自动下载不在 MVP 范围内”的说明。为 `docs/specs/MVP需求与验收规范.md` 的每个 AC-1 至 AC-14 标记对应测试文件。
+在 `src/cli.ts` 中实例化生产端口；测试注入替身。实现 `tests/helpers/complete-node.ts` 的 `completeNode(store, taskId, nodeId)`：加载任务、应用任务 2 的 `succeed` 迁移并使用声明的 fixture 产物保存任务。该 helper 必须覆盖 `clarify → solution → plan → implement → verify → test` 的阶段产物，并在 `clarify`、`plan`、`test` 后要求显式批准和模拟 Git 提交。README 增加前置条件、`pnpm install`、`pnpm build`、`pnpm test`、本地文件任务示例，以及“认证来源连接器和上游方法论自动下载不在 MVP 范围内”的说明。为 `docs/02-需求定义/MVP需求与验收规范.md` 的每个 AC-1 至 AC-14 标记对应测试文件。
 
 - [ ] **步骤 4：运行完整验证套件**
 
@@ -452,7 +452,7 @@ it('initializes seven phases and dry-runs clarify with a locked Superpowers meth
 - [ ] **步骤 5：提交已验证的 MVP**
 
 ```bash
-git add README.md docs/specs/MVP需求与验收规范.md tests/e2e tests/fakes src
+git add README.md docs/02-需求定义/MVP需求与验收规范.md tests/e2e tests/fakes src
 git commit -m "test: cover aiw MVP workflow"
 ```
 
