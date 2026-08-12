@@ -27,9 +27,30 @@ aiw task init refund-123 --project . --source https://<tenant>.larksuite.com/doc
 aiw task source refresh refund-123 requirements
 ```
 
-`task init` 根据 URL 识别来源类型：本地文件、公开 HTTP(S) 地址或 Lark 文档。Lark 文档交给已配置的 Lark Connector；其余现有来源仍沿用原来的接入规则。
+`task init` 根据 URL 识别来源类型：本地文件、公开 HTTP(S) 地址或 Lark 文档。MVP 仅接受 `https://<tenant>.larksuite.com/docx/<document-id>` 或 `https://<tenant>.feishu.cn/docx/<document-id>`；查询参数和片段不参与文档标识。其他 Lark URL（包括 Wiki、表格、旧版文档）必须提示“当前 Connector 不支持该文档类型”，不得回退为公开 URL 抓取。Lark 文档交给已配置的 Lark Connector；其余现有来源仍沿用原来的接入规则。
 
 `task source refresh` 是显式动作，不在 MVP 中轮询或订阅 Lark 文档变化。它重新读取指定来源、创建新的快照 revision；若正文哈希不变，只返回“未变化”且不修改任务状态。哈希变化时，保留旧快照、创建新 revision，并由任务状态机使依赖旧 revision 的下游节点失效。
+
+## 本机 MCP 解析与调用
+
+`aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。MVP 的本机 Connector Profile 位于 `~/.aiw/config.yaml`，不纳入 Git：
+
+```yaml
+schemaVersion: aiw.local/v1
+connectors:
+  lark:
+    configSource:
+      kind: codex-toml
+      path: ~/.codex/config.toml
+    server: lark-openapi
+    tool: docx_v1_document_rawContent
+    useUAT: false
+```
+
+- `configSource` 只定位已有 MCP Server 定义；MVP 使用 `codex-toml` 读取指定路径中的 `[mcp_servers.<server>]`。该定义必须启用且包含 `command` 与 `args`。
+- `server`、`tool` 和 `useUAT` 是 `aiw` 的本机映射配置，不是 Lark 凭据。实际命令、参数和环境变量仅在启动 MCP 子进程时驻留于内存；不得复制到 `~/.aiw/` 运行记录或业务仓库。
+- `McpServerConfigResolver` 解析出 stdio Server 描述；`StdioMcpClient` 启动该进程，完成 MCP 初始化、调用工具、关闭连接。它不得通过 shell 拼接命令，也不得将原始 MCP 请求或响应写入日志。
+- 无本机 profile、配置文件不可读、Server 未启用、Server 定义不完整或 MCP 初始化失败时，来源接入以 `LARK_MCP_UNAVAILABLE` 失败；不得尝试浏览器、HTTP 回退或其他隐式读取方式。
 
 ## 接口契约
 
@@ -39,6 +60,26 @@ aiw task source refresh refund-123 requirements
 interface SourceConnector {
   supports(input: string): boolean;
   fetch(input: string): Promise<ConnectorSource>;
+}
+
+interface McpServerConfigResolver {
+  resolve(input: { source: 'codex-toml'; path: string; server: string }): Promise<McpServerDescriptor>;
+}
+
+interface McpServerDescriptor {
+  transport: 'stdio';
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  startupTimeoutMs?: number;
+}
+
+interface McpClient {
+  callTool(input: {
+    server: McpServerDescriptor;
+    tool: string;
+    arguments: unknown;
+  }): Promise<unknown>;
 }
 
 interface ConnectorSource {
@@ -51,7 +92,20 @@ interface ConnectorSource {
 }
 ```
 
-具体 MCP 工具名、传参格式和返回字段由本机 Connector 配置适配；MVP 不把这些实现细节写入任务事实。Connector 必须拒绝空正文、无法识别的文档类型、缺失文档标识或非 Markdown 文本结果，并返回不含凭据的诊断。
+MVP 将 `docx/<document-id>` 映射为唯一的 MCP 调用：
+
+```json
+{
+  "tool": "docx_v1_document_rawContent",
+  "arguments": {
+    "path": {"document_id": "<document-id>"},
+    "params": {"lang": 0},
+    "useUAT": false
+  }
+}
+```
+
+`useUAT` 取自本机 profile。连接器只接受可解析为 `data.content` 字符串的成功结果；该文本按原样作为 Markdown 快照正文（纯文本是合法 Markdown），不执行其中内容。空正文、缺失 `data.content`、非字符串内容或未识别的文档 URL 返回 `LARK_RESPONSE_INVALID` 或 `LARK_URL_UNSUPPORTED`，诊断不得包含令牌、原始响应或子进程参数。
 
 来源元数据新增 `kind`、`externalId` 与 `revision`，例如：
 
@@ -83,6 +137,7 @@ Lark URL
 ```
 
 - MCP 未配置、不可用或无权限：命令失败，不创建或覆盖快照，也不改变任务状态。
+- MCP 返回无权限或文档不存在：映射为 `LARK_DOCUMENT_UNAVAILABLE`；连接失败、初始化超时或工具超时映射为 `LARK_MCP_UNAVAILABLE`；两者都不泄露原始 MCP 错误。
 - Lark 返回的内容超出来源大小上限：命令失败，不截断、不写入部分内容。
 - 刷新内容未变：不创建 revision、不触发失效。
 - 刷新内容变化：先完整写入新 revision，再原子更新任务来源引用并记录失效事件；写入失败时旧 revision 继续有效。
@@ -94,7 +149,7 @@ Lark URL
 
 | 连接器验证重点 | 对应产品验收 |
 |---|---|
-| 为 Lark URL 调用可注入的 MCP 客户端替身，并生成 `lark-mcp/v1` 元数据与 Markdown 快照。 | AC-15 |
+| 从本机 profile 解析 `lark-openapi`，以 `docx_v1_document_rawContent` 和 `document_id` 调用可注入的 MCP 客户端替身，并生成 `lark-mcp/v1` 元数据与 Markdown 快照。 | AC-15 |
 | MCP 未配置、无权限、超时、返回无效结构或正文超限时，不产生不完整任务事实，也不泄露凭据。 | AC-16 |
 | 刷新后正文哈希未变化时，不创建 revision、不改变节点状态。 | AC-17 |
 | 刷新后正文哈希变化时，保留旧快照，创建新 revision，并使已开始的下游节点失效。 | AC-18 |

@@ -6,7 +6,7 @@
 
 **实施方式：** 按任务 1 至 7 顺序建立 CLI、领域模型、来源接入、技能、上下文、执行器与端到端验证；每个任务先以替身端口编写失败测试，再实现最小功能并提交。
 
-**技术栈：** Node.js 22+、TypeScript 严格模式、pnpm、Commander、Zod、yaml、Vitest、ESLint、原生 `fetch`、Node `crypto`、`child_process`。
+**技术栈：** Node.js 22+、TypeScript 严格模式、pnpm、Commander、Zod、yaml、TOML 解析器、MCP TypeScript SDK、Vitest、ESLint、原生 `fetch`、Node `crypto`、`child_process`。
 
 ## 实施必须遵守的设计约束
 
@@ -40,6 +40,7 @@ src/ports/git-client.ts              # clone/fetch/revision 端口
 src/ports/repository-status.ts       # 共享任务事实的 Git 提交状态端口
 src/ports/network-client.ts          # DNS 和 HTTP 端口
 src/ports/mcp-client.ts              # 已配置 MCP 工具调用端口
+src/ports/mcp-server-config-resolver.ts # 本机 MCP Server 定义解析端口
 src/ports/process-runner.ts          # 子进程端口
 src/ports/method-source-resolver.ts  # 已配置方法论来源解析端口
 src/services/task-store.ts           # task.yaml 和事件持久化
@@ -55,6 +56,7 @@ src/services/method-source-resolver.ts # 上游方法论的本机解析与哈希
 src/services/context-builder.ts      # 上下文选择、manifest 和 context.md
 src/services/task-runner.ts          # 节点运行生命周期
 src/adapters/codex-adapter.ts        # Codex 调用与结果收集
+src/adapters/stdio-mcp-client.ts     # stdio MCP 启动、工具调用与关闭
 tests/                               # 与 src 对应的单元和集成测试
 ```
 
@@ -193,15 +195,16 @@ git commit -m "feat: add task DAG state machine"
 
 **文件：**
 
-- 新建：`src/ports/network-client.ts`、`src/ports/mcp-client.ts`、`src/services/task-store.ts`、`src/services/source-intake.ts`、`src/services/lark-source-connector.ts`、`src/services/source-refresher.ts`、`src/services/task-initializer.ts`
+- 新建：`src/ports/network-client.ts`、`src/ports/mcp-client.ts`、`src/ports/mcp-server-config-resolver.ts`、`src/adapters/stdio-mcp-client.ts`、`src/services/task-store.ts`、`src/services/source-intake.ts`、`src/services/lark-source-connector.ts`、`src/services/source-refresher.ts`、`src/services/task-initializer.ts`
 - 新建：`src/cli/task-init-command.ts`、`src/cli/task-source-refresh-command.ts`
-- 新建：`tests/services/task-store.test.ts`、`tests/services/source-intake.test.ts`、`tests/services/lark-source-connector.test.ts`、`tests/services/source-refresher.test.ts`、`tests/cli/task-init-command.test.ts`、`tests/cli/task-source-refresh-command.test.ts`
+- 新建：`tests/adapters/stdio-mcp-client.test.ts`、`tests/services/task-store.test.ts`、`tests/services/source-intake.test.ts`、`tests/services/lark-source-connector.test.ts`、`tests/services/source-refresher.test.ts`、`tests/cli/task-init-command.test.ts`、`tests/cli/task-source-refresh-command.test.ts`
 
 **接口：**
 
 - 提供 `TaskStore.create(task: Task): Promise<void>`、`TaskStore.load(id: string): Promise<Task>`、`TaskStore.update(task: Task): Promise<void>`。
 - 提供 `SourceIntake.snapshot(input: SourceInput): Promise<SnapshotRecord>`。
-- 提供 `LarkSourceConnector.fetch(url: string): Promise<ConnectorSource>` 与可注入的 `McpClient`。
+- 提供 `McpServerConfigResolver.resolve(input): Promise<McpServerDescriptor>` 与 `McpClient.callTool(input): Promise<unknown>`。
+- 提供 `LarkSourceConnector.fetch(url: string): Promise<ConnectorSource>`，使用可注入的 MCP 配置解析器与客户端。
 - 提供 `SourceRefresher.refresh(input: { taskId: string; sourceId: string }): Promise<RefreshResult>`。
 - 提供 `TaskInitializer.init(input: { id: string; projectRoot: string; source: string }): Promise<Task>`。
 
@@ -230,7 +233,7 @@ it('creates a new revision and invalidates downstream nodes when Lark content ch
 
 - [ ] **步骤 2：运行测试并确认失败**
 
-运行：`pnpm vitest run tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-init-command.test.ts tests/cli/task-source-refresh-command.test.ts`
+运行：`pnpm vitest run tests/adapters/stdio-mcp-client.test.ts tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-init-command.test.ts tests/cli/task-source-refresh-command.test.ts`
 预期：因存储和接入服务尚不存在而失败。
 
 - [ ] **步骤 3：实现原子存储与安全接入**
@@ -239,13 +242,13 @@ it('creates a new revision and invalidates downstream nodes when Lark content ch
 
 - [ ] **步骤 4：验证任务初始化**
 
-运行：`pnpm vitest run tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-init-command.test.ts tests/cli/task-source-refresh-command.test.ts && pnpm lint && pnpm typecheck`
+运行：`pnpm vitest run tests/adapters/stdio-mcp-client.test.ts tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-init-command.test.ts tests/cli/task-source-refresh-command.test.ts && pnpm lint && pnpm typecheck`
 预期：全部通过。
 
 - [ ] **步骤 5：提交任务初始化**
 
 ```bash
-git add src/ports/network-client.ts src/ports/mcp-client.ts src/services/task-store.ts src/services/source-intake.ts src/services/lark-source-connector.ts src/services/source-refresher.ts src/services/task-initializer.ts src/cli/task-init-command.ts src/cli/task-source-refresh-command.ts tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-init-command.test.ts tests/cli/task-source-refresh-command.test.ts
+git add src/ports/network-client.ts src/ports/mcp-client.ts src/ports/mcp-server-config-resolver.ts src/adapters/stdio-mcp-client.ts src/services/task-store.ts src/services/source-intake.ts src/services/lark-source-connector.ts src/services/source-refresher.ts src/services/task-initializer.ts src/cli/task-init-command.ts src/cli/task-source-refresh-command.ts tests/adapters/stdio-mcp-client.test.ts tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-init-command.test.ts tests/cli/task-source-refresh-command.test.ts
 git commit -m "feat: initialize and refresh task sources"
 ```
 

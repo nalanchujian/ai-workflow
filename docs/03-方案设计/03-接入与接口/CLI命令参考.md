@@ -69,7 +69,7 @@ aiw task init refund-123 --project . --source https://<tenant>.larksuite.com/doc
 |---|---|
 | `<task-id>` | 必填。匹配 `[a-z][a-z0-9-]{1,63}`，且在项目内唯一。 |
 | `--project <path>` | 必填。业务项目根目录。 |
-| `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark 文档 URL。 |
+| `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark `docx` 文档 URL。 |
 
 成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`。Lark URL 由本机已配置的 Lark MCP Server 读取；MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 

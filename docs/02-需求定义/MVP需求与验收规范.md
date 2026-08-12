@@ -41,7 +41,7 @@
 - 本地来源必须解析为真实文件，且不得是目录；其文本保存为 `sources/<source-id>/r1/snapshot.md`。
 - URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。
 - URL 请求必须拒绝回环、私网、链路本地及保留 IP，并限制重定向次数、响应大小与请求超时。
-- 已配置 Lark Connector 时，Lark 文档 URL 必须通过本机 Lark MCP Server 获取；Connector 返回的 Markdown、规范化 URL、文档标识和获取时间形成 `lark-mcp/v1` 快照。MCP 配置、令牌和原始响应不得进入任务事实。
+- 已配置 Lark Connector 时，Lark `docx` 文档 URL 必须通过本机 Lark MCP Server 获取；Connector 返回的 Markdown、规范化 URL、文档标识和获取时间形成 `lark-mcp/v1` 快照。MCP 配置、令牌和原始响应不得进入任务事实。
 - 快照元数据记录来源类型、来源、revision、获取时间、内容 SHA-256 与提取器版本；不得记录本机绝对路径、Cookie、令牌或授权头。
 - 需要团队审批的来源快照必须可由业务仓库读者访问，并通过 Git 提交；敏感来源必须先形成脱敏快照。
 - `aiw task source refresh <task-id> <source-id>` 重新读取指定来源；正文哈希未变化时不创建 revision、不改变任务状态；哈希变化时创建新 revision、保留旧快照并递归使已开始下游节点失效。
