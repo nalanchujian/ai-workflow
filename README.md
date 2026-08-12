@@ -47,10 +47,12 @@ aiw task run req-123 implementation --skill implementation
 - [产品方案](docs/product/产品方案.md)：面向管理层的立项价值、MVP、风险、衡量指标与阶段决策。
 - [架构设计](docs/design/架构设计.md)：分层、任务 DAG、人工关卡、上下文与安全边界。
 - [最小可行产品需求与验收标准](docs/specs/最小可行产品需求与验收标准.md)：功能范围、错误行为与自动化验收场景。
+- [技能包规范](docs/specs/技能包规范.md)：团队技能的目录、元数据、版本锁定和安全边界。
 - [安全设计](docs/specs/安全设计.md)：来源接入、技能供应链、提示词隔离与 Codex 进程边界。
 - [任务模型规范](docs/specs/任务模型规范.md)：节点状态、审批、依赖和失效传播。
 - [上下文包规范](docs/specs/上下文包规范.md)：任务产物、来源快照、注入规则和 URL 安全边界。
 - [Codex 适配器契约](docs/specs/Codex适配器契约.md)：运行请求、结果、失败处理和适配边界。
+- [CLI 命令参考](docs/reference/CLI命令参考.md)：MVP 命令、参数、输出和状态影响。
 - [最小可行产品实施计划](docs/plans/最小可行产品实施计划.md)：按测试驱动分解的框架与功能实现步骤。
 
 ## 计划中的目录
