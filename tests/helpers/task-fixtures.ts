@@ -37,6 +37,7 @@ export function createSevenPhaseTask(): Task {
       },
       sha256: 'c'.repeat(64),
     },
+    sources: {},
     nodes: {
       intake: node('接入资料', 'intake', [], 'completed', false, ['sources/requirements/r1/snapshot.md']),
       clarify: node('澄清需求', 'clarify', ['intake'], 'ready', true, ['artifacts/brief.md'], createSkillLock('requirements-clarification')),

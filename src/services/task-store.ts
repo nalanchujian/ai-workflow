@@ -1,0 +1,71 @@
+import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { join, relative, resolve } from 'node:path';
+import { parse, stringify } from 'yaml';
+
+import { TaskSchema, type Task } from '../domain/task.js';
+
+export class TaskStoreError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TaskStoreError';
+  }
+}
+
+export class TaskStore {
+  constructor(private readonly projectRoot: string) {}
+
+  taskDirectory(taskId: string): string {
+    return join(this.projectRoot, '.aiw', 'tasks', taskId);
+  }
+
+  async create(task: Task): Promise<void> {
+    const parsed = TaskSchema.parse(task);
+    const directory = this.taskDirectory(parsed.id);
+    try {
+      await access(join(directory, 'task.yaml'));
+      throw new TaskStoreError(`任务已存在：${parsed.id}`);
+    } catch (error) {
+      if (error instanceof TaskStoreError) {
+        throw error;
+      }
+    }
+    await mkdir(directory, { recursive: true });
+    await this.writeTask(parsed);
+  }
+
+  async load(taskId: string): Promise<Task> {
+    const taskPath = join(this.taskDirectory(taskId), 'task.yaml');
+    try {
+      return TaskSchema.parse(parse(await readFile(taskPath, 'utf8')));
+    } catch (error) {
+      if (error instanceof TaskStoreError) {
+        throw error;
+      }
+      throw new TaskStoreError(`无法读取任务：${taskId}`);
+    }
+  }
+
+  async update(task: Task): Promise<void> {
+    const parsed = TaskSchema.parse(task);
+    await this.writeTask(parsed);
+  }
+
+  relativeTaskPath(taskId: string, absolutePath: string): string {
+    const taskDirectory = resolve(this.taskDirectory(taskId));
+    const resolved = resolve(absolutePath);
+    const path = relative(taskDirectory, resolved);
+    if (path.startsWith('..') || path === '') {
+      throw new TaskStoreError('路径必须位于任务目录内');
+    }
+    return path.replaceAll('\\', '/');
+  }
+
+  private async writeTask(task: Task): Promise<void> {
+    const directory = this.taskDirectory(task.id);
+    await mkdir(directory, { recursive: true });
+    const taskPath = join(directory, 'task.yaml');
+    const temporaryPath = `${taskPath}.tmp`;
+    await writeFile(temporaryPath, stringify(task), 'utf8');
+    await rename(temporaryPath, taskPath);
+  }
+}

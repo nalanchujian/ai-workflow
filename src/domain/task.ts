@@ -60,6 +60,18 @@ export const OutputRecordSchema = z.object({
   sha256: z.string().regex(sha256Pattern, '必须是 SHA-256 哈希'),
 });
 
+export const SourceKindSchema = z.enum(['local-file', 'public-url', 'lark-document']);
+
+export const SourceReferenceSchema = z.object({
+  kind: SourceKindSchema,
+  origin: z.string().min(1),
+  externalId: z.string().min(1).optional(),
+  revision: z.number().int().positive(),
+  snapshotPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径'),
+  metaPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径'),
+  contentSha256: z.string().regex(sha256Pattern, '必须是 SHA-256 哈希'),
+});
+
 export const TaskNodeSchema = z.object({
   title: z.string().min(1),
   phase: PhaseSchema,
@@ -100,6 +112,7 @@ const TaskBaseSchema = z.object({
   repository: z.string().min(1),
   status: TaskStatusSchema,
   skillProfile: WorkflowProfileLockSchema,
+  sources: z.record(z.string().min(1), SourceReferenceSchema),
   nodes: z.record(z.string().min(1), TaskNodeSchema),
   approvalRefs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
   events: z.array(TaskEventSchema),
@@ -156,5 +169,7 @@ export type NodeStatus = z.infer<typeof NodeStatusSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type SkillLock = z.infer<typeof SkillLockSchema>;
 export type OutputRecord = z.infer<typeof OutputRecordSchema>;
+export type SourceKind = z.infer<typeof SourceKindSchema>;
+export type SourceReference = z.infer<typeof SourceReferenceSchema>;
 export type TaskNode = z.infer<typeof TaskNodeSchema>;
 export type Task = z.infer<typeof TaskSchema>;
