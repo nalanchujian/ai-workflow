@@ -34,7 +34,7 @@
 - 技能 front matter 必须含 `name`、`version`、`description` 与 `phases`；阶段只能是 `clarify`、`solution`、`plan`、`implement`、`verify` 或 `test`。
 - 默认七阶段的技能必须声明至少一个 `methodSources`。新标准技能使用 `bundled:superpowers`，由团队技能包的 `method-sources/` 提供上游方法正文与来源清单；不得要求最终用户安装或配置 Superpowers。
 - Registry 与节点锁定记录每项方法论的 ID、来源标识、版本、上游 revision 与 `SKILL.md` SHA-256；用户级 Registry 还保存经校验的内置方法正文，本机绝对路径不进入共享任务事实或运行清单。
-- `methodSources` 缺少字段、声明的内置方法或 `SOURCE.yaml` 不存在/不合法、上游 revision 或许可证缺失，或 `SKILL.md` 哈希无法记录时，拒绝整个技能来源安装。`configured:` 仅兼容既有任务锁定。
+- `methodSources` 缺少字段、来源不是 `bundled:*`、声明的内置方法或 `SOURCE.yaml` 不存在/不合法、上游 revision 或许可证缺失，或 `SKILL.md` 哈希无法记录时，拒绝整个技能来源安装。
 
 ### FR-3：任务创建、来源快照与刷新
 

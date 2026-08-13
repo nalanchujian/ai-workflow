@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { DoctorService } from '../../src/services/doctor-service.js';
@@ -12,7 +12,7 @@ describe('DoctorService', () => {
 
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('reports Git, Codex, configured method sources, and Lark configuration without testing Lark authorization by default', async () => {
+  it('reports Git, Codex, bundled-method status, and Lark configuration without testing Lark authorization by default', async () => {
     const directory = await createConfiguredDirectory(directories);
     const result = await new DoctorService({
       config: new LocalConfig(join(directory, 'config.yaml')),
@@ -26,7 +26,7 @@ describe('DoctorService', () => {
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'git-cli', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'project-repository', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'codex-cli', status: 'passed' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-source:superpowers', status: 'passed' }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-sources', status: 'warning' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-configuration', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-authorization', status: 'warning' }));
   });
@@ -99,17 +99,8 @@ describe('DoctorService', () => {
 async function createConfiguredDirectory(directories: string[]): Promise<string> {
   const directory = await createTempDirectory('aiw-doctor-');
   directories.push(directory);
-  const methodsRoot = join(directory, 'methods');
-  await mkdir(join(methodsRoot, 'brainstorming'), { recursive: true });
-  await writeFile(join(methodsRoot, 'brainstorming', 'SKILL.md'), '---\nname: brainstorming\n---\n', 'utf8');
   await writeFile(join(directory, 'config.yaml'), [
     'schemaVersion: aiw.local/v1',
-    'methodSources:',
-    '  superpowers:',
-    '    kind: local-skill-directory',
-    `    root: ${methodsRoot}`,
-    '    version: 6.2.0',
-    '    revision: 6.2.0',
     'connectors:',
     '  lark:',
     '    configSource:',

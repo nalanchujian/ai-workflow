@@ -4,7 +4,7 @@
 
 **Goal:** Make the team skills package self-contained: users install `aiw` and `ai-workflow-skills`, while AIW automatically installs, verifies and locks the selected Superpowers method files without a user-level `methodSources` configuration.
 
-**Architecture:** Extend the user-level skill Registry to hold verified bundled method documents beside installed skills and workflow profiles. The installer resolves `bundled:<source>` declarations from a signed-by-Git package layout; the Runner reads the locked document from Registry and refuses hash or revision mismatch. Keep the existing `configured:<source>` path only for old task locks. Add top-level `aiw init` to create a safe, Lark-only local configuration template.
+**Architecture:** Extend the user-level skill Registry to hold verified bundled method documents beside installed skills and workflow profiles. The installer accepts only `bundled:<source>` declarations from a Git-versioned package layout; the Runner reads the locked document from Registry and refuses hash or revision mismatch. Add top-level `aiw init` to create a safe, Lark-only local configuration template.
 
 **Tech Stack:** TypeScript 5, Zod 4, YAML 2, Commander 14, Vitest 3, Git HTTPS sources.
 
@@ -20,7 +20,7 @@
 - No user-level Superpowers path, version or revision is required by a new standard task.
 - Bundled methods must be read only from the installed Registry; no plugin-cache scan, implicit network fetch, or runtime clone is allowed.
 - Task facts retain only method ID, source, version, upstream revision and SHA-256; no cached path or method body enters `.aiw/`.
-- The existing `configured:superpowers` contract remains available only to run pre-migration task locks.
+- `configured:superpowers` is unsupported; old tasks and skills must be migrated to a bundled package before use.
 - `aiw init` never overwrites an existing `~/.aiw/config.yaml` and never writes credentials.
 - Do not create a Git commit or push while executing this plan unless the user explicitly requests it.
 
@@ -30,7 +30,7 @@
 
 - Create: `src/domain/bundled-method-source.ts` — package manifest and installed bundled method schemas.
 - Modify: `src/domain/skill.ts` — retain resolved method locks while adding bundled-method references to installed state.
-- Modify: `src/services/skill-registry.ts` — registry v2 persistence and backward-compatible v1 read.
+- Modify: `src/services/skill-registry.ts` — registry v2 persistence only.
 - Modify: `src/services/skill-installer.ts` — atomic package bundle validation and Registry persistence.
 - Modify: `src/services/method-source-resolver.ts` — dispatch configured legacy and Registry-backed bundled methods.
 - Create: `src/services/local-initializer.ts` — non-destructive user home config initializer.
@@ -117,7 +117,7 @@ Implement a `readBundledMethods(directory, registrySource)` path in `SkillInstal
 5. resolve each skill lock from the verified bundle; and
 6. pass skills, profiles and methods together to one Registry replacement.
 
-Keep `configured:<name>` resolution for legacy packages. Reject source strings other than those two forms.
+Reject every source string except `bundled:<name>`.
 
 - [ ] **Step 3: Run targeted tests**
 
@@ -142,7 +142,7 @@ Expected: PASS, including atomic rollback cases.
 **Interfaces:**
 - `readLocked(source)` returns the exact installed body for `bundled:superpowers`.
 - For bundled sources, it verifies `id`, `source`, `version`, `revision` and `sha256` against Registry before returning content.
-- For `configured:*`, it keeps current legacy behavior.
+- For every non-bundled source, it rejects without probing local paths.
 
 - [ ] **Step 1: Write failing execution tests**
 
@@ -158,7 +158,7 @@ Expected: FAIL because the resolver requires local configuration.
 
 - [ ] **Step 2: Implement source-aware resolver dispatch**
 
-Inject `SkillRegistry` into the production resolver. For `bundled:superpowers`, locate exactly one Registry entry matching all locked source fields and return its stored content. For a missing or mismatched entry, throw the existing lock-invalid path so `TaskRunner` records a failed node and never unlocks dependents. Preserve the current configured resolver as the only handler for old `configured:*` locks.
+Inject `SkillRegistry` into the production resolver. For `bundled:superpowers`, locate exactly one Registry entry matching all locked source fields and return its stored content. For a missing or mismatched entry, throw the existing lock-invalid path so `TaskRunner` records a failed node and never unlocks dependents. Reject all non-bundled source strings without reading local paths.
 
 - [ ] **Step 3: Run targeted tests**
 
@@ -305,4 +305,4 @@ Expected: all checks pass and no document requires ordinary users to know Superp
 
 - Spec coverage: Tasks 1–3 cover the bundled contract, Registry persistence, installation and locked execution; Task 4 covers user initialization; Task 5 changes the public source package and legal provenance; Task 6 aligns product guidance and acceptance evidence.
 - Placeholder scan: temporary paths are confined to explicit verification commands; the upstream commit is intentionally discovered from the release tag before copying and must be recorded as an exact value before publication.
-- Type consistency: all new runtime reads use `bundled:superpowers`; old task locks remain `configured:superpowers`; new standard package and profile versions are `2.0.0`.
+- Type consistency: all runtime reads use `bundled:superpowers`; non-bundled task locks are rejected; new standard package and profile versions are `2.0.0`.

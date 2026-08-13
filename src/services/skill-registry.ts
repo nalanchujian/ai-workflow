@@ -7,12 +7,6 @@ import { InstalledBundledMethodSchema, type InstalledBundledMethod } from '../do
 import { InstalledSkillSchema, type InstalledSkill } from '../domain/skill.js';
 import { InstalledWorkflowProfileSchema, type InstalledWorkflowProfile } from '../domain/workflow-profile.js';
 
-const RegistryV1Schema = z.object({
-  schemaVersion: z.literal('aiw.skill-registry/v1'),
-  skills: z.array(InstalledSkillSchema),
-  profiles: z.array(InstalledWorkflowProfileSchema),
-});
-
 const RegistryV2Schema = z.object({
   schemaVersion: z.literal('aiw.skill-registry/v2'),
   skills: z.array(InstalledSkillSchema),
@@ -20,14 +14,7 @@ const RegistryV2Schema = z.object({
   methods: z.array(InstalledBundledMethodSchema),
 });
 
-const RegistrySchema = z.union([RegistryV1Schema, RegistryV2Schema]).transform((registry) => ({
-  schemaVersion: 'aiw.skill-registry/v2' as const,
-  skills: registry.skills,
-  profiles: registry.profiles,
-  methods: registry.schemaVersion === 'aiw.skill-registry/v2' ? registry.methods : [],
-}));
-
-type Registry = z.infer<typeof RegistrySchema>;
+type Registry = z.infer<typeof RegistryV2Schema>;
 type RegistryReplacement = Pick<Registry, 'skills' | 'profiles'> & { methods?: InstalledBundledMethod[] };
 type RegistrySourceReplacement = RegistryReplacement & { sourceUrl: string };
 
@@ -68,7 +55,7 @@ export class SkillRegistry {
   }
 
   async replace(input: RegistryReplacement): Promise<void> {
-    const registry = RegistrySchema.parse({ schemaVersion: 'aiw.skill-registry/v2', ...input, methods: input.methods ?? [] });
+    const registry = RegistryV2Schema.parse({ schemaVersion: 'aiw.skill-registry/v2', ...input, methods: input.methods ?? [] });
     await mkdir(dirname(this.path), { recursive: true });
     const temporaryPath = `${this.path}.tmp`;
     await writeFile(temporaryPath, stringify(registry), 'utf8');
@@ -86,7 +73,7 @@ export class SkillRegistry {
 
   private async read(): Promise<Registry> {
     try {
-      return RegistrySchema.parse(parse(await readFile(this.path, 'utf8')));
+      return RegistryV2Schema.parse(parse(await readFile(this.path, 'utf8')));
     } catch (error) {
       if (isMissingFile(error)) {
         return { schemaVersion: 'aiw.skill-registry/v2', skills: [], profiles: [], methods: [] };

@@ -1,33 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export async function createSkillRepositoryFixture(root: string): Promise<{ methodRoot: string; repository: string }> {
-  const repository = join(root, 'agent-skills');
-  const methodRoot = join(root, 'superpowers');
-  await mkdir(methodRoot, { recursive: true });
-  await writeMethod(methodRoot, 'brainstorming');
-  await writeMethod(methodRoot, 'writing-plans');
-  await writeMethod(methodRoot, 'test-driven-development');
-  await mkdir(join(repository, 'skills'), { recursive: true });
-  const skills = [
-    ['requirements-clarification', ['clarify'], 'brainstorming'],
-    ['technical-solution', ['solution'], 'brainstorming'],
-    ['implementation-planning', ['plan'], 'writing-plans'],
-    ['typescript-web-implementation', ['implement'], 'test-driven-development'],
-    ['web-verification', ['verify'], 'test-driven-development'],
-    ['acceptance-testing', ['test'], 'test-driven-development'],
-  ] as const;
-  for (const [name, phases, method] of skills) {
-    const directory = join(repository, 'skills', name);
-    await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, 'SKILL.md'), `---\nname: ${name}\nversion: 1.0.0\ndescription: ${name} description\nphases: [${phases.join(', ')}]\nmethodSources:\n  - id: superpowers:${method}\n    version: 6.2.0\n    source: configured:superpowers\n---\n\n# ${name}\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
-  }
-  const profileDirectory = join(repository, 'profiles', 'standard-web-feature');
-  await mkdir(profileDirectory, { recursive: true });
-  await writeFile(join(profileDirectory, 'PROFILE.yaml'), `name: standard-web-feature\nversion: 1.0.0\ndescription: Standard web feature workflow\nskills:\n  clarify: requirements-clarification@1.0.0\n  solution: technical-solution@1.0.0\n  plan: implementation-planning@1.0.0\n  implement: typescript-web-implementation@1.0.0\n  verify: web-verification@1.0.0\n  test: acceptance-testing@1.0.0\n`);
-  return { methodRoot, repository };
-}
-
 export async function createBundledSkillRepositoryFixture(root: string): Promise<{ repository: string }> {
   const repository = join(root, 'bundled-agent-skills');
   const methodRoot = join(repository, 'method-sources', 'superpowers', '6.2.0');

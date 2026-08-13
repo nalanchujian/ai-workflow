@@ -12,9 +12,9 @@ export function createSkillLock(name: string): SkillLock {
     methodSources: [
       {
         id: 'superpowers:brainstorming',
-        source: 'configured:superpowers',
+        source: 'bundled:superpowers',
         version: '6.2.0',
-        revision: '6.2.0',
+        revision: 'b'.repeat(40),
         sha256: 'b'.repeat(64),
       },
     ],

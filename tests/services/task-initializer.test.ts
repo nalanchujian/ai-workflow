@@ -92,7 +92,7 @@ function allSkills(): InstalledSkill[] {
     ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'implement'], ['web-verification', 'verify'], ['acceptance-testing', 'test'],
   ].map(([name, phase]) => ({
     name, version: '1.0.0', description: `${name} skill`, phases: [phase as InstalledSkill['phases'][number]], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash(name),
-    methodSources: [{ id: 'superpowers:brainstorming', source: 'configured:superpowers', version: '6.2.0', revision: '6.2.0', sha256: hash(`method-${name}`) }],
+    methodSources: [{ id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0', revision: 'a'.repeat(40), sha256: hash(`method-${name}`) }],
   }));
 }
 

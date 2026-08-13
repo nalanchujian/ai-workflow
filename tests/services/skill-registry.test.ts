@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { SkillRegistry } from '../../src/services/skill-registry.js';
@@ -29,6 +30,15 @@ describe('SkillRegistry', () => {
       expect.objectContaining({ registrySource: expect.objectContaining({ url: 'https://example.test/second.git' }) }),
       expect.objectContaining({ registrySource: expect.objectContaining({ url: 'https://example.test/first.git', revision: 'c'.repeat(40) }) }),
     ]);
+  });
+
+  it('rejects a registry created by an older application version', async () => {
+    const directory = await createTempDirectory('aiw-skill-registry-');
+    directories.push(directory);
+    const path = join(directory, 'registry.yaml');
+    await writeFile(path, 'schemaVersion: aiw.skill-registry/v1\nskills: []\nprofiles: []\n', 'utf8');
+
+    await expect(new SkillRegistry(path).list()).rejects.toThrow('技能注册表无效');
   });
 });
 

@@ -100,6 +100,8 @@ npm uninstall -g @nalanchujian/ai-workflow
 
 `aiw init` 只生成不含凭据、且不会覆盖的 `~/.aiw/config.yaml` 模板。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；只有使用 Lark 文档来源时才需要按模板补充 Lark MCP 映射。
 
+升级时应删除旧配置中的 `methodSources`；当前版本仅支持团队技能包提供的 `bundled:*` 方法，旧任务需使用新版技能包重新创建。
+
 从安装到完成首个任务的完整操作，见 [用户使用手册](https://github.com/nalanchujian/ai-workflow/blob/codex/agent-skill-orchestrator/docs/07-%E5%8F%91%E5%B8%83%E8%BF%90%E8%90%A5/%E7%94%A8%E6%88%B7%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md)。
 
 ### 开发环境的全局链接

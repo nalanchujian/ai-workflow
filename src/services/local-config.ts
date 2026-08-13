@@ -1,17 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { join } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
 
 const LocalConfigSchema = z.object({
   schemaVersion: z.literal('aiw.local/v1'),
-  methodSources: z.record(z.string(), z.object({
-    kind: z.literal('local-skill-directory'),
-    root: z.string().min(1).refine(isAbsolute, '方法来源目录必须使用绝对路径'),
-    version: z.string().regex(/^\d+\.\d+\.\d+$/),
-    revision: z.string().min(1),
-  })).default({}),
   connectors: z.object({
     lark: z.object({
       configSource: z.object({ kind: z.literal('codex-toml'), path: z.string().min(1) }),
@@ -20,23 +14,13 @@ const LocalConfigSchema = z.object({
       useUAT: z.boolean(),
     }).optional(),
   }).default({}),
-});
+}).strict();
 
 export type LocalConfigDocument = z.infer<typeof LocalConfigSchema>;
-export type LocalMethodSourceProfile = LocalConfigDocument['methodSources'][string];
 export type LocalLarkConnectorProfile = NonNullable<LocalConfigDocument['connectors']['lark']>;
 
 export class LocalConfig {
   constructor(private readonly path: string) {}
-
-  async methodSource(name: string): Promise<LocalMethodSourceProfile> {
-    const config = await this.read();
-    const profile = config.methodSources[name];
-    if (profile === undefined) {
-      throw new Error('Method source is unavailable');
-    }
-    return profile;
-  }
 
   async larkConnector(): Promise<LocalLarkConnectorProfile> {
     const profile = (await this.read()).connectors.lark;

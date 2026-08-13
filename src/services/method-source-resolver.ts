@@ -1,15 +1,9 @@
-import { createHash } from 'node:crypto';
-import { lstat, readFile, realpath } from 'node:fs/promises';
-import { join, relative } from 'node:path';
-import { parse } from 'yaml';
-
-import { ResolvedMethodSourceSchema, type MethodSource, type ResolvedMethodSource } from '../domain/method-source.js';
+import type { MethodSource, ResolvedMethodSource } from '../domain/method-source.js';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
-import { LocalConfig } from './local-config.js';
 import { SkillRegistry } from './skill-registry.js';
 
 export class MethodSourceResolver implements MethodSourceResolverPort {
-  constructor(private readonly config: LocalConfig, private readonly registry?: SkillRegistry) {}
+  constructor(private readonly registry: SkillRegistry) {}
 
   async resolve(source: MethodSource): Promise<ResolvedMethodSource> {
     return (await this.load(source)).source;
@@ -31,29 +25,10 @@ export class MethodSourceResolver implements MethodSourceResolverPort {
   }
 
   private async load(source: MethodSource): Promise<{ source: ResolvedMethodSource; content: string }> {
-    if (source.source.startsWith('bundled:')) {
-      return this.loadBundled(source);
-    }
-    const match = /^configured:([a-z][a-z0-9-]*)$/.exec(source.source);
-    const method = /^superpowers:([a-z][a-z0-9-]*)$/.exec(source.id);
-    if (match === null || method === null) {
+    if (!source.source.startsWith('bundled:')) {
       throw new Error('Method source is unavailable');
     }
-    const profile = await this.config.methodSource(match[1]);
-    if (profile.version !== source.version) {
-      throw new Error('Method source version does not match');
-    }
-    const root = await realpath(profile.root);
-    const entry = await realpath(join(root, method[1], 'SKILL.md'));
-    if (relative(root, entry).startsWith('..') || !(await lstat(entry)).isFile()) {
-      throw new Error('Method source entry is invalid');
-    }
-    const content = (await readFile(entry)).toString('utf8');
-    assertMethodName(content, method[1]);
-    return {
-      source: ResolvedMethodSourceSchema.parse({ ...source, revision: profile.revision, sha256: createHash('sha256').update(content).digest('hex') }),
-      content,
-    };
+    return this.loadBundled(source);
   }
 
   private async loadBundled(source: MethodSource): Promise<{ source: ResolvedMethodSource; content: string }> {
@@ -80,15 +55,4 @@ export class MethodSourceResolver implements MethodSourceResolverPort {
 
 function isResolved(source: MethodSource): source is ResolvedMethodSource {
   return 'revision' in source && 'sha256' in source;
-}
-
-function assertMethodName(content: string, expectedName: string): void {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(content);
-  if (match === null) {
-    throw new Error('方法来源入口缺少 front matter');
-  }
-  const frontMatter = parse(match[1]);
-  if (frontMatter === null || typeof frontMatter !== 'object' || Array.isArray(frontMatter) || frontMatter.name !== expectedName) {
-    throw new Error('方法来源入口与声明不一致');
-  }
 }

@@ -14,7 +14,7 @@ describe('ContextBuilder', () => {
   it('builds a plan manifest with only declared facts and the locked method source', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
-    task.nodes.plan.skill!.methodSources = [{ id: 'superpowers:writing-plans', source: 'configured:superpowers', version: '6.2.0', revision: '6.2.0', sha256: 'd'.repeat(64) }];
+    task.nodes.plan.skill!.methodSources = [{ id: 'superpowers:writing-plans', source: 'bundled:superpowers', version: '6.2.0', revision: 'd'.repeat(40), sha256: 'd'.repeat(64) }];
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory }).build({ task, nodeId: 'plan', includes: [] });
 
     expect(manifest.files.map((file) => file.path)).toEqual([
@@ -23,7 +23,7 @@ describe('ContextBuilder', () => {
       'artifacts/acceptance.md',
       'artifacts/solution.md',
     ]);
-    expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', revision: '6.2.0' }));
+    expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', revision: 'd'.repeat(40) }));
   });
 
   it('fails above the context budget without changing the approved artifact', async () => {

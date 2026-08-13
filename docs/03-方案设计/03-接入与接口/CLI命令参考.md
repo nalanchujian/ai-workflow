@@ -73,7 +73,7 @@ aiw run prune --older-than 30d --apply
 
 ### `aiw skills install <git-url> [--ref <tag-or-commit>]`
 
-从 Git 来源安装技能到用户级缓存并记录锁定 revision。标准团队技能随包提供 `bundled:superpowers` 方法正文和上游来源清单；安装器校验后缓存并锁定它们，最终用户无需配置或理解 Superpowers。本机 `configured:` 来源只兼容已有任务，不作为新标准模板的前提。
+从 Git 来源安装技能到用户级缓存并记录锁定 revision。团队技能必须随包提供 `bundled:superpowers` 方法正文和上游来源清单；安装器校验后缓存并锁定它们，最终用户无需配置或理解 Superpowers。本机 `configured:` 来源不受支持。
 
 ```bash
 aiw skills install git@github.com:your-org/agent-skills.git

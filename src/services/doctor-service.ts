@@ -1,5 +1,3 @@
-import { lstat, realpath } from 'node:fs/promises';
-
 import { DoctorResultSchema, type DoctorCheck, type DoctorResult } from '../domain/doctor.js';
 import type { McpClient } from '../ports/mcp-client.js';
 import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
@@ -37,7 +35,7 @@ export class DoctorService {
     }
 
     if (config === undefined) {
-      checks.push(warning('method-sources', '方法来源', '未检查方法来源，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的 `methodSources` 配置。'));
+      checks.push(warning('method-sources', '方法来源', '未检查内置方法，因为本机配置无效。', '运行 `aiw init` 重新创建或修复 `~/.aiw/config.yaml`。'));
       checks.push(input.larkUrl === undefined
         ? warning('lark-configuration', 'Lark MCP 配置', '未检查 Lark MCP 配置，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的 `connectors.lark` 配置。')
         : failed('lark-configuration', 'Lark MCP 配置', '无法验证指定 Lark 文档，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的 `connectors.lark` 配置。'));
@@ -72,24 +70,11 @@ export class DoctorService {
   }
 
   private async methodSourceChecks(config: LocalConfigDocument): Promise<DoctorCheck[]> {
-    const entries = Object.entries(config.methodSources);
-    if (entries.length === 0) {
-      const bundledMethods = await this.deps.registry?.listMethods() ?? [];
-      return bundledMethods.length === 0
-        ? [warning('method-sources', '方法来源', '尚未安装内置方法。', '运行 `aiw skills install <team-skill-repository>` 安装团队技能包。')]
-        : [passed('method-sources', '方法来源', `已安装 ${bundledMethods.length} 个由团队技能包锁定的内置方法。`)];
-    }
-    return Promise.all(entries.map(async ([name, profile]) => {
-      try {
-        const root = await realpath(profile.root);
-        if (!(await lstat(root)).isDirectory()) {
-          throw new Error('not a directory');
-        }
-        return passed(`method-source:${name}`, `方法来源：${name}`, `目录、版本 ${profile.version} 与 revision ${profile.revision} 可读取。`);
-      } catch {
-        return failed(`method-source:${name}`, `方法来源：${name}`, '方法来源目录不可读取。', `检查 \`methodSources.${name}.root\` 指向的本机目录。`);
-      }
-    }));
+    void config;
+    const bundledMethods = await this.deps.registry?.listMethods() ?? [];
+    return bundledMethods.length === 0
+      ? [warning('method-sources', '方法来源', '尚未安装内置方法。', '运行 `aiw skills install <team-skill-repository>` 安装团队技能包。')]
+      : [passed('method-sources', '方法来源', `已安装 ${bundledMethods.length} 个由团队技能包锁定的内置方法。`)];
   }
 
   private async larkChecks(config: LocalConfigDocument, larkUrl: string | undefined): Promise<DoctorCheck[]> {

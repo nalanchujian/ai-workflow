@@ -8,7 +8,6 @@ import { SkillSchema, type InstalledSkill } from '../domain/skill.js';
 import type { MethodSource, ResolvedMethodSource } from '../domain/method-source.js';
 import { WorkflowProfileSchema, type InstalledWorkflowProfile } from '../domain/workflow-profile.js';
 import type { GitClient } from '../ports/git-client.js';
-import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import { SkillRegistry } from './skill-registry.js';
 
 export interface InstallResult {
@@ -18,7 +17,7 @@ export interface InstallResult {
 }
 
 export class SkillInstaller {
-  constructor(private readonly deps: { git: GitClient; methodSources: MethodSourceResolverPort; registry: SkillRegistry }) {}
+  constructor(private readonly deps: { git: GitClient; registry: SkillRegistry }) {}
 
   async install(input: { url: string; ref?: string }): Promise<InstallResult> {
     const cloned = await this.deps.git.clone(input);
@@ -65,7 +64,7 @@ export class SkillInstaller {
 
   private async resolveMethodSource(source: MethodSource, bundledMethods: InstalledBundledMethod[]): Promise<ResolvedMethodSource> {
     if (!source.source.startsWith('bundled:')) {
-      return this.deps.methodSources.resolve(source);
+      throw new Error(`团队技能包只支持内置方法来源：${source.source}`);
     }
     const method = bundledMethods.find((candidate) => (
       candidate.source.id === source.id

@@ -60,7 +60,7 @@ export function createCliRuntime(input: {
   const taskStore = new TaskStore(projectRoot);
   const registry = new SkillRegistry(join(input.homeDirectory, 'registry.yaml'));
   const config = new LocalConfig(join(input.homeDirectory, 'config.yaml'));
-  const methodSourceResolver = new MethodSourceResolver(config, registry);
+  const methodSourceResolver = new MethodSourceResolver(registry);
   const connector = input.ports.mcpClient === undefined || input.ports.mcpServerConfigResolver === undefined
     ? undefined
     : new ConfiguredLarkSourceConnector({
@@ -90,7 +90,7 @@ export function createCliRuntime(input: {
   });
   return {
     registry,
-    installer: new SkillInstaller({ git: input.ports.git, methodSources: methodSourceResolver, registry }),
+    installer: new SkillInstaller({ git: input.ports.git, registry }),
     initializer,
     sourceRefresher,
     stateCommands,
