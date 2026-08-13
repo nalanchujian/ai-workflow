@@ -132,8 +132,8 @@ export class SourceIntake {
   private async snapshotPublicUrl(input: SourceInput): Promise<SnapshotRecord> {
     let currentUrl = input.value;
     for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-      const url = await assertSafeUrl(currentUrl, this.deps.network);
-      const response = await this.deps.network.fetch({ url: url.toString(), timeoutMs: REQUEST_TIMEOUT_MS });
+      const { url, addresses } = await assertSafeUrl(currentUrl, this.deps.network);
+      const response = await this.deps.network.fetch({ url: url.toString(), timeoutMs: REQUEST_TIMEOUT_MS, vettedAddresses: addresses });
       if (response.location !== undefined && response.status !== undefined && response.status >= 300 && response.status < 400) {
         currentUrl = new URL(response.location, url).toString();
         continue;
@@ -237,7 +237,7 @@ function assertSize(content: string): void {
   }
 }
 
-async function assertSafeUrl(input: string, network: NetworkClient): Promise<URL> {
+async function assertSafeUrl(input: string, network: NetworkClient): Promise<{ url: URL; addresses: string[] }> {
   let url: URL;
   try {
     url = new URL(input);
@@ -254,7 +254,7 @@ async function assertSafeUrl(input: string, network: NetworkClient): Promise<URL
   if (addresses.length === 0 || addresses.some(isUnsafeAddress)) {
     throw new SourceIntakeError('UNSAFE_URL', 'URL 解析到了不安全地址');
   }
-  return url;
+  return { url, addresses };
 }
 
 function isUnsafeAddress(address: string): boolean {

@@ -44,7 +44,7 @@
 - `--project` 必须是 Git 工作树，且 `.aiw/` 不得被 Git 忽略；不满足时初始化失败且不写入任务事实。
 - 本地来源必须是项目目录内的真实普通文件；符号链接、目录、设备文件、FIFO 以及解析后落在项目目录外的路径均必须拒绝，其文本保存为 `sources/<source-id>/r1/snapshot.md`。
 - URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。
-- URL 请求必须拒绝回环、私网、链路本地及保留 IP，并限制重定向次数、响应大小与请求超时。
+- URL 请求必须拒绝回环、私网、链路本地及保留 IP，并将已校验 DNS 地址固定用于实际连接；限制重定向次数、流式响应大小与请求超时。
 - 已配置 Lark Connector 时，Lark `docx` 或 Wiki 文档 URL 必须通过本机 Lark MCP Server 获取；Wiki 节点先解析为 docx。Connector 返回的 Markdown、规范化 URL、文档标识和获取时间形成 `lark-mcp/v1` 快照。MCP 配置、令牌和原始响应不得进入任务事实。
 - `--source-section` 仅适用于 Lark 文档：通过 Lark 文档块列表按唯一标题块截取该标题及子标题内容，并锁定实际标题、起止块 ID 与截取内容哈希。空标题、不存在、重名、空章节、未启用文档块工具或非 Lark 来源必须拒绝初始化；后续刷新必须沿用锁定章节。
 - 快照元数据记录来源类型、来源、revision、获取时间、内容 SHA-256 与提取器版本；不得记录本机绝对路径、Cookie、令牌或授权头。

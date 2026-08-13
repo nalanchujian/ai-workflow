@@ -73,6 +73,24 @@ describe('SourceIntake', () => {
     expect(fetchCalls).toBe(0);
   });
 
+  it('passes the vetted DNS addresses to the network connection', async () => {
+    let received: unknown;
+    const network: NetworkClient = {
+      async fetch(input) {
+        received = input;
+        return { body: '# Requirement', contentType: 'text/markdown', url: input.url };
+      },
+      async resolve() {
+        return ['8.8.8.8'];
+      },
+    };
+    const intake = new SourceIntake({ network, projectRoot: '/project' });
+
+    await intake.snapshot({ kind: 'public-url', sourceId: 'requirements', value: 'https://example.test/requirements' });
+
+    expect(received).toMatchObject({ vettedAddresses: ['8.8.8.8'] });
+  });
+
   it('snapshots only the selected Lark Markdown section and its child headings', async () => {
     const connector: SourceConnector = {
       supports() { return true; },

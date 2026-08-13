@@ -7,6 +7,6 @@ export interface NetworkResponse {
 }
 
 export interface NetworkClient {
-  fetch(input: { url: string; timeoutMs: number }): Promise<NetworkResponse>;
+  fetch(input: { url: string; timeoutMs: number; vettedAddresses?: string[] }): Promise<NetworkResponse>;
   resolve(hostname: string): Promise<string[]>;
 }
