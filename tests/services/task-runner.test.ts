@@ -37,9 +37,23 @@ describe('TaskRunner', () => {
     expect(result.status).toBe('unavailable');
     expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('failed');
   });
+
+  it('rejects a run when another process holds the task execution lock', async () => {
+    const fixture = await createRunnerFixture({
+      runLock: { async acquire() { return undefined; } },
+    });
+
+    await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: true, includes: [] }))
+      .rejects.toMatchObject({ code: 'TASK_BUSY' });
+    expect(fixture.processCalls).toHaveLength(0);
+  });
 });
 
-async function createRunnerFixture(options: { exitCode?: number; missingExecutable?: boolean }) {
+async function createRunnerFixture(options: {
+  exitCode?: number;
+  missingExecutable?: boolean;
+  runLock?: { acquire(input: { taskId: string }): Promise<undefined> };
+}) {
   const projectRoot = await temporaryDirectory();
   const taskStore = new TaskStore(projectRoot);
   const task = createSevenPhaseTask();
@@ -74,7 +88,7 @@ async function createRunnerFixture(options: { exitCode?: number; missingExecutab
         if (options.missingExecutable) {
           throw new ExecutableNotFoundError('codex');
         }
-        return { exitCode: options.exitCode ?? 0, signal: null, stdout: '', stderr: '' };
+        return { exitCode: options.exitCode ?? 0, signal: null, stdout: '', stderr: '', timedOut: false };
       },
     },
   });
@@ -91,6 +105,7 @@ async function createRunnerFixture(options: { exitCode?: number; missingExecutab
     adapter,
     runtimeRoot: join(projectRoot, '.aiw-runtime'),
     runIdFactory: () => 'run-1',
+    ...(options.runLock === undefined ? {} : { runLock: options.runLock }),
   });
   return { runner, taskStore, processCalls };
 }

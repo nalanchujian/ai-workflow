@@ -10,17 +10,20 @@ import type { MethodSourceResolverPort } from '../ports/method-source-resolver.j
 import { ContextBuilder } from './context-builder.js';
 import { SkillRegistry } from './skill-registry.js';
 import { TaskFactGuard } from './task-fact-guard.js';
+import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
 import { transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 
 export class TaskRunnerError extends Error {
-  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING', message: string) {
+  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING', message: string) {
     super(message);
     this.name = 'TaskRunnerError';
   }
 }
 
 export class TaskRunner {
+  private readonly runLock: TaskRunLock;
+
   constructor(private readonly deps: {
     taskStore: TaskStore;
     skillRegistry: SkillRegistry;
@@ -30,9 +33,24 @@ export class TaskRunner {
     adapter: CodexAdapter;
     runtimeRoot: string;
     runIdFactory?: () => string;
-  }) {}
+    runLock?: TaskRunLock;
+  }) {
+    this.runLock = deps.runLock ?? new FileTaskRunLock(deps.runtimeRoot);
+  }
 
   async run(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult> {
+    const lease = await this.runLock.acquire({ taskId: input.taskId });
+    if (lease === undefined) {
+      throw new TaskRunnerError('TASK_BUSY', '当前任务已有节点正在运行');
+    }
+    try {
+      return await this.runLocked(input);
+    } finally {
+      await lease.release();
+    }
+  }
+
+  private async runLocked(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult> {
     const task = await this.deps.taskStore.load(input.taskId);
     const node = task.nodes[input.nodeId];
     if (node === undefined || node.phase === 'intake' || node.status !== 'ready' || node.skill === undefined) {

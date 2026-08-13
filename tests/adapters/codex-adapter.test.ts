@@ -22,7 +22,7 @@ describe('CodexAdapter', () => {
       processRunner: {
         async run(input) {
           calls.push(input);
-          return { exitCode: 0, signal: null, stdout: '', stderr: '' };
+          return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false };
         },
       },
     });
@@ -35,6 +35,7 @@ describe('CodexAdapter', () => {
       args: ['exec', '--cd', projectRoot, '--sandbox', 'workspace-write', '--approve-for-me', '--output-last-message', join(runDirectory, 'last-message.md'), '-'],
       cwd: projectRoot,
       stdin: expect.stringContaining('<method-source id="superpowers:brainstorming">'),
+      timeoutMs: 900000,
     }]);
     expect(await readFile(join(runDirectory, 'context.md'), 'utf8')).toContain('<skill name="requirements-clarification" version="1.0.0">');
   });
@@ -53,6 +54,21 @@ describe('CodexAdapter', () => {
 
     expect(result.status).toBe('unavailable');
     expect(result.error).toMatchObject({ code: 'CODEX_UNAVAILABLE' });
+  });
+
+  it('maps a timed out Codex process to a failed result', async () => {
+    const projectRoot = await temporaryDirectory();
+    const adapter = new CodexAdapter({
+      processRunner: {
+        async run() {
+          return { exitCode: null, signal: 'SIGTERM', stdout: '', stderr: '', timedOut: true };
+        },
+      },
+    });
+
+    const result = await adapter.run(runRequest({ projectRoot, runDirectory: join(projectRoot, '.aiw-runtime', 'run-3') }));
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'CODEX_TIMEOUT' } });
   });
 });
 

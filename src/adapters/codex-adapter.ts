@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { RunRequestSchema, RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import { ExecutableNotFoundError, type ProcessRunner } from '../ports/process-runner.js';
 
+const DEFAULT_EXECUTION_TIMEOUT_MS = 15 * 60 * 1_000;
+
 export class CodexAdapter {
-  constructor(private readonly deps: { processRunner: ProcessRunner; codexBin?: string }) {}
+  constructor(private readonly deps: { processRunner: ProcessRunner; codexBin?: string; executionTimeoutMs?: number }) {}
 
   async run(input: RunRequest): Promise<RunResult> {
     const request = RunRequestSchema.parse(input);
@@ -32,9 +34,13 @@ export class CodexAdapter {
         ],
         cwd: request.task.projectRoot,
         stdin: context,
+        timeoutMs: this.deps.executionTimeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS,
       });
       await writeFile(join(request.runDirectory, 'stdout.log'), execution.stdout, 'utf8');
       await writeFile(join(request.runDirectory, 'stderr.log'), execution.stderr, 'utf8');
+      if (execution.timedOut) {
+        return result(request, 'failed', startedAt, { code: 'CODEX_TIMEOUT', message: 'Codex 执行超时' }, execution);
+      }
       if (execution.signal !== null) {
         return result(request, 'cancelled', startedAt, { code: 'CODEX_CANCELLED', message: `Codex 被信号终止：${execution.signal}` }, execution);
       }

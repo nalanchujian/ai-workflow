@@ -7,6 +7,6 @@ export class FakeProcessRunner implements ProcessRunner {
   async run(input: ProcessRunInput): Promise<ProcessRunOutput> {
     this.calls.push(input);
     await this.onRun?.(input);
-    return { exitCode: 0, signal: null, stdout: '', stderr: '' };
+    return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false };
   }
 }

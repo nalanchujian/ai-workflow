@@ -8,18 +8,35 @@ export class NodeProcessRunner implements ProcessRunner {
       const child = spawn(input.command, input.args, { cwd: input.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
+      let timedOut = false;
+      let forceKillTimer: NodeJS.Timeout | undefined;
+      const timeoutTimer = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGTERM');
+        forceKillTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+      }, input.timeoutMs);
+      const clearTimers = () => {
+        clearTimeout(timeoutTimer);
+        if (forceKillTimer !== undefined) {
+          clearTimeout(forceKillTimer);
+        }
+      };
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => { stdout += chunk; });
       child.stderr.on('data', (chunk: string) => { stderr += chunk; });
       child.once('error', (error) => {
+        clearTimers();
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           reject(new ExecutableNotFoundError(input.command));
           return;
         }
         reject(error);
       });
-      child.once('close', (exitCode, signal) => resolve({ exitCode, signal, stdout, stderr }));
+      child.once('close', (exitCode, signal) => {
+        clearTimers();
+        resolve({ exitCode, signal, stdout, stderr, timedOut });
+      });
       child.stdin.end(input.stdin);
     });
   }

@@ -3,6 +3,7 @@ export interface ProcessRunInput {
   args: string[];
   cwd: string;
   stdin: string;
+  timeoutMs: number;
 }
 
 export interface ProcessRunOutput {
@@ -10,6 +11,7 @@ export interface ProcessRunOutput {
   signal: string | null;
   stdout: string;
   stderr: string;
+  timedOut: boolean;
 }
 
 export interface ProcessRunner {

@@ -41,13 +41,13 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提
 }
 ```
 
-`status` 为 `succeeded`、`failed`、`cancelled` 或 `unavailable`。只有 Codex 进程正常退出、声明的产物存在且均位于允许的任务目录内时，才能返回 `succeeded`。`process` 仅记录退出码和信号；`artifacts` 记录路径及 SHA-256。非零退出码返回 `failed`；找不到或无法启动 Codex 返回 `unavailable`；收到取消信号返回 `cancelled`。
+`status` 为 `succeeded`、`failed`、`cancelled` 或 `unavailable`。只有 Codex 进程正常退出、声明的产物存在且均位于允许的任务目录内时，才能返回 `succeeded`。`process` 仅记录退出码和信号；`artifacts` 记录路径及 SHA-256。非零退出码返回 `failed`；找不到或无法启动 Codex 返回 `unavailable`；收到取消信号返回 `cancelled`；达到执行超时时间返回 `failed`，错误码为 `CODEX_TIMEOUT`。
 
 ## 执行步骤
 
 1. `validate(request)`：验证 schema、路径边界、文件哈希和运行模式。
 2. `prepare(request)`：在本机 `runDirectory` 生成只读的 `context.md`，其中包含技能、用户任务和 manifest 列出的文件，并保留路径边界。
-3. `execute(request)`：以 `projectRoot` 为工作目录启动 Codex CLI；将 stdout、stderr 和退出信息写入本机运行目录。
+3. `execute(request)`：以 `projectRoot` 为工作目录启动 Codex CLI；默认最长运行 15 分钟，超时后先终止子进程，必要时强制终止；将 stdout、stderr 和退出信息写入本机运行目录。
 4. `collect(request)`：校验预期产物并返回去敏 `RunResult`。
 5. `cleanup(request)`：仅删除 Adapter 创建的本机临时文件；不得删除任务产物、来源快照或业务代码。
 
@@ -74,7 +74,7 @@ Adapter 将 `AIW_CODEX_BIN` 解析为可执行文件；变量未设置时使用 
 
 - Runner 将 `failed`、`cancelled` 或 `unavailable` 映射为节点 `failed`，保留运行记录。
 - 用户可在修正环境或输入后重新运行；新的运行使用新的 `runId`，不覆盖旧记录。
-- Adapter 超时或收到取消时必须终止其启动的子进程并记录信号；不得将节点错误标为成功。
+- Adapter 超时或收到取消时必须终止其启动的子进程并记录信号；超时固定映射为 `failed` / `CODEX_TIMEOUT`，不得将节点错误标为成功。
 - Adapter 不得把完整来源、凭据、环境变量或未授权文件写入 `request.json`、日志或终端输出。
 
 ## 兼容边界
