@@ -119,4 +119,19 @@ describe('SkillInstaller', () => {
     await expect(registry.list()).resolves.toEqual([]);
     await expect(registry.listProfiles()).resolves.toEqual([]);
   });
+
+  it('rejects local and unsupported Git sources before cloning them', async () => {
+    const directory = await createTempDirectory('aiw-skill-installer-');
+    directories.push(directory);
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    let cloneCalls = 0;
+    const installer = new SkillInstaller({
+      git: { async clone() { cloneCalls += 1; throw new Error('不应克隆'); } },
+      registry,
+    });
+
+    await expect(installer.install({ url: 'file:///tmp/skills.git' })).rejects.toThrow('技能包来源仅支持 HTTPS 或 SSH Git URL');
+    await expect(installer.install({ url: '../skills' })).rejects.toThrow('技能包来源仅支持 HTTPS 或 SSH Git URL');
+    expect(cloneCalls).toBe(0);
+  });
 });

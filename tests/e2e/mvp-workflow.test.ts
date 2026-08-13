@@ -22,7 +22,7 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
   it('initializes seven phases and dry-runs clarify with a committed locked Superpowers method', async () => {
     const fixture = await createFixture();
 
-    await expect(runCli(['skills', 'install', fixture.skillRepository], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
+    await expect(runCli(['skills', 'install', fixture.skillRepositoryUrl], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
     await expect(runCli(['skills', 'profiles', 'list', '--json'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
     await expect(runCli(['task', 'init', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@2.0.0'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
     await expect(runCli(['task', 'source', 'refresh', taskId, 'requirements', '--json'], fixture.runtime)).resolves.toMatchObject({
@@ -43,7 +43,7 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
 
   it('runs all seven phases through public commands with deterministic process and Git substitutes', async () => {
     const fixture = await createFixture();
-    await runCli(['skills', 'install', fixture.skillRepository], fixture.runtime);
+    await runCli(['skills', 'install', fixture.skillRepositoryUrl], fixture.runtime);
     await runCli(['task', 'init', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@2.0.0'], fixture.runtime);
     fixture.repository.commitTaskFacts();
     fixture.process.onRun = async (input) => {
@@ -80,6 +80,7 @@ async function createFixture() {
   const requirementsPath = join(projectRoot, 'requirements.md');
   await writeFile(requirementsPath, '# 退款需求\n', 'utf8');
   const skillRepository = (await createBundledSkillRepositoryFixture(root)).repository;
+  const skillRepositoryUrl = 'https://example.test/skills.git';
   const repository = new FakeRepositoryStatus();
   const process = new FakeProcessRunner();
   const runtime = createCliRuntime({
@@ -87,11 +88,11 @@ async function createFixture() {
     projectRoot: () => projectRoot,
     taskCreatedAt: () => new Date('2026-08-13T12:00:00.000Z'),
     ports: {
-      git: new FakeGitClient({ [skillRepository]: { directory: skillRepository, revision: 'fixture-revision' } }),
+      git: new FakeGitClient({ [skillRepositoryUrl]: { directory: skillRepository, revision: 'fixture-revision' } }),
       repositoryStatus: repository,
       network: new FakeNetworkClient(),
       processRunner: process,
     },
   });
-  return { runtime, repository, process, projectRoot, requirementsPath, skillRepository };
+  return { runtime, repository, process, projectRoot, requirementsPath, skillRepositoryUrl };
 }

@@ -16,9 +16,16 @@ export class ShellGitClient implements GitClient {
     const target = join(this.cacheDirectory, `${key}-${randomUUID()}`);
     await mkdir(this.cacheDirectory, { recursive: true });
     try {
-      await execFileAsync('git', ['clone', '--quiet', input.url, target]);
+      await execFileAsync('git', [
+        '-c', 'protocol.file.allow=never',
+        '-c', 'core.hooksPath=/dev/null',
+        'clone', '--quiet', '--no-local', input.url, target,
+      ]);
       if (input.ref !== undefined) {
-        await execFileAsync('git', ['-C', target, 'checkout', '--quiet', '--detach', input.ref]);
+        await execFileAsync('git', [
+          '-c', 'core.hooksPath=/dev/null',
+          '-C', target, 'checkout', '--quiet', '--detach', input.ref,
+        ]);
       }
       const { stdout } = await execFileAsync('git', ['-C', target, 'rev-parse', 'HEAD']);
       return { directory: target, revision: stdout.trim() };

@@ -20,6 +20,7 @@ export class SkillInstaller {
   constructor(private readonly deps: { git: GitClient; registry: SkillRegistry }) {}
 
   async install(input: { url: string; ref?: string }): Promise<InstallResult> {
+    assertSupportedGitUrl(input.url);
     const cloned = await this.deps.git.clone(input);
     const registrySource = { url: input.url, revision: cloned.revision };
     const bundledMethods = await this.readBundledMethods(cloned.directory, registrySource);
@@ -133,6 +134,37 @@ export class SkillInstaller {
       return { ...profile, registrySource, sha256: sha256(content) };
     }));
   }
+}
+
+function assertSupportedGitUrl(value: string): void {
+  if (isHttpsGitUrl(value) || isSshGitUrl(value)) {
+    return;
+  }
+  throw new Error('技能包来源仅支持 HTTPS 或 SSH Git URL');
+}
+
+function isHttpsGitUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:'
+      && url.hostname.length > 0
+      && url.username.length === 0
+      && url.password.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+function isSshGitUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'ssh:') {
+      return url.hostname.length > 0 && url.password.length === 0;
+    }
+  } catch {
+    // Git 的 scp 风格 SSH 地址（git@example.com:team/skills.git）不是标准 URL。
+  }
+  return /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+$/.test(value);
 }
 
 async function listDirectories(root: string): Promise<string[]> {
