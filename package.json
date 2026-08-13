@@ -43,8 +43,8 @@
     "pack:check": "pnpm build && npm pack --dry-run",
     "prepack": "pnpm build",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
-    "publish:public": "npm publish --access public --registry=https://registry.npmjs.org && node scripts/commit-published-package.mjs",
-    "release:patch": "pnpm version patch --no-git-tag-version && pnpm publish:public",
+    "publish:public": "node scripts/assert-release-ready.mjs && npm publish --access public --registry=https://registry.npmjs.org && node scripts/commit-published-package.mjs",
+    "release:patch": "node scripts/assert-release-clean.mjs && pnpm version patch --no-git-tag-version && pnpm publish:public",
     "typecheck": "tsc --noEmit",
     "unlink:global": "pnpm unlink --global",
     "test": "vitest run"

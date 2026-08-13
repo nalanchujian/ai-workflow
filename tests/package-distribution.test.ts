@@ -23,7 +23,7 @@ describe('public npm distribution metadata', () => {
     expect(packageJson.publishConfig).toEqual({ access: 'public', registry: 'https://registry.npmjs.org' });
     expect(packageJson.scripts.prepublishOnly).toBe('pnpm lint && pnpm typecheck && pnpm test && pnpm build');
     expect(packageJson.scripts['pack:check']).toBe('pnpm build && npm pack --dry-run');
-    expect(packageJson.scripts['publish:public']).toBe('npm publish --access public --registry=https://registry.npmjs.org && node scripts/commit-published-package.mjs');
-    expect(packageJson.scripts['release:patch']).toBe('pnpm version patch --no-git-tag-version && pnpm publish:public');
+    expect(packageJson.scripts['publish:public']).toBe('node scripts/assert-release-ready.mjs && npm publish --access public --registry=https://registry.npmjs.org && node scripts/commit-published-package.mjs');
+    expect(packageJson.scripts['release:patch']).toBe('node scripts/assert-release-clean.mjs && pnpm version patch --no-git-tag-version && pnpm publish:public');
   });
 });
