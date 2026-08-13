@@ -140,15 +140,18 @@ export class TaskRunner {
       result = failedResult(request, 'CODEX_EXECUTION_ERROR', error instanceof Error ? error.message : 'Codex 调用失败');
     }
     if (result.status !== 'succeeded') {
-      await this.recordChangeEvidence(task, request, scope, result);
+      await this.persistChangeEvidence(task, await this.recordChangeEvidence(task, request, scope, result));
       return result;
     }
     try {
       const evidence = await this.recordChangeEvidence(task, request, scope, result);
       if (evidence.violations.length > 0) {
+        await this.persistChangeEvidence(task, evidence);
         return failedResult(request, 'CHANGE_SCOPE_VIOLATION', `检测到超出允许范围的变更：${evidence.violations.join(', ')}`);
       }
-      return RunResultSchema.parse({ ...result, artifacts: await outputRecords(task, this.deps.taskStore, nodeId) });
+      const artifacts = await outputRecords(task, this.deps.taskStore, nodeId);
+      await this.persistChangeEvidence(task, { ...evidence, artifacts });
+      return RunResultSchema.parse({ ...result, artifacts });
     } catch (error) {
       const message = error instanceof Error ? error.message : '节点产物校验失败';
       return failedResult(request, error instanceof TaskRunnerError ? error.code : 'ARTIFACT_INVALID', message);
@@ -180,7 +183,7 @@ export class TaskRunner {
     return { schemaVersion: 'aiw.change-scope/v1', taskId: task.id, nodeId, runId, allowedPaths };
   }
 
-  private async recordChangeEvidence(task: Task, request: RunRequest, scope: ChangeScope, result: RunResult): Promise<ChangeEvidence> {
+  private async recordChangeEvidence(task: Task, request: RunRequest, scope: ChangeScope, result: RunResult, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
     const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot: this.deps.taskStore.projectDirectory() });
     const violations = changedPaths.filter((path) => !scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
     const rawDiff = await this.deps.changeInspector.diff({ projectRoot: this.deps.taskStore.projectDirectory() });
@@ -191,10 +194,14 @@ export class TaskRunner {
       changedPaths, violations, changedFiles,
       diff: { sha256: createHash('sha256').update(rawDiff).digest('hex'), lineCount: rawDiff === '' ? 0 : rawDiff.split(/\r?\n/).length - 1 },
       ...(result.process === undefined ? {} : { process: result.process }),
+      ...(artifacts === undefined ? {} : { artifacts }),
     };
-    await this.deps.taskStore.createFact(task.id, `runs/${request.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId: request.runId, changedPaths, violations }, null, 2) + '\n');
-    await this.deps.taskStore.createFact(task.id, `runs/${request.runId}/change-evidence.json`, JSON.stringify(evidence, null, 2) + '\n');
     return evidence;
+  }
+
+  private async persistChangeEvidence(task: Task, evidence: ChangeEvidence): Promise<void> {
+    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId: evidence.runId, changedPaths: evidence.changedPaths, violations: evidence.violations }, null, 2) + '\n');
+    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-evidence.json`, JSON.stringify(evidence, null, 2) + '\n');
   }
 
   private async loadLockedSkill(lock: SkillLock) {
@@ -239,6 +246,7 @@ interface ChangeEvidence {
   changedFiles: Array<{ path: string; sha256?: string; deleted?: true }>;
   diff: { sha256: string; lineCount: number };
   process?: unknown;
+  artifacts?: OutputRecord[];
 }
 
 async function implementationAllowedPaths(task: Task, taskStore: TaskStore): Promise<string[]> {

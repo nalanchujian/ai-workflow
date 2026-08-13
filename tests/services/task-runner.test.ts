@@ -107,7 +107,7 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('succeeded');
     const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
-    expect(evidence).toMatchObject({ baseline: { changedPaths: [] }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/brief.md' }], diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(evidence).toMatchObject({ baseline: { changedPaths: [] }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/brief.md' }], artifacts: [{ path: 'artifacts/brief.md', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }], diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
     expect((await fixture.taskStore.load('refund-123')).events.at(-1)).toMatchObject({ type: 'succeed', evidencePath: 'runs/run-1/change-evidence.json' });
   });
 
