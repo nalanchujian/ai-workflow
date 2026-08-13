@@ -184,7 +184,7 @@ export class TaskRunner {
   }
 
   private async loadLockedSkill(lock: SkillLock) {
-    const skill = await this.deps.skillRegistry.find(lock.name, lock.version);
+    const skill = await this.deps.skillRegistry.findLocked(lock);
     if (skill === undefined || !sameSkillLock(skill, lock)) {
       throw new TaskRunnerError('SKILL_LOCK_INVALID', '已锁定技能在本地注册表中不存在或内容已变化');
     }

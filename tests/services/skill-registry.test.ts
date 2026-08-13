@@ -16,7 +16,7 @@ describe('SkillRegistry', () => {
     await expect(new SkillRegistry(join(directory, 'registry.yaml')).list()).resolves.toEqual([]);
   });
 
-  it('persists bundled methods and replaces only methods from the same team source', async () => {
+  it('retains bundled methods from every installed revision of the same team source', async () => {
     const directory = await createTempDirectory('aiw-skill-registry-');
     directories.push(directory);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
@@ -26,10 +26,11 @@ describe('SkillRegistry', () => {
     await registry.replace({ skills: [], profiles: [], methods: [first, second] });
     await registry.replaceSource({ sourceUrl: 'https://example.test/first.git', skills: [], profiles: [], methods: [bundledMethod('https://example.test/first.git', 'c')] });
 
-    await expect(registry.listMethods()).resolves.toEqual([
+    await expect(registry.listMethods()).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ registrySource: expect.objectContaining({ url: 'https://example.test/second.git' }) }),
+      expect.objectContaining({ registrySource: expect.objectContaining({ url: 'https://example.test/first.git', revision: 'a'.repeat(40) }) }),
       expect.objectContaining({ registrySource: expect.objectContaining({ url: 'https://example.test/first.git', revision: 'c'.repeat(40) }) }),
-    ]);
+    ]));
   });
 
   it('rejects a registry created by an older application version', async () => {

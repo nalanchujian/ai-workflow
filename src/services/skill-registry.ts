@@ -38,6 +38,15 @@ export class SkillRegistry {
     return oneOrUndefined(matches, `技能引用不唯一：${name}${version === undefined ? '' : `@${version}`}`);
   }
 
+  async findLocked(lock: Pick<InstalledSkill, 'name' | 'version' | 'registrySource' | 'sha256'>): Promise<InstalledSkill | undefined> {
+    const matches = (await this.list()).filter((skill) => skill.name === lock.name
+      && skill.version === lock.version
+      && skill.registrySource.url === lock.registrySource.url
+      && skill.registrySource.revision === lock.registrySource.revision
+      && skill.sha256 === lock.sha256);
+    return oneOrUndefined(matches, `已锁定技能引用不唯一：${lock.name}@${lock.version}`);
+  }
+
   async findProfile(name: string, version?: string): Promise<InstalledWorkflowProfile | undefined> {
     const matches = (await this.listProfiles()).filter((profile) => profile.name === name && (version === undefined || profile.version === version));
     return oneOrUndefined(matches, `工作流模板引用不唯一：${name}${version === undefined ? '' : `@${version}`}`);
@@ -64,10 +73,18 @@ export class SkillRegistry {
 
   async replaceSource(input: RegistrySourceReplacement): Promise<void> {
     const current = await this.read();
+    const incomingRevisions = new Set([
+      ...input.skills.map((skill) => skill.registrySource.revision),
+      ...input.profiles.map((profile) => profile.registrySource.revision),
+      ...(input.methods ?? []).map((method) => method.registrySource.revision),
+    ]);
+    const replacesIncomingRevision = (source: { url: string; revision: string }): boolean => (
+      source.url === input.sourceUrl && incomingRevisions.has(source.revision)
+    );
     await this.replace({
-      skills: [...current.skills.filter((skill) => skill.registrySource.url !== input.sourceUrl), ...input.skills],
-      profiles: [...current.profiles.filter((profile) => profile.registrySource.url !== input.sourceUrl), ...input.profiles],
-      methods: [...current.methods.filter((method) => method.registrySource.url !== input.sourceUrl), ...(input.methods ?? [])],
+      skills: [...current.skills.filter((skill) => !replacesIncomingRevision(skill.registrySource)), ...input.skills],
+      profiles: [...current.profiles.filter((profile) => !replacesIncomingRevision(profile.registrySource)), ...input.profiles],
+      methods: [...current.methods.filter((method) => !replacesIncomingRevision(method.registrySource)), ...(input.methods ?? [])],
     });
   }
 
