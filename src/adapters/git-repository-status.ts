@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import type { RepositoryStatus } from '../ports/repository-status.js';
+import type { RepositoryStatus, WorkingTreeStatus } from '../ports/repository-status.js';
 import { ProjectRepositoryError, type ProjectRepository } from '../ports/project-repository.js';
 
 const execFileAsync = promisify(execFile);
 
-export class GitRepositoryStatus implements RepositoryStatus, ProjectRepository {
+export class GitRepositoryStatus implements RepositoryStatus, WorkingTreeStatus, ProjectRepository {
   async assertProjectReady(projectRoot: string): Promise<void> {
     try {
       const { stdout } = await execFileAsync('git', ['-C', projectRoot, 'rev-parse', '--is-inside-work-tree']);
@@ -44,6 +44,11 @@ export class GitRepositoryStatus implements RepositoryStatus, ProjectRepository 
       .map((entry) => entry.slice(3))
       .filter((path) => path.length > 0)
       .sort();
+  }
+
+  async diff(input: { projectRoot: string }): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['-C', input.projectRoot, 'diff', '--no-ext-diff', '--binary', 'HEAD']);
+    return stdout;
   }
 
   async authorName(): Promise<string | undefined> {

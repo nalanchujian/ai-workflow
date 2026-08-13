@@ -4,7 +4,7 @@ export type NodeEvent =
   | { type: 'evaluate' }
   | { type: 'rebind_skill'; skill: SkillLock; note: string }
   | { type: 'start'; runId: string }
-  | { type: 'succeed'; outputs: OutputRecord[] }
+  | { type: 'succeed'; outputs: OutputRecord[]; evidencePath?: string }
   | { type: 'approve'; actor: string; note?: string }
   | { type: 'request_changes'; actor: string; note: string }
   | { type: 'revise'; actor: string; note: string }
@@ -38,7 +38,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       assertStatus(node, ['running'], '只能完成运行中的节点');
       node.revision += 1;
       node.status = node.requiresApproval ? 'awaiting_approval' : 'completed';
-      addEvent(next, 'succeed', nodeId, { outputs: event.outputs });
+      addEvent(next, 'succeed', nodeId, { outputs: event.outputs, ...(event.evidencePath === undefined ? {} : { evidencePath: event.evidencePath }) });
       if (node.status === 'completed') {
         unlockDependents(next, nodeId);
       }

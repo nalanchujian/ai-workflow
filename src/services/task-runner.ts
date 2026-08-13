@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import type { CodexAdapter } from '../adapters/codex-adapter.js';
@@ -16,7 +16,7 @@ import { transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 
 export class TaskRunnerError extends Error {
-  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'WORKTREE_DIRTY' | 'CHANGE_SCOPE_MISSING' | 'RUN_RECOVERED', message: string) {
+  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'WORKTREE_DIRTY' | 'CHANGE_SCOPE_MISSING' | 'RUN_RECOVERED', message: string) {
     super(message);
     this.name = 'TaskRunnerError';
   }
@@ -89,6 +89,11 @@ export class TaskRunner {
     const scope = input.dryRun ? undefined : await this.changeScope(task, input.nodeId, runId);
     const contextManifestFactPath = `runs/${runId}/context-manifest.json`;
     await this.deps.taskStore.createFact(task.id, contextManifestFactPath, JSON.stringify(manifest, null, 2) + '\n');
+    if (!input.dryRun) {
+      await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-baseline.json`, JSON.stringify({
+        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: [],
+      }, null, 2) + '\n');
+    }
     const request: RunRequest = {
       schemaVersion: 'aiw.run/v1',
       runId,
@@ -121,7 +126,7 @@ export class TaskRunner {
     const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope)), contextManifest: manifest });
     await this.writeResult(task.id, runId, result);
     const next = result.status === 'succeeded'
-      ? transitionNode(startedTask, input.nodeId, { type: 'succeed', outputs: result.artifacts })
+      ? transitionNode(startedTask, input.nodeId, { type: 'succeed', outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
       : transitionNode(startedTask, input.nodeId, { type: 'fail', message: result.error?.message ?? `运行未完成：${result.status}` });
     await this.deps.taskStore.update(next);
     return result;
@@ -135,18 +140,18 @@ export class TaskRunner {
       result = failedResult(request, 'CODEX_EXECUTION_ERROR', error instanceof Error ? error.message : 'Codex 调用失败');
     }
     if (result.status !== 'succeeded') {
-      await this.recordChangeDiff(task, request.runId, scope);
+      await this.recordChangeEvidence(task, request, scope, result);
       return result;
     }
     try {
-      const diff = await this.recordChangeDiff(task, request.runId, scope);
-      if (diff.violations.length > 0) {
-        return failedResult(request, 'CHANGE_SCOPE_VIOLATION', `检测到超出允许范围的变更：${diff.violations.join(', ')}`);
+      const evidence = await this.recordChangeEvidence(task, request, scope, result);
+      if (evidence.violations.length > 0) {
+        return failedResult(request, 'CHANGE_SCOPE_VIOLATION', `检测到超出允许范围的变更：${evidence.violations.join(', ')}`);
       }
       return RunResultSchema.parse({ ...result, artifacts: await outputRecords(task, this.deps.taskStore, nodeId) });
     } catch (error) {
       const message = error instanceof Error ? error.message : '节点产物校验失败';
-      return failedResult(request, 'ARTIFACT_MISSING', message);
+      return failedResult(request, error instanceof TaskRunnerError ? error.code : 'ARTIFACT_INVALID', message);
     }
   }
 
@@ -175,12 +180,21 @@ export class TaskRunner {
     return { schemaVersion: 'aiw.change-scope/v1', taskId: task.id, nodeId, runId, allowedPaths };
   }
 
-  private async recordChangeDiff(task: Task, runId: string, scope: ChangeScope): Promise<ChangeDiff> {
+  private async recordChangeEvidence(task: Task, request: RunRequest, scope: ChangeScope, result: RunResult): Promise<ChangeEvidence> {
     const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot: this.deps.taskStore.projectDirectory() });
     const violations = changedPaths.filter((path) => !scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
-    const diff: ChangeDiff = { schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId, changedPaths, violations };
-    await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-diff.json`, JSON.stringify(diff, null, 2) + '\n');
-    return diff;
+    const rawDiff = await this.deps.changeInspector.diff({ projectRoot: this.deps.taskStore.projectDirectory() });
+    const changedFiles = await Promise.all(changedPaths.map(async (path) => ({ path, ...(await fileHash(this.deps.taskStore.projectDirectory(), path)) })));
+    const evidence: ChangeEvidence = {
+      schemaVersion: 'aiw.change-evidence/v1', taskId: task.id, nodeId: scope.nodeId, runId: request.runId,
+      baseline: { path: `runs/${request.runId}/change-baseline.json`, changedPaths: [] },
+      changedPaths, violations, changedFiles,
+      diff: { sha256: createHash('sha256').update(rawDiff).digest('hex'), lineCount: rawDiff === '' ? 0 : rawDiff.split(/\r?\n/).length - 1 },
+      ...(result.process === undefined ? {} : { process: result.process }),
+    };
+    await this.deps.taskStore.createFact(task.id, `runs/${request.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId: request.runId, changedPaths, violations }, null, 2) + '\n');
+    await this.deps.taskStore.createFact(task.id, `runs/${request.runId}/change-evidence.json`, JSON.stringify(evidence, null, 2) + '\n');
+    return evidence;
   }
 
   private async loadLockedSkill(lock: SkillLock) {
@@ -214,12 +228,17 @@ interface ChangeScope {
   allowedPaths: string[];
 }
 
-interface ChangeDiff {
-  schemaVersion: 'aiw.change-diff/v1';
+interface ChangeEvidence {
+  schemaVersion: 'aiw.change-evidence/v1';
   taskId: string;
+  nodeId: string;
   runId: string;
+  baseline: { path: string; changedPaths: string[] };
   changedPaths: string[];
   violations: string[];
+  changedFiles: Array<{ path: string; sha256?: string; deleted?: true }>;
+  diff: { sha256: string; lineCount: number };
+  process?: unknown;
 }
 
 async function implementationAllowedPaths(task: Task, taskStore: TaskStore): Promise<string[]> {
@@ -262,13 +281,39 @@ async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string): 
     throw new TaskRunnerError('ARTIFACT_MISSING', `未知节点：${nodeId}`);
   }
   return Promise.all(node.outputs.map(async (path) => {
+    let content: Buffer;
     try {
-      const content = await readFile(join(taskStore.taskDirectory(task.id), path));
-      return { path, sha256: createHash('sha256').update(content).digest('hex') };
+      content = await readFile(join(taskStore.taskDirectory(task.id), path));
     } catch {
       throw new TaskRunnerError('ARTIFACT_MISSING', `节点未生成声明产物：${path}`);
     }
+    validateArtifactContent(node, path, content.toString('utf8'));
+    return { path, sha256: createHash('sha256').update(content).digest('hex') };
   }));
+}
+
+function validateArtifactContent(node: NonNullable<Task['nodes'][string]>, path: string, content: string): void {
+  if (content.trim().length < 24 || !/^#\s+.+/m.test(content)) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物内容不足或缺少一级标题：${path}`);
+  }
+  if (node.phase === 'plan' && !/```ya?ml\s*\n[\s\S]*?allowedPaths:\s*\n\s*-\s*[^\s#]+/i.test(content)) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', '实施计划必须声明含至少一个路径的 allowedPaths YAML 代码块');
+  }
+  if (node.phase === 'test' && (!/测试命令|test command/i.test(content) || !/测试结果|结果|result/i.test(content))) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', '测试报告必须包含测试命令与测试结果');
+  }
+}
+
+async function fileHash(projectRoot: string, path: string): Promise<{ sha256?: string; deleted?: true }> {
+  try {
+    const absolutePath = join(projectRoot, path);
+    if (!(await stat(absolutePath)).isFile()) {
+      return { deleted: true };
+    }
+    return { sha256: createHash('sha256').update(await readFile(absolutePath)).digest('hex') };
+  } catch {
+    return { deleted: true };
+  }
 }
 
 function committedPaths(projectRoot: string, task: Task, taskStore: TaskStore, manifest: ContextManifest): string[] {

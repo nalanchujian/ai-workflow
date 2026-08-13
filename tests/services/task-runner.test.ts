@@ -96,6 +96,28 @@ describe('TaskRunner', () => {
     await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-diff.json'), 'utf8'))
       .resolves.toContain('src/unapproved.ts');
   });
+
+  it('records a baseline, diff hash and output hashes as the completion evidence', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+    });
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result.status).toBe('succeeded');
+    const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
+    expect(evidence).toMatchObject({ baseline: { changedPaths: [] }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/brief.md' }], diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect((await fixture.taskStore.load('refund-123')).events.at(-1)).toMatchObject({ type: 'succeed', evidencePath: 'runs/run-1/change-evidence.json' });
+  });
+
+  it('rejects an empty or structurally invalid declared artifact', async () => {
+    const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']], writeArtifact: 'done\n' });
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_INVALID' } });
+  });
 });
 
 async function createRunnerFixture(options: {
@@ -104,6 +126,7 @@ async function createRunnerFixture(options: {
   maxTokens?: number;
   runLock?: { acquire(input: { taskId: string }): Promise<undefined> };
   changeSnapshots?: string[][];
+  writeArtifact?: string;
 }) {
   const projectRoot = await temporaryDirectory();
   const taskStore = new TaskStore(projectRoot);
@@ -139,6 +162,10 @@ async function createRunnerFixture(options: {
         if (options.missingExecutable) {
           throw new ExecutableNotFoundError('codex');
         }
+        if (options.writeArtifact !== undefined) {
+          await mkdir(join(taskStore.taskDirectory(task.id), 'artifacts'), { recursive: true });
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'brief.md'), options.writeArtifact, 'utf8');
+        }
         return { exitCode: options.exitCode ?? 0, signal: null, stdout: '', stderr: '', timedOut: false };
       },
     },
@@ -156,6 +183,7 @@ async function createRunnerFixture(options: {
     adapter,
     changeInspector: {
       async changedPaths() { return options.changeSnapshots?.shift() ?? []; },
+      async diff() { return 'diff --git a/src/example.ts b/src/example.ts\n'; },
     },
     runtimeRoot: join(projectRoot, '.aiw-runtime'),
     runIdFactory: () => 'run-1',

@@ -5,4 +5,5 @@ export interface RepositoryStatus {
 
 export interface WorkingTreeStatus {
   changedPaths(input: { projectRoot: string }): Promise<string[]>;
+  diff(input: { projectRoot: string }): Promise<string>;
 }

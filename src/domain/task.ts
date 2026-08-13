@@ -99,6 +99,7 @@ export const TaskEventSchema = z.object({
     'fail',
     'cancel',
     'invalidate',
+    'add_subtask',
   ]),
   nodeId: z.string().min(1),
   at: z.string().datetime(),
@@ -107,6 +108,7 @@ export const TaskEventSchema = z.object({
   actor: z.string().optional(),
   runId: z.string().optional(),
   outputs: z.array(OutputRecordSchema).optional(),
+  evidencePath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
   previousSkill: SkillLockSchema.optional(),
   nextSkill: SkillLockSchema.optional(),
 });
