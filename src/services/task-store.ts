@@ -1,5 +1,5 @@
 import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parse, stringify } from 'yaml';
 
 import { TaskSchema, type Task } from '../domain/task.js';
@@ -33,6 +33,22 @@ export class TaskStore {
     await this.writeTask(parsed);
   }
 
+  async createFromStaging(task: Task, stagingDirectory: string): Promise<void> {
+    const parsed = TaskSchema.parse(task);
+    const directory = this.taskDirectory(parsed.id);
+    try {
+      await access(directory);
+      throw new TaskStoreError(`任务已存在：${parsed.id}`);
+    } catch (error) {
+      if (error instanceof TaskStoreError) {
+        throw error;
+      }
+    }
+    await mkdir(dirname(directory), { recursive: true });
+    await this.writeTaskAt(stagingDirectory, parsed);
+    await rename(stagingDirectory, directory);
+  }
+
   async load(taskId: string): Promise<Task> {
     const taskPath = join(this.taskDirectory(taskId), 'task.yaml');
     try {
@@ -61,7 +77,10 @@ export class TaskStore {
   }
 
   private async writeTask(task: Task): Promise<void> {
-    const directory = this.taskDirectory(task.id);
+    await this.writeTaskAt(this.taskDirectory(task.id), task);
+  }
+
+  private async writeTaskAt(directory: string, task: Task): Promise<void> {
     await mkdir(directory, { recursive: true });
     const taskPath = join(directory, 'task.yaml');
     const temporaryPath = `${taskPath}.tmp`;

@@ -1,0 +1,73 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { TaskInitializer } from '../../src/services/task-initializer.js';
+import { TaskStore } from '../../src/services/task-store.js';
+import { SkillRegistry } from '../../src/services/skill-registry.js';
+import type { InstalledSkill } from '../../src/domain/skill.js';
+import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
+
+describe('TaskInitializer', () => {
+  const directories: string[] = [];
+  afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
+
+  it('initializes a task only when the profile resolves and locks every executable stage', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    await registry.replace({ skills: allSkills(), profiles: [profile()] });
+    const store = new TaskStore(projectRoot);
+    const initializer = new TaskInitializer({
+      registry,
+      sourceIntakeFactory: () => ({
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+      }) as never,
+      taskStoreFactory: () => store,
+    });
+
+    const task = await initializer.init({ id: 'refund-123', projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature@1.0.0' });
+
+    expect(task.skillProfile.name).toBe('standard-web-feature');
+    expect(task.nodes.intake.status).toBe('completed');
+    expect(task.nodes.clarify.skill?.name).toBe('requirements-clarification');
+    expect(task.nodes.test.skill?.name).toBe('acceptance-testing');
+    expect((await store.load('refund-123')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
+    await expect(readFile(join(store.taskDirectory('refund-123'), 'task.md'), 'utf8')).resolves.toContain('需求来源：requirements.md');
+    await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
+  });
+
+  it('does not create a task when the requested profile is missing', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const store = new TaskStore(projectRoot);
+    const initializer = new TaskInitializer({ registry: new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml')), sourceIntakeFactory: () => ({} as never), taskStoreFactory: () => store });
+
+    await expect(initializer.init({ id: 'refund-123', projectRoot, source: 'requirements.md', skillProfile: 'missing@1.0.0' })).rejects.toThrow('工作流模板不存在');
+    await expect(readFile(join(store.taskDirectory('refund-123'), 'task.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+function profile() {
+  return {
+    name: 'standard-web-feature', version: '1.0.0', description: 'Standard web feature workflow', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
+    skills: {
+      clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', implement: 'typescript-web-implementation@1.0.0', verify: 'web-verification@1.0.0', test: 'acceptance-testing@1.0.0',
+    },
+  };
+}
+
+function allSkills(): InstalledSkill[] {
+  return [
+    ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'implement'], ['web-verification', 'verify'], ['acceptance-testing', 'test'],
+  ].map(([name, phase]) => ({
+    name, version: '1.0.0', description: `${name} skill`, phases: [phase as InstalledSkill['phases'][number]], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash(name),
+    methodSources: [{ id: 'superpowers:brainstorming', source: 'configured:superpowers', version: '6.2.0', revision: '6.2.0', sha256: hash(`method-${name}`) }],
+  }));
+}
+
+function hash(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
