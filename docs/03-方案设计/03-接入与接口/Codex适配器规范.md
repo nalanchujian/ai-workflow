@@ -17,19 +17,14 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
     "projectRoot": "/absolute/path/to/repository"
   },
   "instruction": "为退款功能生成实施计划。",
-  "skill": {
-    "name": "implementation-planning",
-    "version": "1.0.0",
-    "contentPath": "/absolute/path/to/SKILL.md",
-    "sha256": "<hex>"
-  },
   "contextManifestPath": "/absolute/path/to/repository/.aiw/tasks/refund-123/runs/run_01JABC/context-manifest.json",
   "runDirectory": "/absolute/path/to/user-home/.aiw/runtime/run_01JABC",
-  "mode": "execute"
+  "mode": "execute",
+  "artifacts": ["artifacts/implementation-plan.md"]
 }
 ```
 
-Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。它还必须从本机 Registry 与显式配置的方法来源重新读取节点锁定的 `SKILL.md`，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
+Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。它还必须从本机 Registry 与显式配置的方法来源重新读取节点锁定的 `SKILL.md`，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
 
 ## 输出：RunResult
 
@@ -41,12 +36,12 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提
   "startedAt": "2026-08-11T12:00:00Z",
   "finishedAt": "2026-08-11T12:02:00Z",
   "process": {"exitCode": 0, "signal": null},
-  "artifacts": ["artifacts/implementation-plan.md"],
+  "artifacts": [{"path": "artifacts/implementation-plan.md", "sha256": "<hex>"}],
   "error": null
 }
 ```
 
-`status` 为 `succeeded`、`failed`、`cancelled` 或 `unavailable`。只有 Codex 进程正常退出、声明的产物存在且均位于允许的任务目录内时，才能返回 `succeeded`。非零退出码返回 `failed`；找不到或无法启动 Codex 返回 `unavailable`；收到取消信号返回 `cancelled`。
+`status` 为 `succeeded`、`failed`、`cancelled` 或 `unavailable`。只有 Codex 进程正常退出、声明的产物存在且均位于允许的任务目录内时，才能返回 `succeeded`。`process` 仅记录退出码和信号；`artifacts` 记录路径及 SHA-256。非零退出码返回 `failed`；找不到或无法启动 Codex 返回 `unavailable`；收到取消信号返回 `cancelled`。
 
 ## 执行步骤
 

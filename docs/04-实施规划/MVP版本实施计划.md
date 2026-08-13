@@ -397,15 +397,15 @@ git commit -m "feat: add seven-phase approvals and context manifests"
 
 **文件：**
 
-- 新建：`src/domain/run.ts`、`src/ports/process-runner.ts`、`src/adapters/codex-adapter.ts`、`src/services/task-runner.ts`、`src/cli/task-run-command.ts`
-- 新建：`tests/adapters/codex-adapter.test.ts`、`tests/services/task-runner.test.ts`、`tests/cli/task-run-command.test.ts`
+- 新建：`src/domain/run.ts`、`src/ports/process-runner.ts`、`src/adapters/node-process-runner.ts`、`src/adapters/codex-adapter.ts`、`src/services/task-runner.ts`、`src/cli/task-run-command.ts`
+- 新建：`tests/adapters/node-process-runner.test.ts`、`tests/adapters/codex-adapter.test.ts`、`tests/services/task-runner.test.ts`、`tests/cli/task-run-command.test.ts`
 
 **接口：**
 
 - 提供 `RunRequestSchema`、`RunResultSchema`、`CodexAdapter.run(request: RunRequest): Promise<RunResult>`。
 - 提供 `TaskRunner.run(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult>`。
 
-- [ ] **步骤 1：编写 dry-run 和进程结果失败测试**
+- [x] **步骤 1：编写 dry-run 和进程结果失败测试**
 
 ```ts
 it('writes a clarify dry-run manifest with the locked method without starting Codex', async () => {
@@ -422,16 +422,16 @@ it('maps a missing executable to unavailable and marks the node failed', async (
 });
 ```
 
-- [ ] **步骤 2：运行测试并确认失败**
+- [x] **步骤 2：运行测试并确认失败**
 
 运行：`pnpm vitest run tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts`
 预期：因 Runner、Adapter 和进程端口尚不存在而失败。
 
-- [ ] **步骤 3：实现受限的 Codex 执行**
+- [x] **步骤 3：实现受限的 Codex 执行**
 
 按[Codex适配器规范](../03-方案设计/03-接入与接口/Codex适配器规范.md)、[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)和[安全规范](../03-方案设计/02-核心规范/安全规范.md)实现 `ProcessRunner`、`CodexAdapter`、`TaskRunner` 与运行命令。实施顺序为运行请求/结果 schema、本机运行目录与上下文渲染、dry-run、执行结果映射、阶段产物校验与共享去敏结果写入。
 
-- [ ] **步骤 4：验证 Adapter 和 Runner**
+- [x] **步骤 4：验证 Adapter 和 Runner**
 
 运行：`pnpm vitest run tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts && pnpm lint && pnpm typecheck`
 预期：全部通过。
