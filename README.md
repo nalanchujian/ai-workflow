@@ -96,7 +96,7 @@ npm update -g @nalanchujian/ai-workflow
 npm uninstall -g @nalanchujian/ai-workflow
 ```
 
-`aiw init` 生成不含凭据的 `~/.aiw/config.yaml`，并安装配置中锁定的默认团队技能包。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；只有使用 Lark 文档来源时才需要按模板补充 Lark MCP 映射。团队升级默认技能时执行 `aiw skills update --ref <tag-or-commit>`；更新只影响之后新建的任务。
+`aiw init` 生成不含凭据的 `~/.aiw/config.yaml`，并安装配置中锁定的默认团队技能包。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；只有使用 Lark 文档来源时才需要按模板补充 Lark MCP 映射。团队升级默认技能时执行 `aiw skills update --ref <tag-or-commit>`；安装成功后会同步切换同名默认模板的新版本。当前本机 Registry 不保留同一来源的多个版本：升级不会改写旧任务事实，但会替换其运行所需的本机技能副本，进行中的旧任务可能因此无法继续运行。请在旧任务完成后再升级；如已升级，先切回旧 tag，或基于新版重新创建任务。
 
 升级时应删除旧配置中的 `methodSources`；当前版本仅支持团队技能包提供的 `bundled:*` 方法，旧任务需使用新版技能包重新创建。
 

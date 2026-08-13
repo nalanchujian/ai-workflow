@@ -52,15 +52,19 @@ export class LocalConfig {
     return workflow;
   }
 
-  async updateDefaultWorkflowRef(ref: string): Promise<DefaultWorkflow> {
-    if (ref.trim().length === 0) {
+  async updateDefaultWorkflow(input: { ref: string; profile: string }): Promise<DefaultWorkflow> {
+    if (input.ref.trim().length === 0) {
       throw new Error('技能版本不能为空');
+    }
+    if (input.profile.trim().length === 0) {
+      throw new Error('默认工作流模板不能为空');
     }
     const document = await this.read();
     const workflow = await this.defaultWorkflow();
     const updated = {
       ...workflow,
-      defaultSkillSource: { ...workflow.defaultSkillSource, ref },
+      defaultSkillSource: { ...workflow.defaultSkillSource, ref: input.ref },
+      defaultProfile: input.profile,
     };
     await writeFile(this.path, stringify({ ...document, workflow: updated }), 'utf8');
     return updated;

@@ -20,7 +20,12 @@ export function createSkillsCommand(deps: { installer: SkillInstaller; registry:
     .action(async (options: { ref: string }, command: Command) => {
       const workflow = await deps.config.defaultWorkflow();
       const result = await deps.installer.install({ url: workflow.defaultSkillSource.url, ref: options.ref });
-      const updated = await deps.config.updateDefaultWorkflowRef(options.ref);
+      const profileName = workflow.defaultProfile.split('@', 1)[0];
+      const profile = result.profiles.find((candidate) => candidate.name === profileName);
+      if (profile === undefined) {
+        throw new Error(`更新的技能包未提供当前默认工作流：${workflow.defaultProfile}`);
+      }
+      const updated = await deps.config.updateDefaultWorkflow({ ref: options.ref, profile: `${profile.name}@${profile.version}` });
       writeCommandResult({
         defaultProfile: updated.defaultProfile,
         defaultSkillSource: updated.defaultSkillSource,

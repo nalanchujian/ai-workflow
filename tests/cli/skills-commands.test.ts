@@ -17,14 +17,14 @@ describe('skills commands', () => {
     expect(output).toContain('standard-web-feature');
   });
 
-  it('installs a requested default-workflow ref before recording it in local config', async () => {
+  it('installs a requested default-workflow ref before switching to its matching profile version', async () => {
     const calls: string[] = [];
     const command = createSkillsCommand({
       installer: { async install(input: { url: string; ref: string }) { calls.push(`install:${input.url}@${input.ref}`); return { skills: [], profiles: [{ name: 'standard-web-feature', version: '2.1.0' }] }; } } as never,
       registry: {} as never,
       config: {
         async defaultWorkflow() { return { defaultSkillSource: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' }, defaultProfile: 'standard-web-feature@2.0.0' }; },
-        async updateDefaultWorkflowRef(ref: string) { calls.push(`config:${ref}`); return { defaultSkillSource: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref }, defaultProfile: 'standard-web-feature@2.0.0' }; },
+        async updateDefaultWorkflow(input: { ref: string; profile: string }) { calls.push(`config:${input.ref}:${input.profile}`); return { defaultSkillSource: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: input.ref }, defaultProfile: input.profile }; },
       } as never,
       stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
     });
@@ -33,7 +33,24 @@ describe('skills commands', () => {
 
     expect(calls).toEqual([
       'install:https://github.com/nalanchujian/ai-workflow-skills.git@v2.1.0',
-      'config:v2.1.0',
+      'config:v2.1.0:standard-web-feature@2.1.0',
     ]);
+  });
+
+  it('keeps the default configuration unchanged when the installed package lacks its default profile', async () => {
+    const calls: string[] = [];
+    const command = createSkillsCommand({
+      installer: { async install() { calls.push('install'); return { skills: [], profiles: [{ name: 'backend-service', version: '1.0.0' }] }; } } as never,
+      registry: {} as never,
+      config: {
+        async defaultWorkflow() { return { defaultSkillSource: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' }, defaultProfile: 'standard-web-feature@2.0.0' }; },
+        async updateDefaultWorkflow() { calls.push('config'); throw new Error('不应更新'); },
+      } as never,
+      stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await expect(command.parseAsync(['node', 'skills', 'update', '--ref', 'v3.0.0']))
+      .rejects.toThrow('更新的技能包未提供当前默认工作流：standard-web-feature@2.0.0');
+    expect(calls).toEqual(['install']);
   });
 });

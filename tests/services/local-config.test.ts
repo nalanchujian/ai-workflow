@@ -21,7 +21,7 @@ describe('LocalConfig', () => {
     await expect(new LocalConfig(configPath).read()).rejects.toBeDefined();
   });
 
-  it('returns and updates the configured default workflow only after callers request it', async () => {
+  it('updates the default source ref and profile together', async () => {
     const directory = await createTempDirectory('aiw-local-config-');
     directories.push(directory);
     const configPath = join(directory, 'config.yaml');
@@ -40,8 +40,11 @@ workflow:
       defaultProfile: 'standard-web-feature@2.0.0',
     });
 
-    await config.updateDefaultWorkflowRef('v2.1.0');
+    await config.updateDefaultWorkflow({ ref: 'v2.1.0', profile: 'standard-web-feature@2.1.0' });
 
-    await expect(config.defaultWorkflow()).resolves.toMatchObject({ defaultSkillSource: { ref: 'v2.1.0' } });
+    await expect(config.defaultWorkflow()).resolves.toEqual({
+      defaultSkillSource: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.1.0' },
+      defaultProfile: 'standard-web-feature@2.1.0',
+    });
   });
 });
