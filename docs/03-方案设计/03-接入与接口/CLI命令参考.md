@@ -109,25 +109,24 @@ aiw skills profiles list --json
 
 ## 任务命令
 
-### `aiw task init <task-id> --project <path> --source <source> --skill-profile <name[@version]>`
+### `aiw task init --project <path> --source <source> --skill-profile <name[@version]>`
 
 在目标项目创建任务、来源快照和默认任务图。
 
 ```bash
 aiw skills profiles list
-aiw task init refund-123 --project . --source ./requirements.md --skill-profile standard-web-feature@1.0.0
-aiw task init refund-123 --project /workspace/shop --source https://example.com/requirements --skill-profile standard-web-feature@1.0.0
-aiw task init refund-123 --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@1.0.0
+aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@1.0.0
+aiw task init --project /workspace/shop --source https://example.com/requirements --skill-profile standard-web-feature@1.0.0
+aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@1.0.0
 ```
 
 | 参数 | 说明 |
 |---|---|
-| `<task-id>` | 必填。匹配 `[a-z][a-z0-9-]{1,63}`，且在项目内唯一。 |
 | `--project <path>` | 必填。业务项目根目录。 |
 | `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark `docx` 文档 URL。 |
 | `--skill-profile <name[@version]>` | 必填。已安装工作流模板；一次锁定 `clarify` 至 `test` 的六阶段技能。 |
 
-成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark URL 由本机已配置的 Lark MCP Server 读取；MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
+命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark URL 由本机已配置的 Lark MCP Server 读取；MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
 ```text
 intake → clarify → solution → plan → implement → verify → test
@@ -135,7 +134,7 @@ intake → clarify → solution → plan → implement → verify → test
 
 来源快照成功后，`intake` 自动完成，`clarify` 成为 `ready`。`clarify`、`plan`、`test` 完成执行后等待人工审批；`intake` 不允许通过 `task run` 运行。
 
-失败情形包括：任务 ID 非法或重复、模板不存在/版本不唯一/阶段不匹配/引用技能不可用、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、Lark Connector 未配置或无权限、来源类型不受支持。失败不得留下不完整来源快照或任务目录。
+失败情形包括：自动生成的任务 ID 与现有任务冲突、模板不存在/版本不唯一/阶段不匹配/引用技能不可用、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、Lark Connector 未配置或无权限、来源类型不受支持。失败不得留下不完整来源快照或任务目录。
 
 ### `aiw task source refresh <task-id> <source-id>`
 

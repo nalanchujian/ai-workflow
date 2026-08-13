@@ -277,7 +277,7 @@ git commit -m "feat: add task source intake and refresh"
 - 提供 `MethodSourceSchema`、`ResolvedMethodSourceSchema` 和 `MethodSourceResolver.resolve(input)`。
 - 提供 `SkillInstaller.install(input: { url: string; ref?: string }): Promise<InstallResult>`，其中包含已安装技能与工作流模板。
 - 提供 `SkillRegistry.list(): Promise<InstalledSkill[]>`、`listProfiles(): Promise<InstalledWorkflowProfile[]>`、`find(name: string, version?: string): Promise<InstalledSkill>` 与 `findProfile(name: string, version?: string): Promise<InstalledWorkflowProfile>`。
-- 提供 `TaskInitializer.init(input: { id: string; projectRoot: string; source: string; skillProfile: string }): Promise<Task>`。
+- 提供 `TaskInitializer.init(input: { projectRoot: string; source: string; skillProfile: string }): Promise<Task>`；任务 ID 由初始化器自动生成。
 
 - [x] **步骤 1：编写技能安装失败测试**
 
@@ -291,7 +291,7 @@ it('records valid skills, a workflow profile, locked Git revisions, and resolved
 });
 
 it('initializes a task only when the profile resolves and locks every executable stage', async () => {
-  const task = await initializer.init({ id: 'refund-123', projectRoot, source: requirementsPath, skillProfile: 'standard-web-feature@1.0.0' });
+  const task = await initializer.init({ projectRoot, source: requirementsPath, skillProfile: 'standard-web-feature@1.0.0' });
   expect(task.skillProfile.name).toBe('standard-web-feature');
   expect(task.nodes.clarify.skill?.name).toBe('requirements-clarification');
   expect(task.nodes.test.skill?.name).toBe('acceptance-testing');
@@ -460,9 +460,10 @@ git commit -m "feat: run task nodes through Codex adapter"
 ```ts
 it('initializes seven phases and dry-runs clarify with a committed locked Superpowers method', async () => {
   await runCli(['skills', 'install', fixtureRepoUrl]);
-  await runCli(['task', 'init', 'refund-123', '--project', projectRoot, '--source', requirementsPath, '--skill-profile', 'standard-web-feature@1.0.0']);
-  await fakeRepository.commitTaskFacts('refund-123');
-  const result = await runCli(['task', 'run', 'refund-123', 'clarify', '--dry-run', '--json']);
+  const initialized = await runCli(['task', 'init', '--project', projectRoot, '--source', requirementsPath, '--skill-profile', 'standard-web-feature@1.0.0', '--json']);
+  const taskId = JSON.parse(initialized.stdout).taskId;
+  await fakeRepository.commitTaskFacts(taskId);
+  const result = await runCli(['task', 'run', taskId, 'clarify', '--dry-run', '--json']);
   expect(JSON.parse(result.stdout)).toMatchObject({ status: 'succeeded' });
   expect(JSON.parse(result.stdout).contextManifest.skill.methodSources[0]).toMatchObject({ id: 'superpowers:brainstorming', source: 'configured:superpowers', version: '6.2.0', revision: '6.2.0' });
 });

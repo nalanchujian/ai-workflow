@@ -12,6 +12,7 @@ import { createSkillRepositoryFixture } from '../helpers/skill-repository-fixtur
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
 const directories: string[] = [];
+const taskId = 'task-20260813-120000-000';
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map(removeTempDirectory));
@@ -23,14 +24,14 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
 
     await expect(runCli(['skills', 'install', fixture.skillRepository], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
     await expect(runCli(['skills', 'profiles', 'list', '--json'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
-    await expect(runCli(['task', 'init', 'refund-123', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@1.0.0'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
-    await expect(runCli(['task', 'source', 'refresh', 'refund-123', 'requirements', '--json'], fixture.runtime)).resolves.toMatchObject({
+    await expect(runCli(['task', 'init', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@1.0.0'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
+    await expect(runCli(['task', 'source', 'refresh', taskId, 'requirements', '--json'], fixture.runtime)).resolves.toMatchObject({
       exitCode: 0,
       stdout: expect.stringContaining('"changed":false'),
     });
     fixture.repository.commitTaskFacts();
 
-    const result = await runCli(['task', 'run', 'refund-123', 'clarify', '--dry-run', '--json'], fixture.runtime);
+    const result = await runCli(['task', 'run', taskId, 'clarify', '--dry-run', '--json'], fixture.runtime);
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
@@ -43,27 +44,27 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
   it('runs all seven phases through public commands with deterministic process and Git substitutes', async () => {
     const fixture = await createFixture();
     await runCli(['skills', 'install', fixture.skillRepository], fixture.runtime);
-    await runCli(['task', 'init', 'refund-123', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@1.0.0'], fixture.runtime);
+    await runCli(['task', 'init', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@1.0.0'], fixture.runtime);
     fixture.repository.commitTaskFacts();
     fixture.process.onRun = async (input) => {
       const nodeId = /node="([a-z]+)"/.exec(input.stdin)?.[1];
       if (nodeId === undefined) {
         throw new Error('未找到当前节点');
       }
-      await completeNode(fixture.projectRoot, 'refund-123', nodeId);
+      await completeNode(fixture.projectRoot, taskId, nodeId);
     };
 
     for (const nodeId of ['clarify', 'solution', 'plan', 'implement', 'verify', 'test']) {
-      const run = await runCli(['task', 'run', 'refund-123', nodeId], fixture.runtime);
+      const run = await runCli(['task', 'run', taskId, nodeId], fixture.runtime);
       expect(run.exitCode).toBe(0);
       fixture.repository.commitTaskFacts();
       if (['clarify', 'plan', 'test'].includes(nodeId)) {
-        await expect(runCli(['task', 'approve', 'refund-123', nodeId, '--actor', 'tech-lead'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
+        await expect(runCli(['task', 'approve', taskId, nodeId, '--actor', 'tech-lead'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
         fixture.repository.commitTaskFacts();
       }
     }
 
-    const status = await runCli(['task', 'status', 'refund-123', '--json'], fixture.runtime);
+    const status = await runCli(['task', 'status', taskId, '--json'], fixture.runtime);
     expect(JSON.parse(status.stdout).nodes.test.status).toBe('completed');
     expect(fixture.process.calls).toHaveLength(6);
   });
@@ -85,6 +86,7 @@ async function createFixture() {
   const runtime = createCliRuntime({
     homeDirectory: localHome,
     projectRoot: () => projectRoot,
+    taskCreatedAt: () => new Date('2026-08-13T12:00:00.000Z'),
     ports: {
       git: new FakeGitClient({ [skillFixture.repository]: { directory: skillFixture.repository, revision: 'fixture-revision' } }),
       repositoryStatus: repository,

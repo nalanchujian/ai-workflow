@@ -23,10 +23,12 @@ export class TaskInitializer {
     projectRepository: ProjectRepository;
     sourceIntakeFactory: (projectRoot: string) => SourceIntakePort;
     taskStoreFactory: (projectRoot: string) => TaskStore;
+    now?: () => Date;
   }) {}
 
-  async init(input: { id: string; projectRoot: string; source: string; skillProfile: string }): Promise<Task> {
-    assertTaskId(input.id);
+  async init(input: { projectRoot: string; source: string; skillProfile: string }): Promise<Task> {
+    const id = taskIdAt(this.deps.now?.() ?? new Date());
+    assertTaskId(id);
     await this.deps.projectRepository.assertProjectReady(input.projectRoot);
     const [profileName, profileVersion] = parseReference(input.skillProfile, '工作流模板');
     const profile = await this.deps.registry.findProfile(profileName, profileVersion);
@@ -40,16 +42,16 @@ export class TaskInitializer {
     const taskStore = this.deps.taskStoreFactory(input.projectRoot);
     const source = await sourceIntake.snapshot({ kind: detectSourceKind(input.source), sourceId, value: input.source, revision: 1 });
     const projectConfig = await readProjectConfig(input.projectRoot);
-    const taskDirectory = taskStore.taskDirectory(input.id);
-    const stagingDirectory = join(dirname(taskDirectory), `.${input.id}.initializing-${randomUUID()}`);
+    const taskDirectory = taskStore.taskDirectory(id);
+    const stagingDirectory = join(dirname(taskDirectory), `.${id}.initializing-${randomUUID()}`);
     await mkdir(stagingDirectory, { recursive: true });
     try {
       const sourceReference = await sourceIntake.writeSnapshot({ snapshot: source, taskDirectory: stagingDirectory });
-      await writeFile(join(stagingDirectory, 'task.md'), `# ${input.id}\n\n需求来源：${sourceReference.origin}\n`, 'utf8');
+      await writeFile(join(stagingDirectory, 'task.md'), `# ${id}\n\n需求来源：${sourceReference.origin}\n`, 'utf8');
       const task: Task = {
         schemaVersion: 'aiw.task/v1',
-        id: input.id,
-        title: `任务 ${input.id}`,
+        id,
+        title: `任务 ${id}`,
         repository: input.projectRoot,
         status: 'active',
         skillProfile: {
@@ -85,6 +87,12 @@ export class TaskInitializer {
     }));
     return Object.fromEntries(resolved) as Record<(typeof executableStages)[number], InstalledSkill>;
   }
+}
+
+function taskIdAt(date: Date): string {
+  const [day, clock] = date.toISOString().split('T');
+  const [time, milliseconds] = clock.replace('Z', '').split('.');
+  return `task-${day.replaceAll('-', '')}-${time.replaceAll(':', '')}-${milliseconds}`;
 }
 
 const ProjectConfigSchema = z.object({

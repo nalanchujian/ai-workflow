@@ -44,6 +44,7 @@ export interface CliRuntime {
 export function createCliRuntime(input: {
   homeDirectory: string;
   projectRoot: () => string;
+  taskCreatedAt?: () => Date;
   ports: {
     git: GitClient;
     repositoryStatus: RepositoryStatus & ProjectRepository;
@@ -72,6 +73,7 @@ export function createCliRuntime(input: {
     projectRepository: input.ports.repositoryStatus,
     sourceIntakeFactory: intake,
     taskStoreFactory: (root) => new TaskStore(root),
+    ...(input.taskCreatedAt === undefined ? {} : { now: input.taskCreatedAt }),
   });
   const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore });
   const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry });

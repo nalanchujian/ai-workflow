@@ -38,22 +38,23 @@ MVP 聚焦“本机单 Agent + Git 共享任务事实与团队技能仓库”。
 ```bash
 aiw skills install git@github.com:your-org/agent-skills.git
 aiw skills profiles list
-aiw task init req-123 --project . --source https://example.com/requirements --skill-profile standard-web-feature@1.0.0
-git add .aiw && git commit -m "chore(aiw): initialize req-123"
-aiw task run req-123 clarify
-git add .aiw && git commit -m "chore(aiw): clarify req-123"
-aiw task approve req-123 clarify --actor tech-lead
+aiw task init --project . --source https://example.com/requirements --skill-profile standard-web-feature@1.0.0
+# 输出 taskId，例如 task-20260813-120000-000；将其填入下方命令
+git add .aiw && git commit -m "chore(aiw): initialize task"
+aiw task run <task-id> clarify
+git add .aiw && git commit -m "chore(aiw): clarify task"
+aiw task approve <task-id> clarify --actor tech-lead
 git add .aiw && git commit -m "chore(aiw): approve clarification"
-aiw task run req-123 solution
-aiw task run req-123 plan
-git add .aiw && git commit -m "chore(aiw): plan req-123"
-aiw task approve req-123 plan --actor tech-lead
+aiw task run <task-id> solution
+aiw task run <task-id> plan
+git add .aiw && git commit -m "chore(aiw): plan task"
+aiw task approve <task-id> plan --actor tech-lead
 git add .aiw && git commit -m "chore(aiw): approve plan"
-aiw task run req-123 implement
-aiw task run req-123 verify
-aiw task run req-123 test
-git add .aiw && git commit -m "chore(aiw): test req-123"
-aiw task approve req-123 test --actor tech-lead
+aiw task run <task-id> implement
+aiw task run <task-id> verify
+aiw task run <task-id> test
+git add .aiw && git commit -m "chore(aiw): test task"
+aiw task approve <task-id> test --actor tech-lead
 git add .aiw && git commit -m "chore(aiw): approve test"
 ```
 

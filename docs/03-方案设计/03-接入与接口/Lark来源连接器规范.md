@@ -23,8 +23,9 @@ Lark 授权、应用凭据和 MCP 配置只能保留在本机受控环境中；�
 ## 使用方式
 
 ```bash
-aiw task init refund-123 --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@1.0.0
-aiw task source refresh refund-123 requirements
+aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@1.0.0
+# 使用上一条命令输出的 taskId
+aiw task source refresh <task-id> requirements
 ```
 
 `task init` 根据 URL 识别来源类型：本地文件、公开 HTTP(S) 地址或 Lark 文档。MVP 仅接受 `https://<tenant>.larksuite.com/docx/<document-id>` 或 `https://<tenant>.feishu.cn/docx/<document-id>`；查询参数和片段不参与文档标识。其他 Lark URL（包括 Wiki、表格、旧版文档）必须提示“当前 Connector 不支持该文档类型”，不得回退为公开 URL 抓取。Lark 文档交给已配置的 Lark Connector；其余现有来源仍沿用原来的接入规则。

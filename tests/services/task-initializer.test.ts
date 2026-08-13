@@ -28,16 +28,18 @@ describe('TaskInitializer', () => {
         async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
       }) as never,
       taskStoreFactory: () => store,
+      now: () => new Date('2026-08-13T12:00:00.000Z'),
     });
 
-    const task = await initializer.init({ id: 'refund-123', projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature@1.0.0' });
+    const task = await initializer.init({ projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature@1.0.0' });
 
+    expect(task.id).toBe('task-20260813-120000-000');
     expect(task.skillProfile.name).toBe('standard-web-feature');
     expect(task.nodes.intake.status).toBe('completed');
     expect(task.nodes.clarify.skill?.name).toBe('requirements-clarification');
     expect(task.nodes.test.skill?.name).toBe('acceptance-testing');
-    expect((await store.load('refund-123')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
-    await expect(readFile(join(store.taskDirectory('refund-123'), 'task.md'), 'utf8')).resolves.toContain('需求来源：requirements.md');
+    expect((await store.load('task-20260813-120000-000')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
+    await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.md'), 'utf8')).resolves.toContain('需求来源：requirements.md');
     await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
   });
 
@@ -45,10 +47,10 @@ describe('TaskInitializer', () => {
     const projectRoot = await createTempDirectory('aiw-task-init-');
     directories.push(projectRoot);
     const store = new TaskStore(projectRoot);
-    const initializer = new TaskInitializer({ registry: new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml')), projectRepository: { async assertProjectReady() {} }, sourceIntakeFactory: () => ({} as never), taskStoreFactory: () => store });
+    const initializer = new TaskInitializer({ registry: new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml')), projectRepository: { async assertProjectReady() {} }, sourceIntakeFactory: () => ({} as never), taskStoreFactory: () => store, now: () => new Date('2026-08-13T12:00:00.000Z') });
 
-    await expect(initializer.init({ id: 'refund-123', projectRoot, source: 'requirements.md', skillProfile: 'missing@1.0.0' })).rejects.toThrow('工作流模板不存在');
-    await expect(readFile(join(store.taskDirectory('refund-123'), 'task.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'missing@1.0.0' })).rejects.toThrow('工作流模板不存在');
+    await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rejects project admission before reading the source or creating a task directory', async () => {
@@ -65,13 +67,14 @@ describe('TaskInitializer', () => {
       projectRepository: { async assertProjectReady() { throw new ProjectRepositoryError('PROJECT_NOT_GIT', '不是 Git 工作树'); } },
       sourceIntakeFactory: () => ({ async snapshot() { sourceRead = true; throw new Error('不应读取来源'); } }) as never,
       taskStoreFactory: () => store,
+      now: () => new Date('2026-08-13T12:00:00.000Z'),
     });
 
-    await expect(initializer.init({ id: 'refund-123', projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' })).rejects.toThrow('不是 Git 工作树');
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' })).rejects.toThrow('不是 Git 工作树');
     expect(sourceRead).toBe(false);
-    await expect(access(store.taskDirectory('refund-123'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(store.taskDirectory('task-20260813-120000-000'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(join(projectRoot, '.aiw', 'config.yaml'))).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(readFile(join(store.taskDirectory('refund-123'), 'task.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 
