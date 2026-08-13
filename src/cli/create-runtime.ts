@@ -104,7 +104,7 @@ export function createCliRuntime(input: {
     taskStore,
     skillRegistry: registry,
     methodSourceResolver,
-    contextBuilder: new ContextBuilder({ taskDirectory: (task) => taskStore.taskDirectory(task.id), projectRoot: (task) => task.repository }),
+    contextBuilder: new ContextBuilder({ taskDirectory: (task) => taskStore.taskDirectory(task.id), projectRoot: () => taskStore.projectDirectory() }),
     taskFactGuard,
     changeInspector: input.ports.repositoryStatus,
     adapter: new CodexAdapter({ processRunner: input.ports.processRunner }),

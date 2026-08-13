@@ -11,9 +11,9 @@ export class TaskFactGuardError extends Error {
 export class TaskFactGuard {
   constructor(private readonly deps: { repositoryStatus: RepositoryStatus }) {}
 
-  async assertCommitted(input: { task: Task; paths: string[] }): Promise<void> {
+  async assertCommitted(input: { task: Task; paths: string[]; projectRoot?: string }): Promise<void> {
     const paths = [...new Set(input.paths)];
-    const uncommitted = await this.deps.repositoryStatus.uncommittedPaths({ projectRoot: input.task.repository, paths });
+    const uncommitted = await this.deps.repositoryStatus.uncommittedPaths({ projectRoot: input.projectRoot ?? input.task.repository, paths });
     if (uncommitted.length > 0) {
       throw new TaskFactGuardError('TASK_FACTS_UNCOMMITTED', uncommitted, `任务事实尚未提交：${uncommitted.join(', ')}`);
     }

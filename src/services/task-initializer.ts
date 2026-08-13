@@ -61,7 +61,7 @@ export class TaskInitializer {
         schemaVersion: 'aiw.task/v1',
         id,
         title: `任务 ${id}`,
-        repository: input.projectRoot,
+        repository: '.',
         status: 'active',
         skillProfile: {
           name: profile.name,

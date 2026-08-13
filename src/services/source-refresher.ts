@@ -29,7 +29,7 @@ export class SourceRefresher {
     const snapshot = await this.deps.intake.snapshot({
       kind: current.kind,
       sourceId: input.sourceId,
-      value: sourceValue(task, current.kind, current.origin),
+      value: sourceValue(this.deps.taskStore.projectDirectory(), current.kind, current.origin),
       ...(current.section === undefined ? {} : { section: current.section }),
       revision: current.revision + 1,
     });
@@ -46,9 +46,9 @@ export class SourceRefresher {
   }
 }
 
-function sourceValue(task: Task, kind: Task['sources'][string]['kind'], origin: string): string {
+function sourceValue(projectRoot: string, kind: Task['sources'][string]['kind'], origin: string): string {
   if (kind !== 'local-file' || isAbsolute(origin) || origin === 'local:redacted') {
     return origin;
   }
-  return join(task.repository, origin);
+  return join(projectRoot, origin);
 }

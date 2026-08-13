@@ -34,6 +34,7 @@ describe('TaskInitializer', () => {
     const task = await initializer.init({ projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature@1.0.0' });
 
     expect(task.id).toBe('task-20260813-120000-000');
+    expect(task.repository).toBe('.');
     expect(task.skillProfile.name).toBe('standard-web-feature');
     expect(task.nodes.intake.status).toBe('completed');
     expect(task.nodes.clarify.skill?.name).toBe('requirements-clarification');

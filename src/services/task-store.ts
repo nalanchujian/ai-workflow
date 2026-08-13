@@ -14,6 +14,10 @@ export class TaskStoreError extends Error {
 export class TaskStore {
   constructor(private readonly projectRoot: string) {}
 
+  projectDirectory(): string {
+    return this.projectRoot;
+  }
+
   taskDirectory(taskId: string): string {
     return join(this.projectRoot, '.aiw', 'tasks', taskId);
   }

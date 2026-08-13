@@ -74,9 +74,9 @@ export class TaskRunner {
         ...methods.map((method) => ({ label: `方法论：${method.source.id}`, content: method.content })),
       ],
     });
-    await this.deps.taskFactGuard.assertCommitted({ task, paths: committedPaths(task, this.deps.taskStore, manifest) });
+    await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: committedPaths(this.deps.taskStore.projectDirectory(), task, this.deps.taskStore, manifest) });
     if (!input.dryRun) {
-      await this.assertWorkingTreeClean(task);
+      await this.assertWorkingTreeClean();
     }
 
     const runId = this.deps.runIdFactory?.() ?? randomUUID();
@@ -87,7 +87,7 @@ export class TaskRunner {
     const request: RunRequest = {
       schemaVersion: 'aiw.run/v1',
       runId,
-      task: { id: task.id, nodeId: input.nodeId, nodeRevision: node.revision, projectRoot: task.repository },
+      task: { id: task.id, nodeId: input.nodeId, nodeRevision: node.revision, projectRoot: this.deps.taskStore.projectDirectory() },
       instruction: node.title,
       contextManifestPath: join(this.deps.taskStore.taskDirectory(task.id), contextManifestFactPath),
       runDirectory,
@@ -145,8 +145,8 @@ export class TaskRunner {
     }
   }
 
-  private async assertWorkingTreeClean(task: Task): Promise<void> {
-    const changed = await this.deps.changeInspector.changedPaths({ projectRoot: task.repository });
+  private async assertWorkingTreeClean(): Promise<void> {
+    const changed = await this.deps.changeInspector.changedPaths({ projectRoot: this.deps.taskStore.projectDirectory() });
     if (changed.length > 0) {
       throw new TaskRunnerError('WORKTREE_DIRTY', `业务仓库存在未提交变更，无法建立可信基线：${changed.join(', ')}`);
     }
@@ -157,7 +157,7 @@ export class TaskRunner {
     if (node === undefined) {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', `未知节点：${nodeId}`);
     }
-    const taskRoot = relative(task.repository, this.deps.taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
+    const taskRoot = relative(this.deps.taskStore.projectDirectory(), this.deps.taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
     const allowedPaths = [
       `${taskRoot}/task.yaml`,
       `${taskRoot}/runs/${runId}/**`,
@@ -171,7 +171,7 @@ export class TaskRunner {
   }
 
   private async recordChangeDiff(task: Task, runId: string, scope: ChangeScope): Promise<ChangeDiff> {
-    const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot: task.repository });
+    const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot: this.deps.taskStore.projectDirectory() });
     const violations = changedPaths.filter((path) => !scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
     const diff: ChangeDiff = { schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId, changedPaths, violations };
     await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-diff.json`, JSON.stringify(diff, null, 2) + '\n');
@@ -266,8 +266,8 @@ async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string): 
   }));
 }
 
-function committedPaths(task: Task, taskStore: TaskStore, manifest: ContextManifest): string[] {
-  const taskRoot = relative(task.repository, taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
+function committedPaths(projectRoot: string, task: Task, taskStore: TaskStore, manifest: ContextManifest): string[] {
+  const taskRoot = relative(projectRoot, taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
   if (taskRoot.startsWith('../') || taskRoot === '') {
     throw new TaskRunnerError('NODE_NOT_RUNNABLE', '任务目录必须位于业务仓库内');
   }

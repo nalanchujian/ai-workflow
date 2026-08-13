@@ -97,7 +97,7 @@ export class TaskStateCommands {
       throw new Error('变更说明不能为空');
     }
     const outputPaths = node.outputs;
-    await this.deps.taskFactGuard.assertCommitted({ task, paths: ['task.yaml', ...outputPaths] });
+    await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...outputPaths] });
     const actor = await this.deps.taskFactGuard.actor(options.actor);
     const artifactHashes = await outputHashes(task, this.deps.taskStore, nodeId);
     const approvalPath = `approvals/${nodeId}/r${node.revision}.yaml`;
@@ -125,22 +125,22 @@ export class TaskStateCommands {
 
 export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdout: NodeJS.WriteStream }): Command {
   const command = new Command('task').description('查询任务状态并处理审批');
-  command.addCommand(new Command('status').argument('<task-id>').action(async (taskId: string, _options: unknown, current: Command) => {
+  command.addCommand(new Command('status').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
     writeCommandResult(await deps.commands.status(taskId), current, deps.stdout);
   }));
-  command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }, current: Command) => {
+  command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }, current: Command) => {
     writeCommandResult(await deps.commands.approve(taskId, nodeId, options), current, deps.stdout);
   }));
-  command.addCommand(new Command('request-changes').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
+  command.addCommand(new Command('request-changes').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     writeCommandResult(await deps.commands.requestChanges(taskId, nodeId, options), current, deps.stdout);
   }));
-  command.addCommand(new Command('fail').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
+  command.addCommand(new Command('fail').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     writeCommandResult(await deps.commands.fail(taskId, nodeId, options), current, deps.stdout);
   }));
-  command.addCommand(new Command('revise').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
+  command.addCommand(new Command('revise').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     writeCommandResult(await deps.commands.revise(taskId, nodeId, options), current, deps.stdout);
   }));
-  command.addCommand(new Command('skill').addCommand(new Command('rebind').argument('<task-id>').argument('<node-id>').requiredOption('--skill <name@version>').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { skill: string; note: string }, current: Command) => {
+  command.addCommand(new Command('skill').addCommand(new Command('rebind').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--skill <name@version>').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { skill: string; note: string }, current: Command) => {
     writeCommandResult(await deps.commands.rebindSkill(taskId, nodeId, options), current, deps.stdout);
   })));
   return command;
