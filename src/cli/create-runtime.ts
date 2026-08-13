@@ -13,6 +13,7 @@ import { DoctorService } from '../services/doctor-service.js';
 import { DefaultWorkflowBootstrapper } from '../services/default-workflow-bootstrapper.js';
 import { LocalConfig } from '../services/local-config.js';
 import { LocalInitializer } from '../services/local-initializer.js';
+import { LarkConnectorAutoDiscovery } from '../services/lark-connector-auto-discovery.js';
 import { MethodSourceResolver } from '../services/method-source-resolver.js';
 import { SkillInstaller } from '../services/skill-installer.js';
 import { SkillRegistry } from '../services/skill-registry.js';
@@ -26,6 +27,7 @@ import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
 import type { GitClient } from '../ports/git-client.js';
 import type { McpClient } from '../ports/mcp-client.js';
+import type { McpServerCatalog } from '../ports/mcp-server-catalog.js';
 import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
 import type { NetworkClient } from '../ports/network-client.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
@@ -57,6 +59,7 @@ export function createCliRuntime(input: {
     processRunner: ProcessRunner;
     mcpClient?: McpClient;
     mcpServerConfigResolver?: McpServerConfigResolver;
+    mcpServerCatalog?: McpServerCatalog;
   };
 }): CliRuntime {
   const projectRoot = input.projectRoot();
@@ -87,6 +90,13 @@ export function createCliRuntime(input: {
     config,
     installer,
     registry,
+    ...(input.ports.mcpClient === undefined || input.ports.mcpServerCatalog === undefined ? {} : {
+      larkDiscovery: new LarkConnectorAutoDiscovery({
+        config,
+        catalog: input.ports.mcpServerCatalog,
+        client: input.ports.mcpClient,
+      }),
+    }),
   });
   const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore });
   const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry });
@@ -122,6 +132,7 @@ export function createCliRuntime(input: {
 }
 
 export function createProductionCliRuntime(input: { homeDirectory: string; projectRoot?: () => string }): CliRuntime {
+  const mcpServerConfig = new CodexTomlMcpServerConfigResolver();
   return createCliRuntime({
     homeDirectory: input.homeDirectory,
     projectRoot: input.projectRoot ?? (() => process.cwd()),
@@ -131,7 +142,8 @@ export function createProductionCliRuntime(input: { homeDirectory: string; proje
       network: new FetchNetworkClient(),
       processRunner: new NodeProcessRunner(),
       mcpClient: new StdioMcpClient(),
-      mcpServerConfigResolver: new CodexTomlMcpServerConfigResolver(),
+      mcpServerConfigResolver: mcpServerConfig,
+      mcpServerCatalog: mcpServerConfig,
     },
   });
 }

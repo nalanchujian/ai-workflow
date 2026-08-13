@@ -36,4 +36,21 @@ describe('CodexTomlMcpServerConfigResolver', () => {
       transport: 'stdio',
     });
   });
+
+  it('lists only top-level MCP servers and ignores nested configuration sections', async () => {
+    const directory = await createTempDirectory('aiw-codex-toml-');
+    directories.push(directory);
+    const path = join(directory, 'config.toml');
+    await writeFile(path, [
+      '[mcp_servers.lark-openapi]',
+      'command = "npx"',
+      'args = ["-y", "lark-mcp"]',
+      '',
+      '[mcp_servers.lark-openapi.env]',
+      'LARK_APP_ID = "app-id"',
+    ].join('\n'));
+
+    await expect(new CodexTomlMcpServerConfigResolver().list({ source: 'codex-toml', path }))
+      .resolves.toMatchObject([{ name: 'lark-openapi', descriptor: { command: 'npx', args: ['-y', 'lark-mcp'] } }]);
+  });
 });

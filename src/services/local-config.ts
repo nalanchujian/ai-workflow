@@ -70,6 +70,14 @@ export class LocalConfig {
     return updated;
   }
 
+  async updateLarkConnector(profile: LocalLarkConnectorProfile): Promise<void> {
+    const document = await this.read();
+    await writeFile(this.path, stringify({
+      ...document,
+      connectors: { ...document.connectors, lark: profile },
+    }), 'utf8');
+  }
+
   async read(): Promise<LocalConfigDocument> {
     return LocalConfigSchema.parse(parse(await readFile(this.path, 'utf8')));
   }

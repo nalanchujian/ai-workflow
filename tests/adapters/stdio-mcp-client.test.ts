@@ -22,4 +22,19 @@ describe('StdioMcpClient', () => {
 
     expect(result).toEqual({ data: { content: '# Refund' } });
   });
+
+  it('lists MCP tools after initialization', async () => {
+    const script = [
+      "const readline=require('node:readline');",
+      "readline.createInterface({input:process.stdin}).on('line', line => {",
+      "const m=JSON.parse(line); if(m.id===undefined)return;",
+      "const result=m.method==='tools/list'?{tools:[{name:'docx_v1_document_rawContent'},{name:'other'}]}:{protocolVersion:'2024-11-05',capabilities:{}};",
+      "process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');",
+      "});",
+    ].join('');
+
+    await expect(new StdioMcpClient().listTools({
+      server: { args: ['-e', script], command: process.execPath, env: {}, transport: 'stdio' },
+    })).resolves.toEqual([{ name: 'docx_v1_document_rawContent' }, { name: 'other' }]);
+  });
 });

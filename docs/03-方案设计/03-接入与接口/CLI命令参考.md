@@ -26,6 +26,8 @@
 
 在 `~/.aiw/config.yaml`（或 `AIW_HOME/config.yaml`）首次创建带中文注释的安全模板，并安装或复用模板中锁定的默认团队技能包与工作流。模板不包含凭据、不包含 Superpowers 路径，也不创建任务或运行目录；技能内容只写入用户目录的本机 Registry。文件已存在时原样保留，随后仍会校验并安装或复用其配置的默认工作流；默认工作流安装失败时保留配置并返回修复提示。
 
+命令还会尝试从 Codex 配置中发现唯一的 Lark MCP Server，查询其工具清单，并仅在存在 `docx_v1_document_rawContent` 文档读取工具时自动写入 `connectors.lark`。已有映射绝不覆盖；没有候选、多个候选、工具不支持或 MCP 不可用都不会使初始化失败。多个候选时输出候选名称，可使用 `--lark-server <name>` 显式选择其中一个；该参数只指定 Server，工具名仍由 MCP 自动发现。
+
 ### `aiw doctor [--project <path>] [--lark-url <docx-url>]`
 
 只读检查本机研发环境，返回 Git CLI、目标项目 Git 状态、Codex CLI、本机配置、已安装的内置方法和 Lark MCP 的诊断结果。每项结果包含 `passed`、`warning` 或 `failed`、原因及可执行修复建议；`--json` 时输出单个 `aiw.doctor/v1` JSON 对象。该命令不创建任务、不写入快照、不调用 Codex 执行任务。

@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 
 import type { McpServerConfigResolver, McpServerDescriptor } from '../ports/mcp-server-config-resolver.js';
+import type { McpServerCatalog } from '../ports/mcp-server-catalog.js';
 
-export class CodexTomlMcpServerConfigResolver implements McpServerConfigResolver {
+export class CodexTomlMcpServerConfigResolver implements McpServerConfigResolver, McpServerCatalog {
   async resolve(input: { source: 'codex-toml'; path: string; server: string }): Promise<McpServerDescriptor> {
     try {
       const content = await readFile(input.path, 'utf8');
@@ -17,6 +18,24 @@ export class CodexTomlMcpServerConfigResolver implements McpServerConfigResolver
       throw new Error(error instanceof Error ? error.message : '无法解析 MCP 配置');
     }
   }
+
+  async list(input: { source: 'codex-toml'; path: string }): Promise<Array<{ name: string; descriptor: McpServerDescriptor }>> {
+    try {
+      const content = await readFile(input.path, 'utf8');
+      return await Promise.all(serverNames(content).map(async (name) => ({
+        name,
+        descriptor: await this.resolve({ source: input.source, path: input.path, server: name }),
+      })));
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : '无法解析 MCP 配置');
+    }
+  }
+}
+
+function serverNames(content: string): string[] {
+  return content.split(/\r?\n/)
+    .map((line) => /^\[mcp_servers\.([^\].]+)\]\s*$/.exec(line.trim())?.[1])
+    .filter((name): name is string => name !== undefined);
 }
 
 function sectionForServer(content: string, server: string): string {

@@ -6,15 +6,28 @@ import type { McpServerDescriptor } from '../ports/mcp-server-config-resolver.js
 
 export class StdioMcpClient implements McpClient {
   async callTool(input: { server: McpServerDescriptor; tool: string; arguments: unknown }): Promise<unknown> {
+    return this.request(input.server, 'tools/call', { name: input.tool, arguments: input.arguments });
+  }
+
+  async listTools(input: { server: McpServerDescriptor }): Promise<Array<{ name: string }>> {
+    const result = await this.request(input.server, 'tools/list', {});
+    if (typeof result !== 'object' || result === null || !('tools' in result) || !Array.isArray(result.tools)
+      || result.tools.some((tool) => typeof tool !== 'object' || tool === null || typeof tool.name !== 'string')) {
+      throw new Error('MCP 返回了无效工具清单');
+    }
+    return result.tools.map((tool) => ({ name: tool.name }));
+  }
+
+  private async request(server: McpServerDescriptor, method: string, params: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      const child = spawn(input.server.command, input.server.args, {
-        env: { ...process.env, ...input.server.env },
+      const child = spawn(server.command, server.args, {
+        env: { ...process.env, ...server.env },
         stdio: ['pipe', 'pipe', 'ignore'],
       });
       const timeout = setTimeout(() => {
         child.kill();
         reject(new Error('MCP 调用超时'));
-      }, input.server.startupTimeoutMs ?? 15_000);
+      }, server.startupTimeoutMs ?? 15_000);
       let nextId = 1;
       const pending = new Map<number, (result: unknown) => void>();
       const fail = (error: Error): void => {
@@ -53,7 +66,7 @@ export class StdioMcpClient implements McpClient {
         try {
           await request('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'aiw', version: '0.1.0' } });
           child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-          const result = await request('tools/call', { name: input.tool, arguments: input.arguments });
+          const result = await request(method, params);
           clearTimeout(timeout);
           child.kill();
           resolve(result);

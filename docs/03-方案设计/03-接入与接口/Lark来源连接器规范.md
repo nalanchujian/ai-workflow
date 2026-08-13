@@ -34,7 +34,9 @@ aiw task source refresh <task-id> requirements
 
 ## 本机 MCP 解析与调用
 
-`aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。MVP 的本机 Connector Profile 位于 `~/.aiw/config.yaml`，不纳入 Git：
+`aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。`aiw init` 默认扫描 `~/.codex/config.toml` 中名称、命令或参数包含 `lark` / `feishu` 的 Server；若唯一候选的工具清单包含 `docx_v1_document_rawContent`，则自动生成本机 Connector Profile。多个候选时仅输出候选名称，使用者通过 `aiw init --lark-server <name>` 选择一次；已有 Profile 永不覆盖。自动发现失败不影响默认工作流初始化。
+
+本机 Connector Profile 位于 `~/.aiw/config.yaml`，不纳入 Git；仅在自动发现不支持团队 MCP 时由维护者补充：
 
 ```yaml
 schemaVersion: aiw.local/v1

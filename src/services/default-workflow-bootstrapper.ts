@@ -2,6 +2,7 @@ import type { LocalInitializationResult, LocalInitializer } from './local-initia
 import type { LocalConfig } from './local-config.js';
 import type { SkillInstaller } from './skill-installer.js';
 import type { SkillRegistry } from './skill-registry.js';
+import type { LarkConnectorAutoDiscovery, LarkConnectorDiscoveryResult } from './lark-connector-auto-discovery.js';
 
 export interface DefaultWorkflowBootstrapResult extends LocalInitializationResult {
   workflow: {
@@ -10,6 +11,7 @@ export interface DefaultWorkflowBootstrapResult extends LocalInitializationResul
     revision: string;
     status: 'installed' | 'reused';
   };
+  lark?: LarkConnectorDiscoveryResult;
 }
 
 export class DefaultWorkflowBootstrapper {
@@ -18,15 +20,16 @@ export class DefaultWorkflowBootstrapper {
     config: Pick<LocalConfig, 'defaultWorkflow'>;
     installer: Pick<SkillInstaller, 'install'>;
     registry: Pick<SkillRegistry, 'findProfile'>;
+    larkDiscovery?: Pick<LarkConnectorAutoDiscovery, 'discover'>;
   }) {}
 
-  async init(): Promise<DefaultWorkflowBootstrapResult> {
+  async init(input: { larkServer?: string } = {}): Promise<DefaultWorkflowBootstrapResult> {
     const initialized = await this.deps.initializer.init();
     const workflow = await this.deps.config.defaultWorkflow();
     const [name, version] = splitProfileReference(workflow.defaultProfile);
     const existing = await this.deps.registry.findProfile(name, version);
     if (existing !== undefined && existing.registrySource.url === workflow.defaultSkillSource.url) {
-      return {
+      return this.withLark({
         ...initialized,
         workflow: {
           profile: workflow.defaultProfile,
@@ -34,7 +37,7 @@ export class DefaultWorkflowBootstrapper {
           revision: existing.registrySource.revision,
           status: 'reused',
         },
-      };
+      }, input);
     }
     let installed: Awaited<ReturnType<SkillInstaller['install']>>;
     try {
@@ -46,7 +49,7 @@ export class DefaultWorkflowBootstrapper {
     if (profile === undefined) {
       throw new Error(`默认技能包未提供工作流模板：${workflow.defaultProfile}`);
     }
-    return {
+    return this.withLark({
       ...initialized,
       workflow: {
         profile: workflow.defaultProfile,
@@ -54,7 +57,18 @@ export class DefaultWorkflowBootstrapper {
         revision: profile.registrySource.revision,
         status: 'installed',
       },
-    };
+    }, input);
+  }
+
+  private async withLark(result: Omit<DefaultWorkflowBootstrapResult, 'lark'>, input: { larkServer?: string }): Promise<DefaultWorkflowBootstrapResult> {
+    if (this.deps.larkDiscovery === undefined) {
+      return result;
+    }
+    try {
+      return { ...result, lark: await this.deps.larkDiscovery.discover(input.larkServer === undefined ? {} : { server: input.larkServer }) };
+    } catch {
+      return { ...result, lark: { status: 'unavailable' } };
+    }
   }
 }
 
