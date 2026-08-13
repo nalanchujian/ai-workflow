@@ -39,7 +39,7 @@
 
 - `aiw task init <task-id> --project <path> --source <source> --skill-profile <name[@version]>` 创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照。
 - `--project` 必须是 Git 工作树，且 `.aiw/` 不得被 Git 忽略；不满足时初始化失败且不写入任务事实。
-- 本地来源必须解析为真实文件，且不得是目录；其文本保存为 `sources/<source-id>/r1/snapshot.md`。
+- 本地来源必须是项目目录内的真实普通文件；符号链接、目录、设备文件、FIFO 以及解析后落在项目目录外的路径均必须拒绝，其文本保存为 `sources/<source-id>/r1/snapshot.md`。
 - URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。
 - URL 请求必须拒绝回环、私网、链路本地及保留 IP，并限制重定向次数、响应大小与请求超时。
 - 已配置 Lark Connector 时，Lark `docx` 文档 URL 必须通过本机 Lark MCP Server 获取；Connector 返回的 Markdown、规范化 URL、文档标识和获取时间形成 `lark-mcp/v1` 快照。MCP 配置、令牌和原始响应不得进入任务事实。

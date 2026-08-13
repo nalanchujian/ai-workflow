@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { writeFile } from 'node:fs/promises';
+import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { NetworkClient } from '../../src/ports/network-client.js';
@@ -25,6 +25,32 @@ describe('SourceIntake', () => {
     expect(snapshot.markdown).toContain('Allow refunds within 30 days.');
     expect(snapshot.contentSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(snapshot.origin).toBe('requirements.md');
+  });
+
+  it('rejects a local source outside the project before reading its content', async () => {
+    const projectRoot = await createTempDirectory('aiw-source-intake-');
+    const externalRoot = await createTempDirectory('aiw-external-source-');
+    directories.push(projectRoot, externalRoot);
+    const sourcePath = join(externalRoot, 'confidential.md');
+    await writeFile(sourcePath, '# Confidential\n');
+    const intake = new SourceIntake({ network: safeNetwork(), projectRoot });
+
+    await expect(intake.snapshot({ kind: 'local-file', sourceId: 'requirements', value: sourcePath }))
+      .rejects.toMatchObject({ code: 'SOURCE_INVALID' } satisfies Partial<SourceIntakeError>);
+  });
+
+  it('rejects a local source passed through a symbolic link', async () => {
+    const projectRoot = await createTempDirectory('aiw-source-intake-');
+    const externalRoot = await createTempDirectory('aiw-external-source-');
+    directories.push(projectRoot, externalRoot);
+    const externalSourcePath = join(externalRoot, 'requirements.md');
+    const sourcePath = join(projectRoot, 'requirements.md');
+    await writeFile(externalSourcePath, '# Confidential\n');
+    await symlink(externalSourcePath, sourcePath);
+    const intake = new SourceIntake({ network: safeNetwork(), projectRoot });
+
+    await expect(intake.snapshot({ kind: 'local-file', sourceId: 'requirements', value: sourcePath }))
+      .rejects.toMatchObject({ code: 'SOURCE_INVALID' } satisfies Partial<SourceIntakeError>);
   });
 
   it('rejects a URL that resolves to loopback before fetching it', async () => {

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import type { SourceKind, SourceReference } from '../domain/task.js';
 import type { NetworkClient } from '../ports/network-client.js';
@@ -84,11 +84,16 @@ export class SourceIntake {
 
   private async snapshotLocalFile(input: SourceInput): Promise<SnapshotRecord> {
     let sourcePath: string;
+    let projectRoot: string;
     try {
-      sourcePath = await realpath(input.value);
-      const stats = await lstat(sourcePath);
-      if (!stats.isFile()) {
+      const sourceEntry = await lstat(input.value);
+      if (!sourceEntry.isFile() || sourceEntry.isSymbolicLink()) {
         throw new SourceIntakeError('SOURCE_INVALID', '本地来源必须是普通文件');
+      }
+      sourcePath = await realpath(input.value);
+      projectRoot = await realpath(this.deps.projectRoot).catch(() => resolve(this.deps.projectRoot));
+      if (!isWithinDirectory(projectRoot, sourcePath)) {
+        throw new SourceIntakeError('SOURCE_INVALID', '本地来源必须位于项目目录内');
       }
     } catch (error) {
       if (error instanceof SourceIntakeError) {
@@ -97,13 +102,11 @@ export class SourceIntake {
       throw new SourceIntakeError('SOURCE_INVALID', '无法读取本地来源文件');
     }
     const markdown = await readSourceText(sourcePath);
-    const projectRoot = await realpath(this.deps.projectRoot).catch(() => resolve(this.deps.projectRoot));
     const sourceRelativePath = relative(projectRoot, sourcePath);
-    const origin = sourceRelativePath.startsWith('..') ? 'local:redacted' : sourceRelativePath.replaceAll('\\', '/');
     return snapshot({
       sourceId: input.sourceId,
       kind: 'local-file',
-      origin,
+      origin: sourceRelativePath.replaceAll('\\', '/'),
       revision: input.revision ?? 1,
       markdown,
       extractor: `local-file/${basename(sourcePath)}`,
@@ -152,6 +155,11 @@ export class SourceIntake {
       fetchedAt: source.fetchedAt,
     });
   }
+}
+
+function isWithinDirectory(directory: string, target: string): boolean {
+  const path = relative(directory, target);
+  return path !== '..' && !path.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(path);
 }
 
 function snapshot(input: Omit<SnapshotRecord, 'contentSha256' | 'fetchedAt'> & { fetchedAt?: string }): SnapshotRecord {
