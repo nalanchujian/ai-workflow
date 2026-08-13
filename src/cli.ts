@@ -6,10 +6,11 @@ import { join } from 'node:path';
 
 import { createProgram } from './cli/create-program.js';
 import { createProductionCliRuntime } from './cli/create-runtime.js';
+import { packageVersion } from './cli/package-version.js';
 
 async function main(): Promise<void> {
   const homeDirectory = process.env.AIW_HOME ?? join(homedir(), '.aiw');
-  const program = createProgram({ version: '0.2.0', runtime: createProductionCliRuntime({ homeDirectory }) });
+  const program = createProgram({ version: packageVersion, runtime: createProductionCliRuntime({ homeDirectory }) });
 
   try {
     await program.parseAsync(process.argv);
