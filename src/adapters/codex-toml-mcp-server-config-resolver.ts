@@ -12,7 +12,7 @@ export class CodexTomlMcpServerConfigResolver implements McpServerConfigResolver
       if (command === undefined || args === undefined) {
         throw new Error('MCP Server 定义不完整');
       }
-      return { transport: 'stdio', command, args, env: {} };
+      return { transport: 'stdio', command, args, env: environmentValue(section) };
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : '无法解析 MCP 配置');
     }
@@ -44,4 +44,24 @@ function stringValue(section: string, key: string): string | undefined {
 function arrayValue(section: string, key: string): string[] | undefined {
   const match = new RegExp(`^${key}\\s*=\\s*\\[([^\\]]*)\\]\\s*$`, 'm').exec(section);
   return match?.[1].split(',').map((value) => value.trim().replace(/^"|"$/g, '')).filter(Boolean);
+}
+
+function environmentValue(section: string): Record<string, string> {
+  const match = /^env\s*=\s*\{([^}]*)\}\s*$/m.exec(section);
+  if (match === null) {
+    if (/^env\s*=/m.test(section)) {
+      throw new Error('MCP Server 环境变量格式无效');
+    }
+    return {};
+  }
+  if (match[1].trim() === '') {
+    return {};
+  }
+  return Object.fromEntries(match[1].split(',').map((entry) => {
+    const value = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"\\]*)"\s*$/.exec(entry);
+    if (value === null) {
+      throw new Error('MCP Server 环境变量格式无效');
+    }
+    return [value[1], value[2]];
+  }));
 }

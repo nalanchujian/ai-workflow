@@ -24,10 +24,16 @@ describe('CodexTomlMcpServerConfigResolver', () => {
       '[mcp_servers.lark-openapi]',
       'command = "npx"',
       'args = ["-y", "lark-mcp"]',
+      'env = { LARK_APP_ID = "app-id", LARK_APP_SECRET = "app-secret" }',
     ].join('\n'));
 
     const descriptor = await new CodexTomlMcpServerConfigResolver().resolve({ source: 'codex-toml', path, server: 'lark-openapi' });
 
-    expect(descriptor).toEqual({ args: ['-y', 'lark-mcp'], command: 'npx', env: {}, transport: 'stdio' });
+    expect(descriptor).toEqual({
+      args: ['-y', 'lark-mcp'],
+      command: 'npx',
+      env: { LARK_APP_ID: 'app-id', LARK_APP_SECRET: 'app-secret' },
+      transport: 'stdio',
+    });
   });
 });
