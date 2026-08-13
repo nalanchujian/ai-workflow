@@ -38,7 +38,8 @@
 
 ### FR-3：任务创建、来源快照与刷新
 
-- `aiw task init --project <path> --source <source> --skill-profile <name[@version]>` 以 UTC 日期时间自动生成任务 ID（`task-YYYYMMDD-HHmmss-SSS`），创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照；不接受调用者指定任务 ID。
+- `aiw init` 创建本机安全配置并安装其锁定的默认团队技能包；配置保存默认 Git 来源/ref 与工作流模板，Registry 保存实际校验结果。
+- `aiw task init --project <path> --source <source> [--skill-profile <name[@version]>]` 以 UTC 日期时间自动生成任务 ID（`task-YYYYMMDD-HHmmss-SSS`），创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照；不接受调用者指定任务 ID。省略模板时使用本机默认值。
 - `--project` 必须是 Git 工作树，且 `.aiw/` 不得被 Git 忽略；不满足时初始化失败且不写入任务事实。
 - 本地来源必须是项目目录内的真实普通文件；符号链接、目录、设备文件、FIFO 以及解析后落在项目目录外的路径均必须拒绝，其文本保存为 `sources/<source-id>/r1/snapshot.md`。
 - URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。
@@ -50,7 +51,7 @@
 
 ### FR-4：默认任务图与状态机
 
-- `task init` 必须接收一个已安装的 `--skill-profile <name[@version]>`，原子锁定模板及 `clarify` 至 `test` 六个阶段的技能、Git revision、内容哈希和方法论来源；模板或任一技能不可用时初始化失败且不写入任务目录。
+- `task init` 必须解析一个已安装的工作流模板（显式 `--skill-profile` 或本机默认值），原子锁定模板及 `clarify` 至 `test` 六个阶段的技能、Git revision、内容哈希和方法论来源；模板或任一技能不可用时初始化失败且不写入任务目录。
 - 模板锁定提交前，`task run` 与 dry-run 均必须拒绝；运行命令不再接收或选择技能。
 - `aiw task skill rebind <task-id> <node-id> --skill <name[@version]> --note <text>` 是例外命令，仅允许对待执行或失效节点显式变更单个节点锁定；它记录前后锁定与原因，并递归使已开始下游节点失效。已完成节点必须先修订，待审批节点必须先获得审批决定。
 - 节点仅在全部依赖 `completed` 时变为 `ready`；MVP 调度器以任务为粒度持有本机文件锁，一次只允许运行一个节点（包括 dry-run），并发运行必须返回 `TASK_BUSY`。
@@ -113,7 +114,7 @@
 | AC-21 | 来源或技能正文试图覆盖 Runner 规则 | 渲染的上下文将其标记为不可信数据，Runner 约束与阶段契约保持在前且不被覆盖。 |
 | AC-22 | Codex 子进程超时、取消或非零退出 | 超时返回 `failed` / `CODEX_TIMEOUT` 并终止子进程；取消或非零退出正确标识为取消或失败；节点不被标记为成功，已存在的共享事实保留。 |
 | AC-23 | Lark 来源进入后续节点运行 | Context Manifest 记录实际使用的快照路径、来源 revision 与 SHA-256，不记录 MCP 配置、令牌或原始响应。 |
-| AC-24 | 以工作流模板创建并运行任务 | `task init --skill-profile` 原子写入模板及六阶段精确技能/方法来源锁定；提交前 `task run` 和 dry-run 均拒绝，提交后按节点锁定运行且不再传入技能。 |
+| AC-24 | 以工作流模板创建并运行任务 | `task init` 使用显式模板或本机默认模板，原子写入模板及六阶段精确技能/方法来源锁定；提交前 `task run` 和 dry-run 均拒绝，提交后按节点锁定运行且不再传入技能。 |
 | AC-25 | 审批人要求修改当前计划 revision | `task request-changes` 写入含产物哈希的 `changes_requested` 审批记录和下一版修改说明；当前节点按依赖状态重新评估为 `ready` 或 `pending`，已开始下游节点失效，旧产物与审批记录保留。 |
 
 ## 完成定义

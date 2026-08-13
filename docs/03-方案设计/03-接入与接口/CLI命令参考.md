@@ -100,6 +100,16 @@ aiw skills list --json
 
 每项至少包含技能名称、版本、来源 URL 和锁定 revision。未安装任何技能时，常规模式显示空结果，`--json` 返回空列表。
 
+### `aiw skills update --ref <tag-or-commit>`
+
+安装并切换本机默认团队技能版本。
+
+```bash
+aiw skills update --ref v2.1.0
+```
+
+命令读取 `~/.aiw/config.yaml` 中的默认技能仓库地址，先安装和校验指定 ref，成功后才更新本机默认 ref。它只影响后续创建的任务，不改写已存在任务的锁定技能。
+
 ### `aiw skills profiles list`
 
 列出可在创建任务时选择的已安装工作流模板。
@@ -113,22 +123,22 @@ aiw skills profiles list --json
 
 ## 任务命令
 
-### `aiw task init --project <path> --source <source> --skill-profile <name[@version]>`
+### `aiw task init --project <path> --source <source> [--skill-profile <name[@version]>]`
 
 在目标项目创建任务、来源快照和默认任务图。
 
 ```bash
-aiw skills profiles list
+aiw task init --project . --source ./requirements.md
+aiw task init --project /workspace/shop --source https://example.com/requirements
+aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token>
 aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@2.0.0
-aiw task init --project /workspace/shop --source https://example.com/requirements --skill-profile standard-web-feature@2.0.0
-aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@2.0.0
 ```
 
 | 参数 | 说明 |
 |---|---|
 | `--project <path>` | 必填。业务项目根目录。 |
 | `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark `docx` 文档 URL。 |
-| `--skill-profile <name[@version]>` | 必填。已安装工作流模板；一次锁定 `clarify` 至 `test` 的六阶段技能。 |
+| `--skill-profile <name[@version]>` | 可选。省略时使用 `~/.aiw/config.yaml` 的默认模板；显式传入时覆盖默认值。模板一次锁定 `clarify` 至 `test` 的六阶段技能。 |
 
 命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark URL 由本机已配置的 Lark MCP Server 读取；MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 

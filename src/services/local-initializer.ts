@@ -1,9 +1,12 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { parse, stringify } from 'yaml';
+
+import { officialDefaultWorkflow } from './default-workflow.js';
 
 export interface LocalInitializationResult {
   schemaVersion: 'aiw.init/v1';
-  status: 'created' | 'already-initialized';
+  status: 'created' | 'updated' | 'already-initialized';
   configPath: string;
 }
 
@@ -18,16 +21,35 @@ export class LocalInitializer {
       return { schemaVersion: 'aiw.init/v1', status: 'created', configPath: this.path };
     } catch (error) {
       if (isAlreadyExists(error)) {
+        if (await this.addMissingWorkflowDefaults()) {
+          return { schemaVersion: 'aiw.init/v1', status: 'updated', configPath: this.path };
+        }
         return { schemaVersion: 'aiw.init/v1', status: 'already-initialized', configPath: this.path };
       }
       throw error;
     }
   }
+
+  private async addMissingWorkflowDefaults(): Promise<boolean> {
+    const document = parse(await readFile(this.path, 'utf8'));
+    if (document === null || typeof document !== 'object' || Array.isArray(document) || 'workflow' in document) {
+      return false;
+    }
+    await writeFile(this.path, stringify({ ...document, workflow: officialDefaultWorkflow }), 'utf8');
+    return true;
+  }
 }
 
-const localConfigTemplate = `# AI Workflow 本机配置；此文件仅保存个人连接器设置，不得提交到业务仓库。
-# 团队技能包和其内置方法由 \`aiw skills install\` 安装；无需配置 Superpowers。
+const localConfigTemplate = `# AI Workflow 本机配置；此文件仅保存个人连接器和默认工作流设置，不得提交到业务仓库。
+# 默认团队技能包内置方法，无需配置或单独安装 Superpowers。
 schemaVersion: aiw.local/v1
+
+# aiw init 会自动安装这里指定的来源；仅在团队升级时才修改 ref。
+workflow:
+  defaultSkillSource:
+    url: https://github.com/nalanchujian/ai-workflow-skills.git
+    ref: v2.0.0
+  defaultProfile: standard-web-feature@2.0.0
 
 # 只有任务来源是 Lark 文档时，才把下方示例改为实际配置。
 # connectors:

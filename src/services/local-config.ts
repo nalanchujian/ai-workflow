@@ -1,8 +1,18 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { z } from 'zod';
+
+import type { DefaultWorkflow } from './default-workflow.js';
+
+const DefaultWorkflowSchema = z.object({
+  defaultSkillSource: z.object({
+    url: z.string().url(),
+    ref: z.string().min(1),
+  }).strict(),
+  defaultProfile: z.string().min(1),
+}).strict();
 
 const LocalConfigSchema = z.object({
   schemaVersion: z.literal('aiw.local/v1'),
@@ -14,6 +24,7 @@ const LocalConfigSchema = z.object({
       useUAT: z.boolean(),
     }).optional(),
   }).default({}),
+  workflow: DefaultWorkflowSchema.optional(),
 }).strict();
 
 export type LocalConfigDocument = z.infer<typeof LocalConfigSchema>;
@@ -31,6 +42,28 @@ export class LocalConfig {
       ...profile,
       configSource: { ...profile.configSource, path: expandHome(profile.configSource.path) },
     };
+  }
+
+  async defaultWorkflow(): Promise<DefaultWorkflow> {
+    const workflow = (await this.read()).workflow;
+    if (workflow === undefined) {
+      throw new Error('未配置默认工作流，请先运行 aiw init');
+    }
+    return workflow;
+  }
+
+  async updateDefaultWorkflowRef(ref: string): Promise<DefaultWorkflow> {
+    if (ref.trim().length === 0) {
+      throw new Error('技能版本不能为空');
+    }
+    const document = await this.read();
+    const workflow = await this.defaultWorkflow();
+    const updated = {
+      ...workflow,
+      defaultSkillSource: { ...workflow.defaultSkillSource, ref },
+    };
+    await writeFile(this.path, stringify({ ...document, workflow: updated }), 'utf8');
+    return updated;
   }
 
   async read(): Promise<LocalConfigDocument> {

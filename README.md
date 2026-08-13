@@ -30,7 +30,7 @@ MVP 聚焦“本机单 Agent + Git 共享任务事实与团队技能仓库”。
 
 - 构建云端调度、账号体系或多 Agent 协作平台；
 - 实现策略自动门禁或取消当前人工审批；
-- 自动选择技能，或执行技能包携带的任意脚本；
+- 在任务执行中自动切换技能，或执行技能包携带的任意脚本；
 - 保存完整聊天记录，或在未授权时读取需要登录的在线文档。
 
 ## 目标工作流
@@ -38,9 +38,7 @@ MVP 聚焦“本机单 Agent + Git 共享任务事实与团队技能仓库”。
 ```bash
 npm install -g @nalanchujian/ai-workflow
 aiw init
-aiw skills install https://github.com/nalanchujian/ai-workflow-skills.git --ref v2.0.0
-aiw skills profiles list
-aiw task init --project . --source https://example.com/requirements --skill-profile standard-web-feature@2.0.0
+aiw task init --project . --source https://example.com/requirements
 # 输出 taskId，例如 task-20260813-120000-000；将其填入下方命令
 git add .aiw && git commit -m "chore(aiw): initialize task"
 aiw task run <task-id> clarify
@@ -60,7 +58,7 @@ aiw task approve <task-id> test --actor tech-lead
 git add .aiw && git commit -m "chore(aiw): approve test"
 ```
 
-这是 MVP 流程：经允许共享的需求资料固化为业务仓库中的来源快照，任务创建时一次选择并锁定团队工作流模板，再经人工确认逐步产出需求澄清、技术方案、实施计划、实现说明、工程验证与测试证据。每个阶段产物、待审批状态和审批记录均需通过 Git 固化后，才可作为下游依据；审批人要求修改时使用 `task request-changes`，它保留退回证据和下一版修改说明。仅在例外情况才使用 `task skill rebind` 替换单个节点的方法。工作流在测试验证获批后结束，不管理 PR、发布或线上运维。后续自动模式只替换人工门禁的决定方式，不省略过程产物、策略版本或运行证据。
+这是 MVP 流程：`aiw init` 自动安装并设置 `standard-web-feature@2.0.0` 为本机默认工作流，任务创建时锁定该模板及其具体技能，再经人工确认逐步产出需求澄清、技术方案、实施计划、实现说明、工程验证与测试证据。每个阶段产物、待审批状态和审批记录均需通过 Git 固化后，才可作为下游依据；审批人要求修改时使用 `task request-changes`，它保留退回证据和下一版修改说明。仅在例外情况才使用 `task skill rebind` 替换单个节点的方法。工作流在测试验证获批后结束，不管理 PR、发布或线上运维。后续自动模式只替换人工门禁的决定方式，不省略过程产物、策略版本或运行证据。
 
 上例使用公开的 `ai-workflow-skills` 标准模板来源。团队应 Fork 该仓库后再定义自己的技能、版本和治理规则；已有任务始终使用创建时锁定的来源版本。
 
@@ -98,7 +96,7 @@ npm update -g @nalanchujian/ai-workflow
 npm uninstall -g @nalanchujian/ai-workflow
 ```
 
-`aiw init` 只生成不含凭据、且不会覆盖的 `~/.aiw/config.yaml` 模板。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；只有使用 Lark 文档来源时才需要按模板补充 Lark MCP 映射。
+`aiw init` 生成不含凭据的 `~/.aiw/config.yaml`，并安装配置中锁定的默认团队技能包。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；只有使用 Lark 文档来源时才需要按模板补充 Lark MCP 映射。团队升级默认技能时执行 `aiw skills update --ref <tag-or-commit>`；更新只影响之后新建的任务。
 
 升级时应删除旧配置中的 `methodSources`；当前版本仅支持团队技能包提供的 `bundled:*` 方法，旧任务需使用新版技能包重新创建。
 

@@ -10,6 +10,7 @@ import { StdioMcpClient } from '../adapters/stdio-mcp-client.js';
 import { ContextBuilder } from '../services/context-builder.js';
 import { ConfiguredLarkSourceConnector } from '../services/configured-lark-source-connector.js';
 import { DoctorService } from '../services/doctor-service.js';
+import { DefaultWorkflowBootstrapper } from '../services/default-workflow-bootstrapper.js';
 import { LocalConfig } from '../services/local-config.js';
 import { LocalInitializer } from '../services/local-initializer.js';
 import { MethodSourceResolver } from '../services/method-source-resolver.js';
@@ -40,7 +41,9 @@ export interface CliRuntime {
   taskRunner: TaskRunner;
   doctor: DoctorService;
   runHistory: RunHistoryService;
+  localConfig: LocalConfig;
   localInitializer: LocalInitializer;
+  defaultWorkflowBootstrapper: DefaultWorkflowBootstrapper;
 }
 
 export function createCliRuntime(input: {
@@ -77,6 +80,14 @@ export function createCliRuntime(input: {
     taskStoreFactory: (root) => new TaskStore(root),
     ...(input.taskCreatedAt === undefined ? {} : { now: input.taskCreatedAt }),
   });
+  const installer = new SkillInstaller({ git: input.ports.git, registry });
+  const localInitializer = new LocalInitializer(join(input.homeDirectory, 'config.yaml'));
+  const defaultWorkflowBootstrapper = new DefaultWorkflowBootstrapper({
+    initializer: localInitializer,
+    config,
+    installer,
+    registry,
+  });
   const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore });
   const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry });
   const taskRunner = new TaskRunner({
@@ -90,7 +101,7 @@ export function createCliRuntime(input: {
   });
   return {
     registry,
-    installer: new SkillInstaller({ git: input.ports.git, registry }),
+    installer,
     initializer,
     sourceRefresher,
     stateCommands,
@@ -104,7 +115,9 @@ export function createCliRuntime(input: {
       ...(input.ports.mcpServerConfigResolver === undefined ? {} : { mcpServerConfigResolver: input.ports.mcpServerConfigResolver }),
     }),
     runHistory: new RunHistoryService({ runtimeRoot: join(input.homeDirectory, 'runtime') }),
-    localInitializer: new LocalInitializer(join(input.homeDirectory, 'config.yaml')),
+    localConfig: config,
+    localInitializer,
+    defaultWorkflowBootstrapper,
   };
 }
 

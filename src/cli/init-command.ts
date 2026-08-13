@@ -1,13 +1,13 @@
 import { Command } from 'commander';
 
-import type { LocalInitializer } from '../services/local-initializer.js';
+import type { DefaultWorkflowBootstrapper } from '../services/default-workflow-bootstrapper.js';
 import { writeCommandResult } from './output.js';
 
-export function createInitCommand(deps: { initializer: LocalInitializer; stdout: NodeJS.WriteStream }): Command {
+export function createInitCommand(deps: { bootstrapper: DefaultWorkflowBootstrapper; stdout: NodeJS.WriteStream }): Command {
   return new Command('init')
     .description('初始化本机 AI Workflow 配置模板')
     .action(async (_options: unknown, command: Command) => {
-      const result = await deps.initializer.init();
+      const result = await deps.bootstrapper.init();
       if (command.optsWithGlobals().json) {
         writeCommandResult(result, command, deps.stdout);
         return;
@@ -16,23 +16,22 @@ export function createInitCommand(deps: { initializer: LocalInitializer; stdout:
     });
 }
 
-function renderInitResult(result: Awaited<ReturnType<LocalInitializer['init']>>): string {
-  if (result.status === 'already-initialized') {
-    return [
-      '本机配置已存在，未做任何修改',
-      '',
-      `位置：${result.configPath}`,
-    ].join('\n');
-  }
+function renderInitResult(result: Awaited<ReturnType<DefaultWorkflowBootstrapper['init']>>): string {
+  const configMessage = result.status === 'created'
+    ? '已创建本机配置模板。'
+    : result.status === 'updated'
+      ? '已补充本机默认工作流配置。'
+      : '本机配置已存在。';
   return [
-    '已创建本机配置模板',
+    'AI Workflow 本机环境已就绪',
     '',
+    configMessage,
     `位置：${result.configPath}`,
-    '用途：仅用于可选的 Lark MCP 连接配置。',
-    '不包含：密钥、Superpowers 配置、团队技能或项目文件。',
+    `默认工作流：${result.workflow.profile}`,
+    `技能版本：ai-workflow-skills@${result.workflow.source.ref}`,
+    `技能状态：${result.workflow.status === 'installed' ? '已安装' : '已复用'}（${result.workflow.revision}）`,
     '',
     '下一步：',
-    '1. 安装团队技能：aiw skills install <团队技能仓库> --ref <版本>',
-    '2. 检查环境：aiw doctor --project <业务仓库>',
+    'aiw task init --project <业务仓库> --source <需求来源>',
   ].join('\n');
 }

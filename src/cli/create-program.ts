@@ -30,16 +30,17 @@ export function createProgram(deps: CliDependencies): Command {
       .addCommand(new Command('skills').description('管理团队技能和工作流模板'))
       .addCommand(new Command('task').description('管理研发任务和阶段执行'));
   }
+  const runtime = deps.runtime;
   const stdout = deps.stdout ?? process.stdout;
-  program.addCommand(createInitCommand({ initializer: deps.runtime.localInitializer, stdout }));
-  program.addCommand(createDoctorCommand({ doctor: deps.runtime.doctor, stdout }));
-  program.addCommand(createRunHistoryCommand({ history: deps.runtime.runHistory, stdout }));
-  program.addCommand(createSkillsCommand({ installer: deps.runtime.installer, registry: deps.runtime.registry, stdout }));
+  program.addCommand(createInitCommand({ bootstrapper: runtime.defaultWorkflowBootstrapper, stdout }));
+  program.addCommand(createDoctorCommand({ doctor: runtime.doctor, stdout }));
+  program.addCommand(createRunHistoryCommand({ history: runtime.runHistory, stdout }));
+  program.addCommand(createSkillsCommand({ installer: runtime.installer, registry: runtime.registry, config: runtime.localConfig, stdout }));
   const task = new Command('task').description('管理研发任务和阶段执行');
-  task.addCommand(createTaskInitCommand({ initializer: deps.runtime.initializer, stdout }));
-  task.addCommand(new Command('source').description('管理任务来源').addCommand(createTaskSourceRefreshCommand({ refresher: deps.runtime.sourceRefresher, stdout })));
-  task.addCommand(createTaskRunCommand({ runner: deps.runtime.taskRunner, stdout }));
-  const state = createTaskStateCommand({ commands: deps.runtime.stateCommands, stdout });
+  task.addCommand(createTaskInitCommand({ initializer: runtime.initializer, defaultSkillProfile: async () => (await runtime.localConfig.defaultWorkflow()).defaultProfile, stdout }));
+  task.addCommand(new Command('source').description('管理任务来源').addCommand(createTaskSourceRefreshCommand({ refresher: runtime.sourceRefresher, stdout })));
+  task.addCommand(createTaskRunCommand({ runner: runtime.taskRunner, stdout }));
+  const state = createTaskStateCommand({ commands: runtime.stateCommands, stdout });
   for (const command of state.commands) {
     task.addCommand(command);
   }
