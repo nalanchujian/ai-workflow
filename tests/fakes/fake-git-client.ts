@@ -1,5 +1,6 @@
 import type { GitClient, GitCloneResult } from '../../src/ports/git-client.js';
 import type { RepositoryStatus } from '../../src/ports/repository-status.js';
+import type { ProjectRepository } from '../../src/ports/project-repository.js';
 
 export class FakeGitClient implements GitClient {
   constructor(private readonly repositories: Record<string, GitCloneResult>) {}
@@ -13,7 +14,7 @@ export class FakeGitClient implements GitClient {
   }
 }
 
-export class FakeRepositoryStatus implements RepositoryStatus {
+export class FakeRepositoryStatus implements RepositoryStatus, ProjectRepository {
   private committed = false;
 
   commitTaskFacts(): void {
@@ -23,6 +24,8 @@ export class FakeRepositoryStatus implements RepositoryStatus {
   markDirty(): void {
     this.committed = false;
   }
+
+  async assertProjectReady(): Promise<void> {}
 
   async uncommittedPaths(input: { projectRoot: string; paths: string[] }): Promise<string[]> {
     return this.committed ? [] : input.paths;

@@ -25,6 +25,7 @@ import type { McpClient } from '../ports/mcp-client.js';
 import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
 import type { NetworkClient } from '../ports/network-client.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
+import type { ProjectRepository } from '../ports/project-repository.js';
 import type { RepositoryStatus } from '../ports/repository-status.js';
 
 export interface CliRuntime {
@@ -41,7 +42,7 @@ export function createCliRuntime(input: {
   projectRoot: () => string;
   ports: {
     git: GitClient;
-    repositoryStatus: RepositoryStatus;
+    repositoryStatus: RepositoryStatus & ProjectRepository;
     network: NetworkClient;
     processRunner: ProcessRunner;
     mcpClient?: McpClient;
@@ -64,6 +65,7 @@ export function createCliRuntime(input: {
   const taskFactGuard = new TaskFactGuard({ repositoryStatus: input.ports.repositoryStatus });
   const initializer = new TaskInitializer({
     registry,
+    projectRepository: input.ports.repositoryStatus,
     sourceIntakeFactory: intake,
     taskStoreFactory: (root) => new TaskStore(root),
   });

@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { TaskInitializer } from '../../src/services/task-initializer.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
+import { ProjectRepositoryError } from '../../src/ports/project-repository.js';
 import type { InstalledSkill } from '../../src/domain/skill.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -21,6 +22,7 @@ describe('TaskInitializer', () => {
     const store = new TaskStore(projectRoot);
     const initializer = new TaskInitializer({
       registry,
+      projectRepository: { async assertProjectReady() {} },
       sourceIntakeFactory: () => ({
         async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
         async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
@@ -43,9 +45,32 @@ describe('TaskInitializer', () => {
     const projectRoot = await createTempDirectory('aiw-task-init-');
     directories.push(projectRoot);
     const store = new TaskStore(projectRoot);
-    const initializer = new TaskInitializer({ registry: new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml')), sourceIntakeFactory: () => ({} as never), taskStoreFactory: () => store });
+    const initializer = new TaskInitializer({ registry: new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml')), projectRepository: { async assertProjectReady() {} }, sourceIntakeFactory: () => ({} as never), taskStoreFactory: () => store });
 
     await expect(initializer.init({ id: 'refund-123', projectRoot, source: 'requirements.md', skillProfile: 'missing@1.0.0' })).rejects.toThrow('工作流模板不存在');
+    await expect(readFile(join(store.taskDirectory('refund-123'), 'task.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('rejects project admission before reading the source or creating a task directory', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registryRoot = await createTempDirectory('aiw-registry-');
+    directories.push(registryRoot);
+    const registry = new SkillRegistry(join(registryRoot, 'registry.yaml'));
+    await registry.replace({ skills: allSkills(), profiles: [profile()] });
+    const store = new TaskStore(projectRoot);
+    let sourceRead = false;
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() { throw new ProjectRepositoryError('PROJECT_NOT_GIT', '不是 Git 工作树'); } },
+      sourceIntakeFactory: () => ({ async snapshot() { sourceRead = true; throw new Error('不应读取来源'); } }) as never,
+      taskStoreFactory: () => store,
+    });
+
+    await expect(initializer.init({ id: 'refund-123', projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' })).rejects.toThrow('不是 Git 工作树');
+    expect(sourceRead).toBe(false);
+    await expect(access(store.taskDirectory('refund-123'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(join(projectRoot, '.aiw', 'config.yaml'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readFile(join(store.taskDirectory('refund-123'), 'task.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

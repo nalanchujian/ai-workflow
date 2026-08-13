@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import type { SkillLock, SourceKind, Task, TaskNode } from '../domain/task.js';
 import type { InstalledSkill } from '../domain/skill.js';
+import type { ProjectRepository } from '../ports/project-repository.js';
 import { executableStages } from '../domain/workflow-profile.js';
 import { SourceIntake, type SnapshotRecord } from './source-intake.js';
 import { SkillRegistry } from './skill-registry.js';
@@ -19,12 +20,14 @@ interface SourceIntakePort {
 export class TaskInitializer {
   constructor(private readonly deps: {
     registry: SkillRegistry;
+    projectRepository: ProjectRepository;
     sourceIntakeFactory: (projectRoot: string) => SourceIntakePort;
     taskStoreFactory: (projectRoot: string) => TaskStore;
   }) {}
 
   async init(input: { id: string; projectRoot: string; source: string; skillProfile: string }): Promise<Task> {
     assertTaskId(input.id);
+    await this.deps.projectRepository.assertProjectReady(input.projectRoot);
     const [profileName, profileVersion] = parseReference(input.skillProfile, '工作流模板');
     const profile = await this.deps.registry.findProfile(profileName, profileVersion);
     if (profile === undefined) {
