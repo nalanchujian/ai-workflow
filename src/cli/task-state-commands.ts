@@ -9,7 +9,7 @@ import type { SkillRegistry } from '../services/skill-registry.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
-import { writeResult } from './output.js';
+import { writeCommandResult } from './output.js';
 
 const ApprovalFactSchema = z.object({
   nodeId: z.string().min(1),
@@ -117,20 +117,20 @@ export class TaskStateCommands {
 
 export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdout: NodeJS.WriteStream }): Command {
   const command = new Command('task').description('查询任务状态并处理审批');
-  command.addCommand(new Command('status').argument('<task-id>').action(async (taskId: string) => {
-    writeResult(await deps.commands.status(taskId), { json: false, stdout: deps.stdout });
+  command.addCommand(new Command('status').argument('<task-id>').action(async (taskId: string, _options: unknown, current: Command) => {
+    writeCommandResult(await deps.commands.status(taskId), current, deps.stdout);
   }));
-  command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }) => {
-    writeResult(await deps.commands.approve(taskId, nodeId, options), { json: false, stdout: deps.stdout });
+  command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }, current: Command) => {
+    writeCommandResult(await deps.commands.approve(taskId, nodeId, options), current, deps.stdout);
   }));
-  command.addCommand(new Command('request-changes').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }) => {
-    writeResult(await deps.commands.requestChanges(taskId, nodeId, options), { json: false, stdout: deps.stdout });
+  command.addCommand(new Command('request-changes').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
+    writeCommandResult(await deps.commands.requestChanges(taskId, nodeId, options), current, deps.stdout);
   }));
-  command.addCommand(new Command('revise').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }) => {
-    writeResult(await deps.commands.revise(taskId, nodeId, options), { json: false, stdout: deps.stdout });
+  command.addCommand(new Command('revise').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
+    writeCommandResult(await deps.commands.revise(taskId, nodeId, options), current, deps.stdout);
   }));
-  command.addCommand(new Command('skill').addCommand(new Command('rebind').argument('<task-id>').argument('<node-id>').requiredOption('--skill <name@version>').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { skill: string; note: string }) => {
-    writeResult(await deps.commands.rebindSkill(taskId, nodeId, options), { json: false, stdout: deps.stdout });
+  command.addCommand(new Command('skill').addCommand(new Command('rebind').argument('<task-id>').argument('<node-id>').requiredOption('--skill <name@version>').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { skill: string; note: string }, current: Command) => {
+    writeCommandResult(await deps.commands.rebindSkill(taskId, nodeId, options), current, deps.stdout);
   })));
   return command;
 }

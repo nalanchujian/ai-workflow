@@ -436,7 +436,7 @@ it('maps a missing executable to unavailable and marks the node failed', async (
 运行：`pnpm vitest run tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts && pnpm lint && pnpm typecheck`
 预期：全部通过。
 
-- [ ] **步骤 5：提交执行支持**
+- [x] **步骤 5：提交执行支持**
 
 ```bash
 git add src/domain/run.ts src/ports/process-runner.ts src/adapters/codex-adapter.ts src/services/task-runner.ts src/cli/task-run-command.ts tests/adapters/codex-adapter.test.ts tests/services/task-runner.test.ts tests/cli/task-run-command.test.ts
@@ -455,7 +455,7 @@ git commit -m "feat: run task nodes through Codex adapter"
 - 使用任务 1–6 提供的所有公开 CLI 命令。
 - 产出基于确定性替身的完整主流程测试，以及 AC-1 至 AC-25 的回归测试。
 
-- [ ] **步骤 1：编写完整工作流失败测试**
+- [x] **步骤 1：编写完整工作流失败测试**
 
 ```ts
 it('initializes seven phases and dry-runs clarify with a committed locked Superpowers method', async () => {
@@ -468,16 +468,16 @@ it('initializes seven phases and dry-runs clarify with a committed locked Superp
 });
 ```
 
-- [ ] **步骤 2：运行端到端测试并确认失败**
+- [x] **步骤 2：运行端到端测试并确认失败**
 
 运行：`pnpm vitest run tests/e2e/mvp-workflow.test.ts`
 预期：在所有公开命令和替身端口接通前失败。
 
-- [ ] **步骤 3：连接组合根并补充开发文档**
+- [x] **步骤 3：连接组合根并补充开发文档**
 
 在 `src/cli.ts` 组合生产端口，测试仅注入替身；补全跨阶段测试辅助函数和 README 的本地开发说明。以[MVP需求与验收规范](../02-需求定义/MVP需求与验收规范.md)的 AC-1 至 AC-25 为唯一回归覆盖清单，在测试代码中维护 AC 与测试用例的映射，不在需求规范中回写实现文件名。
 
-- [ ] **步骤 4：运行完整验证套件**
+- [x] **步骤 4：运行完整验证套件**
 
 运行：`pnpm lint && pnpm typecheck && pnpm test && pnpm build`
 预期：全部以 `0` 退出；端到端测试遵守[安全规范](../03-方案设计/02-核心规范/安全规范.md)规定的外部依赖隔离边界。

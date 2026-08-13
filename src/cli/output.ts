@@ -12,3 +12,8 @@ export function writeResult(value: unknown, options: OutputOptions): void {
 
   options.stdout.write(`${output}\n`);
 }
+
+export function writeCommandResult(value: unknown, command: Command, stdout: NodeJS.WriteStream): void {
+  writeResult(value, { json: Boolean(command.optsWithGlobals().json), stdout });
+}
+import type { Command } from 'commander';

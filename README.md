@@ -61,9 +61,31 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 
 ## 当前状态
 
-**MVP 实施中。** 已完成任务 1 的 CLI 基础：`aiw --help`、`aiw --version`、全局 `--json` 选项，以及 `skills`、`task` 两个命令分组；其余命令将在后续实施任务中接入。
+**MVP 核心链路已可运行。** `aiw` 已组合技能安装、任务初始化、来源刷新、阶段审批与修订、`task run` 和 Codex Adapter；顶层 CLI 在开发者本机创建实际 Git、网络、Lark MCP 和 Codex 适配器，测试通过确定性替身覆盖完整七阶段主流程。
 
-固定七阶段、任务失效传播、上下文产物契约、Lark MCP 来源接入、来源安全规则、Superpowers 方法论引用和 Codex Adapter 接口已完成文档定义，下一步是按实施计划初始化框架并编写测试。
+真实使用前仍需准备 Git、兼容的 Node.js、已授权的 Lark MCP（如使用 Lark 来源）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。
+
+## 本地运行
+
+```bash
+pnpm install --frozen-lockfile
+pnpm exec tsx src/cli.ts --help
+pnpm exec tsx src/cli.ts skills install <git-url>
+```
+
+为使用引用 Superpowers 的团队技能，在 `~/.aiw/config.yaml` 中显式配置本机方法来源：
+
+```yaml
+schemaVersion: aiw.local/v1
+methodSources:
+  superpowers:
+    kind: local-skill-directory
+    root: /absolute/path/to/superpowers/skills
+    version: 6.2.0
+    revision: 6.2.0
+```
+
+如需读取 Lark 文档，还应在同一文件配置 `connectors.lark`；完整字段见 [Lark来源连接器规范](docs/03-方案设计/03-接入与接口/Lark来源连接器规范.md)。可通过 `AIW_HOME` 覆盖默认的 `~/.aiw` 本机目录，便于隔离测试或多套配置。
 
 ## 文档
 

@@ -1,6 +1,7 @@
 import { CommanderError } from 'commander';
 
 import { createProgram } from '../../src/cli/create-program.js';
+import type { CliRuntime } from '../../src/cli/create-runtime.js';
 
 export interface CliResult {
   exitCode: number;
@@ -8,10 +9,11 @@ export interface CliResult {
   stdout: string;
 }
 
-export async function runCli(args: string[]): Promise<CliResult> {
+export async function runCli(args: string[], runtime?: CliRuntime): Promise<CliResult> {
   let stdout = '';
   let stderr = '';
-  const program = createProgram({ version: '0.0.0-test' });
+  const output = { write(chunk: string) { stdout += chunk; return true; } } as unknown as NodeJS.WriteStream;
+  const program = createProgram({ version: '0.0.0-test', runtime, stdout: output });
 
   program
     .exitOverride()

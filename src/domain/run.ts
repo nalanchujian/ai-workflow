@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { OutputRecordSchema } from './task.js';
+import { ContextManifestSchema } from './context.js';
 
 export const RunModeSchema = z.enum(['dry-run', 'execute']);
 export const RunStatusSchema = z.enum(['succeeded', 'failed', 'unavailable', 'cancelled']);
@@ -40,6 +41,7 @@ export const RunResultSchema = z.object({
   startedAt: z.string().datetime(),
   finishedAt: z.string().datetime(),
   process: z.object({ exitCode: z.number().int().nullable(), signal: z.string().nullable() }).optional(),
+  contextManifest: ContextManifestSchema.optional(),
   artifacts: z.array(OutputRecordSchema),
   error: z.object({ code: z.string().min(1), message: z.string().min(1) }).optional(),
 });

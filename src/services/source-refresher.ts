@@ -1,4 +1,5 @@
 import type { Task } from '../domain/task.js';
+import { isAbsolute, join } from 'node:path';
 import { invalidateDependents } from './task-state-machine.js';
 import { SourceIntake } from './source-intake.js';
 import { TaskStore } from './task-store.js';
@@ -28,7 +29,7 @@ export class SourceRefresher {
     const snapshot = await this.deps.intake.snapshot({
       kind: current.kind,
       sourceId: input.sourceId,
-      value: current.origin,
+      value: sourceValue(task, current.kind, current.origin),
       revision: current.revision + 1,
     });
     if (snapshot.contentSha256 === current.contentSha256) {
@@ -42,4 +43,11 @@ export class SourceRefresher {
     await this.deps.taskStore.update(next);
     return { changed: true, revision: reference.revision, task: next };
   }
+}
+
+function sourceValue(task: Task, kind: Task['sources'][string]['kind'], origin: string): string {
+  if (kind !== 'local-file' || isAbsolute(origin) || origin === 'local:redacted') {
+    return origin;
+  }
+  return join(task.repository, origin);
 }

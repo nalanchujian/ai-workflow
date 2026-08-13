@@ -68,14 +68,14 @@ export class TaskRunner {
     };
 
     if (input.dryRun) {
-      const result = await this.deps.adapter.run(request);
+      const result = RunResultSchema.parse({ ...(await this.deps.adapter.run(request)), contextManifest: manifest });
       await this.writeResult(task.id, runId, result);
       return result;
     }
 
     const startedTask = transitionNode(task, input.nodeId, { type: 'start', runId });
     await this.deps.taskStore.update(startedTask);
-    const result = await this.execute(request, startedTask, input.nodeId);
+    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId)), contextManifest: manifest });
     await this.writeResult(task.id, runId, result);
     const next = result.status === 'succeeded'
       ? transitionNode(startedTask, input.nodeId, { type: 'succeed', outputs: result.artifacts })

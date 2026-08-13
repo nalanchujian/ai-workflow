@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 
 import { CommanderError } from 'commander';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import { createProgram } from './cli/create-program.js';
+import { createProductionCliRuntime } from './cli/create-runtime.js';
 
 async function main(): Promise<void> {
-  const program = createProgram({ version: '0.1.0' });
+  const homeDirectory = process.env.AIW_HOME ?? join(homedir(), '.aiw');
+  const program = createProgram({ version: '0.1.0', runtime: createProductionCliRuntime({ homeDirectory }) });
 
   try {
     await program.parseAsync(process.argv);
