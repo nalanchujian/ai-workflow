@@ -1,5 +1,7 @@
 # Team Skills Repository Implementation Plan
 
+> Historical execution plan: this plan published the `v1.0.0` skills package. The current v2 bundled-method work follows [Bundled Method Dependencies Implementation Plan](2026-08-13-bundled-method-dependencies.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Publish a real public `nalanchujian/ai-workflow-skills` repository that a normal AI Workflow user can install and use to initialize a standard TypeScript Web task.

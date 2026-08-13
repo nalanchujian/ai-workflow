@@ -22,9 +22,13 @@
 
 显示指定命令的参数和示例，不修改本地状态。
 
+### `aiw init`
+
+在 `~/.aiw/config.yaml`（或 `AIW_HOME/config.yaml`）首次创建带中文注释的安全模板。模板不包含凭据、不包含 Superpowers 路径，也不创建任务、运行目录或技能缓存；文件已存在时原样保留并返回未创建状态。
+
 ### `aiw doctor [--project <path>] [--lark-url <docx-url>]`
 
-只读检查本机研发环境，返回 Git CLI、目标项目 Git 状态、Codex CLI、本机配置、已配置方法来源和 Lark MCP 的诊断结果。每项结果包含 `passed`、`warning` 或 `failed`、原因及可执行修复建议；`--json` 时输出单个 `aiw.doctor/v1` JSON 对象。该命令不创建任务、不写入快照、不调用 Codex 执行任务。
+只读检查本机研发环境，返回 Git CLI、目标项目 Git 状态、Codex CLI、本机配置、已安装的内置方法和 Lark MCP 的诊断结果。每项结果包含 `passed`、`warning` 或 `failed`、原因及可执行修复建议；`--json` 时输出单个 `aiw.doctor/v1` JSON 对象。该命令不创建任务、不写入快照、不调用 Codex 执行任务。
 
 ```bash
 aiw doctor --project .
@@ -69,7 +73,7 @@ aiw run prune --older-than 30d --apply
 
 ### `aiw skills install <git-url> [--ref <tag-or-commit>]`
 
-从 Git 来源安装技能到用户级缓存并记录锁定 revision。技能引用 `configured:superpowers` 时，必须先在 `~/.aiw/config.yaml` 配置对应的 Superpowers 本机 Profile；CLI 不自动扫描 Codex 插件缓存或下载方法论。
+从 Git 来源安装技能到用户级缓存并记录锁定 revision。标准团队技能随包提供 `bundled:superpowers` 方法正文和上游来源清单；安装器校验后缓存并锁定它们，最终用户无需配置或理解 Superpowers。本机 `configured:` 来源只兼容已有任务，不作为新标准模板的前提。
 
 ```bash
 aiw skills install git@github.com:your-org/agent-skills.git
@@ -83,7 +87,7 @@ aiw skills install https://github.com/your-org/agent-skills.git --ref v1.2.0
 
 成功时显示来源、锁定 revision、已安装技能与工作流模板。相同来源再次安装时更新该来源记录，而不创建重复条目。安装记录中的每项方法论来源包含 ID、来源标识、版本、解析 revision 与 SHA-256；不输出本机绝对路径。
 
-失败情形包括：Git 来源不可访问、指定 ref 不存在、仓库不含有效技能和工作流模板、方法论 Profile 未配置/版本不匹配，或任一技能/模板不符合《技能包规范》。失败时 Registry 保持不变。
+失败情形包括：Git 来源不可访问、指定 ref 不存在、仓库不含有效技能和工作流模板、内置方法清单或正文不合法，或任一技能/模板不符合《技能包规范》。失败时 Registry 保持不变。
 
 ### `aiw skills list`
 
@@ -115,9 +119,9 @@ aiw skills profiles list --json
 
 ```bash
 aiw skills profiles list
-aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@1.0.0
-aiw task init --project /workspace/shop --source https://example.com/requirements --skill-profile standard-web-feature@1.0.0
-aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@1.0.0
+aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@2.0.0
+aiw task init --project /workspace/shop --source https://example.com/requirements --skill-profile standard-web-feature@2.0.0
+aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@2.0.0
 ```
 
 | 参数 | 说明 |

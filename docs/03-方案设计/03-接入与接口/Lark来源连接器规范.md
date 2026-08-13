@@ -23,7 +23,7 @@ Lark 授权、应用凭据和 MCP 配置只能保留在本机受控环境中；�
 ## 使用方式
 
 ```bash
-aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@1.0.0
+aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@2.0.0
 # 使用上一条命令输出的 taskId
 aiw task source refresh <task-id> requirements
 ```

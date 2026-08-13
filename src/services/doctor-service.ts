@@ -7,6 +7,7 @@ import type { ProcessRunner } from '../ports/process-runner.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
 import { LarkSourceConnector } from './lark-source-connector.js';
 import { LocalConfig, type LocalConfigDocument } from './local-config.js';
+import { SkillRegistry } from './skill-registry.js';
 
 const CHECK_TIMEOUT_MS = 10_000;
 
@@ -17,6 +18,7 @@ export class DoctorService {
     processRunner: ProcessRunner;
     mcpClient?: McpClient;
     mcpServerConfigResolver?: McpServerConfigResolver;
+    registry?: SkillRegistry;
   }) {}
 
   async inspect(input: { projectRoot: string; larkUrl?: string; codexBin?: string }): Promise<DoctorResult> {
@@ -72,7 +74,10 @@ export class DoctorService {
   private async methodSourceChecks(config: LocalConfigDocument): Promise<DoctorCheck[]> {
     const entries = Object.entries(config.methodSources);
     if (entries.length === 0) {
-      return [warning('method-sources', '方法来源', '尚未配置方法来源。', '在 `~/.aiw/config.yaml` 的 `methodSources` 中配置团队方法来源。')];
+      const bundledMethods = await this.deps.registry?.listMethods() ?? [];
+      return bundledMethods.length === 0
+        ? [warning('method-sources', '方法来源', '尚未安装内置方法。', '运行 `aiw skills install <team-skill-repository>` 安装团队技能包。')]
+        : [passed('method-sources', '方法来源', `已安装 ${bundledMethods.length} 个由团队技能包锁定的内置方法。`)];
     }
     return Promise.all(entries.map(async ([name, profile]) => {
       try {

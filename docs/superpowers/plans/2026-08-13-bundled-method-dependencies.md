@@ -1,0 +1,308 @@
+# Bundled Method Dependencies Implementation Plan
+
+> **For agentic workers:** Execute this plan task-by-task with tests before implementation. Do not create a Git commit unless the user explicitly requests it. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Make the team skills package self-contained: users install `aiw` and `ai-workflow-skills`, while AIW automatically installs, verifies and locks the selected Superpowers method files without a user-level `methodSources` configuration.
+
+**Architecture:** Extend the user-level skill Registry to hold verified bundled method documents beside installed skills and workflow profiles. The installer resolves `bundled:<source>` declarations from a signed-by-Git package layout; the Runner reads the locked document from Registry and refuses hash or revision mismatch. Keep the existing `configured:<source>` path only for old task locks. Add top-level `aiw init` to create a safe, Lark-only local configuration template.
+
+**Tech Stack:** TypeScript 5, Zod 4, YAML 2, Commander 14, Vitest 3, Git HTTPS sources.
+
+## Execution status (2026-08-13, uncommitted)
+
+- 已完成：Registry v2、内置方法安装/锁定读取、`aiw init`、Doctor 对内置方法的检查、端到端空配置验证与用户/规范文档同步。
+- 已完成但未发布：`/Users/j/ai-workflow-skills` 的 v2 工作区已包含三个经核实的 Superpowers v6.2.0 方法、来源清单与 MIT 通知。
+- 未执行：两个仓库的 Git 提交、公开仓库的 `v2.0.0` tag、远程推送与真实远程安装验证；这些动作需要用户另行明确授权。
+
+## Global Constraints
+
+- The public skills package ships only the three required Markdown methods: `brainstorming`, `writing-plans`, `test-driven-development`.
+- No user-level Superpowers path, version or revision is required by a new standard task.
+- Bundled methods must be read only from the installed Registry; no plugin-cache scan, implicit network fetch, or runtime clone is allowed.
+- Task facts retain only method ID, source, version, upstream revision and SHA-256; no cached path or method body enters `.aiw/`.
+- The existing `configured:superpowers` contract remains available only to run pre-migration task locks.
+- `aiw init` never overwrites an existing `~/.aiw/config.yaml` and never writes credentials.
+- Do not create a Git commit or push while executing this plan unless the user explicitly requests it.
+
+---
+
+## File Structure
+
+- Create: `src/domain/bundled-method-source.ts` — package manifest and installed bundled method schemas.
+- Modify: `src/domain/skill.ts` — retain resolved method locks while adding bundled-method references to installed state.
+- Modify: `src/services/skill-registry.ts` — registry v2 persistence and backward-compatible v1 read.
+- Modify: `src/services/skill-installer.ts` — atomic package bundle validation and Registry persistence.
+- Modify: `src/services/method-source-resolver.ts` — dispatch configured legacy and Registry-backed bundled methods.
+- Create: `src/services/local-initializer.ts` — non-destructive user home config initializer.
+- Create: `src/cli/init-command.ts` — `aiw init` command and JSON output.
+- Modify: `src/cli/create-runtime.ts`, `src/cli/create-program.ts` — compose and expose the initializer.
+- Create/modify tests under `tests/domain/`, `tests/services/`, `tests/cli/`, `tests/e2e/`.
+- Modify in `/Users/j/ai-workflow-skills`: `README.md`, all six `skills/*/SKILL.md`, `profiles/standard-web-feature/PROFILE.yaml`, new `method-sources/superpowers/6.2.0/`, and `THIRD_PARTY_NOTICES.md`.
+- Modify: user guide, CLI reference, skills specification, MVP acceptance mapping, and README.
+
+### Task 1: Add a Registry-backed bundled-method model
+
+**Files:**
+- Create: `src/domain/bundled-method-source.ts`
+- Modify: `src/services/skill-registry.ts`
+- Test: `tests/domain/bundled-method-source.test.ts`
+- Test: `tests/services/skill-registry.test.ts`
+
+**Interfaces:**
+- Produces `BundledMethodManifestSchema` for `method-sources/<id>/<version>/SOURCE.yaml`.
+- Produces `InstalledBundledMethodSchema` with `source: ResolvedMethodSource`, `content: string`, and the containing skills package `registrySource`.
+- Extends `SkillRegistry.replace` and `replaceSource` to accept `methods: InstalledBundledMethod[]`.
+
+- [ ] **Step 1: Write failing Registry tests**
+
+Add tests that construct an installed bundled method containing `source: { id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0', revision: '40-character-upstream-revision', sha256: 'a'.repeat(64) }` and Markdown content. Assert that the Registry can list it after `replace`, and that `replaceSource` replaces methods only from the same source URL.
+
+Run:
+
+```bash
+pnpm test tests/services/skill-registry.test.ts tests/domain/bundled-method-source.test.ts
+```
+
+Expected: FAIL because bundled method schemas and Registry APIs do not exist.
+
+- [ ] **Step 2: Implement schemas and Registry v2 persistence**
+
+Create schemas that require: a lower-case method source ID, semantic version, a full non-empty upstream revision, an explicit license string, an allowlisted method name, a SHA-256 hash, UTF-8 method body, and the skills package `registrySource`.
+
+Read old `aiw.skill-registry/v1` files as `{ skills, profiles, methods: [] }`; write all future updates as `aiw.skill-registry/v2`. Preserve skills and profiles while replacing methods belonging to the source URL.
+
+- [ ] **Step 3: Run targeted tests**
+
+Run:
+
+```bash
+pnpm test tests/services/skill-registry.test.ts tests/domain/bundled-method-source.test.ts
+```
+
+Expected: PASS.
+
+### Task 2: Make the installer validate and persist a bundled method source
+
+**Files:**
+- Modify: `src/services/skill-installer.ts`
+- Modify: `tests/helpers/skill-repository-fixture.ts`
+- Test: `tests/services/skill-installer.test.ts`
+
+**Interfaces:**
+- Consumes `method-sources/superpowers/6.2.0/SOURCE.yaml` and its three declared `SKILL.md` files.
+- Produces `InstallResult` with `methods: InstalledBundledMethod[]`.
+- Rejects an entire source before Registry replacement if any referenced bundled method is invalid.
+
+- [ ] **Step 1: Write failing installer tests**
+
+Extend the fixture to contain a valid bundle: a `SOURCE.yaml` declaring Superpowers version `6.2.0`, an exact full upstream revision string, license `MIT`, and the three declared methods. Change fixture phase skills to use `source: bundled:superpowers`.
+
+Add failure tests for each of: missing `SOURCE.yaml`; a skill references an undeclared method; method directory name and front matter name mismatch; source license missing; and a method body whose hash cannot be stored. Each test must assert the previously installed Registry state remains unchanged.
+
+Run:
+
+```bash
+pnpm test tests/services/skill-installer.test.ts
+```
+
+Expected: FAIL because installer only calls the local configured resolver.
+
+- [ ] **Step 2: Parse `SOURCE.yaml` and resolve bundle references**
+
+Implement a `readBundledMethods(directory, registrySource)` path in `SkillInstaller`. It must:
+1. inspect every `bundled:<id>` reference across parsed skills;
+2. load only one matching `SOURCE.yaml` per `id@version`;
+3. validate source manifest fields and method allowlist;
+4. load exact `SKILL.md` entries, validate method front matter name, calculate SHA-256, and retain body;
+5. resolve each skill lock from the verified bundle; and
+6. pass skills, profiles and methods together to one Registry replacement.
+
+Keep `configured:<name>` resolution for legacy packages. Reject source strings other than those two forms.
+
+- [ ] **Step 3: Run targeted tests**
+
+Run:
+
+```bash
+pnpm test tests/services/skill-installer.test.ts
+```
+
+Expected: PASS, including atomic rollback cases.
+
+### Task 3: Resolve locked bundled methods at execution time
+
+**Files:**
+- Modify: `src/services/method-source-resolver.ts`
+- Modify: `src/ports/method-source-resolver.ts` if the current interface cannot express Registry-backed loading
+- Modify: `src/cli/create-runtime.ts`
+- Test: `tests/services/method-source-resolver.test.ts`
+- Test: `tests/services/task-runner.test.ts`
+- Test: `tests/e2e/mvp-workflow.test.ts`
+
+**Interfaces:**
+- `readLocked(source)` returns the exact installed body for `bundled:superpowers`.
+- For bundled sources, it verifies `id`, `source`, `version`, `revision` and `sha256` against Registry before returning content.
+- For `configured:*`, it keeps current legacy behavior.
+
+- [ ] **Step 1: Write failing execution tests**
+
+Add tests proving a task created from a bundled package can dry-run without `methodSources` in `~/.aiw/config.yaml`; that context contains the expected bundled method body; and that changing/removing the Registry method causes the node to fail before the Codex process starts.
+
+Run:
+
+```bash
+pnpm test tests/services/method-source-resolver.test.ts tests/services/task-runner.test.ts tests/e2e/mvp-workflow.test.ts
+```
+
+Expected: FAIL because the resolver requires local configuration.
+
+- [ ] **Step 2: Implement source-aware resolver dispatch**
+
+Inject `SkillRegistry` into the production resolver. For `bundled:superpowers`, locate exactly one Registry entry matching all locked source fields and return its stored content. For a missing or mismatched entry, throw the existing lock-invalid path so `TaskRunner` records a failed node and never unlocks dependents. Preserve the current configured resolver as the only handler for old `configured:*` locks.
+
+- [ ] **Step 3: Run targeted tests**
+
+Run:
+
+```bash
+pnpm test tests/services/method-source-resolver.test.ts tests/services/task-runner.test.ts tests/e2e/mvp-workflow.test.ts
+```
+
+Expected: PASS.
+
+### Task 4: Add safe user-level initialization
+
+**Files:**
+- Create: `src/services/local-initializer.ts`
+- Create: `src/cli/init-command.ts`
+- Modify: `src/cli/create-runtime.ts`
+- Modify: `src/cli/create-program.ts`
+- Test: `tests/services/local-initializer.test.ts`
+- Test: `tests/cli/init-command.test.ts`
+- Test: `tests/cli/help.test.ts`
+
+**Interfaces:**
+- `LocalInitializer.initialize(): Promise<{ schemaVersion: 'aiw.init/v1'; status: 'created' | 'already-initialized'; configPath: string }>`.
+- Top-level `aiw init [--json]` prints that result.
+- It writes only `schemaVersion: aiw.local/v1` and `connectors: {}`, preceded by non-sensitive comments.
+
+- [ ] **Step 1: Write failing initialization tests**
+
+Test first run creates `AIW_HOME/config.yaml` with the exact safe template; second run returns `already-initialized` byte-for-byte without modifying the file; and `AIW_HOME=/tmp/isolated aiw init --json` returns the expected schema, status, and path.
+
+Run:
+
+```bash
+pnpm test tests/services/local-initializer.test.ts tests/cli/init-command.test.ts tests/cli/help.test.ts
+```
+
+Expected: FAIL because no top-level init command exists.
+
+- [ ] **Step 2: Implement non-destructive initialization**
+
+Use exclusive file creation semantics, not an exists-then-write race. Create only the explicit `AIW_HOME` directory and `config.yaml`; do not create runtime, cache, task, skill, Codex or Lark files. Existing invalid config must remain untouched and return `already-initialized`; `doctor` remains responsible for reporting invalid content.
+
+- [ ] **Step 3: Run targeted tests**
+
+Run:
+
+```bash
+pnpm test tests/services/local-initializer.test.ts tests/cli/init-command.test.ts tests/cli/help.test.ts
+```
+
+Expected: PASS.
+
+### Task 5: Publish a breaking v2 team skills package
+
+**Files in `/Users/j/ai-workflow-skills`:**
+- Create: `method-sources/superpowers/6.2.0/SOURCE.yaml`
+- Create: the three listed `method-sources/.../<method>/SKILL.md` files copied from one verified upstream commit
+- Create: `THIRD_PARTY_NOTICES.md`
+- Modify: all six `skills/*/SKILL.md`
+- Modify: `profiles/standard-web-feature/PROFILE.yaml`
+- Modify: `README.md`
+
+**Interfaces:**
+- Produces `standard-web-feature@2.0.0` mapping to six `@2.0.0` skills that declare `bundled:superpowers`.
+- Records the verified upstream commit and MIT notice in both `SOURCE.yaml` and `THIRD_PARTY_NOTICES.md`.
+
+- [ ] **Step 1: Verify upstream provenance before copying**
+
+Run:
+
+```bash
+git ls-remote https://github.com/obra/superpowers.git refs/tags/v6.2.0
+git clone --depth 1 --branch v6.2.0 https://github.com/obra/superpowers.git /tmp/aiw-superpowers-v6.2.0
+git -C /tmp/aiw-superpowers-v6.2.0 rev-parse HEAD
+sed -n '1,80p' /tmp/aiw-superpowers-v6.2.0/LICENSE
+```
+
+Expected: record the exact commit and MIT license text. If tag `v6.2.0` does not resolve, stop; select and document an actual upstream release before copying anything.
+
+- [ ] **Step 2: Write the failing public-package installation test in AIW**
+
+Add a fixture representing the exact v2 package layout. Verify that it installs with an empty local config and exposes `standard-web-feature@2.0.0`. This test must be green before changing the public repository.
+
+- [ ] **Step 3: Build the v2 source package**
+
+Copy only the three exact upstream `SKILL.md` files into `method-sources/superpowers/6.2.0/`. Write `SOURCE.yaml` with the exact recorded commit and `MIT`; write `THIRD_PARTY_NOTICES.md` with the retained copyright and license text. Change all six skills to versions `2.0.0` and `source: bundled:superpowers`; update the profile to version `2.0.0` and six matching references.
+
+- [ ] **Step 4: Validate and publish only after explicit user approval**
+
+Run an isolated real install:
+
+```bash
+AIW_HOME=<temporary-home> aiw init
+AIW_HOME=<temporary-home> aiw skills install https://github.com/nalanchujian/ai-workflow-skills.git --ref v2.0.0
+AIW_HOME=<temporary-home> aiw skills profiles list --json
+```
+
+Verify that no `methodSources` field is required in the config and that task initialization locks the v2 bundled methods. Do not commit, tag, push or publish the public repository without an explicit user request.
+
+### Task 6: Align documentation, acceptance and migration guidance
+
+**Files:**
+- Modify: `README.md`
+- Modify: `docs/07-发布运营/用户使用手册.md`
+- Modify: `docs/03-方案设计/02-核心规范/技能包规范.md`
+- Modify: `docs/03-方案设计/02-核心规范/上下文包规范.md`
+- Modify: `docs/03-方案设计/03-接入与接口/CLI命令参考.md`
+- Modify: `docs/02-需求定义/MVP需求与验收规范.md`
+- Modify: `docs/06-测试验证/验收记录.md`
+
+**Interfaces:**
+- User documentation only presents `aiw init → aiw skills install → aiw task init`.
+- Specifications define `bundled:<id>`, package source manifest, Registry-backed runtime reads, old-task compatibility and Lark-only local config.
+
+- [ ] **Step 1: Update user-facing installation flow**
+
+Remove every instruction that asks a new user to install Superpowers, locate a Superpowers directory, or configure `methodSources`. Document only optional Lark configuration after `aiw init`.
+
+- [ ] **Step 2: Update normative contracts**
+
+Make the skills package specification the authority for method source bundle layout and validation; make the context specification the authority for what is and is not persisted in task facts; make the CLI reference the authority for `aiw init` output and no-overwrite behavior.
+
+- [ ] **Step 3: Map new acceptance cases**
+
+Add explicit AC references and test-record mappings for: no-config bundled install, atomic invalid-bundle rejection, lock mismatch blocking execution, safe repeated init, and old configured-task compatibility.
+
+- [ ] **Step 4: Run full verification**
+
+Run:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm pack:check
+git diff --check
+```
+
+Expected: all checks pass and no document requires ordinary users to know Superpowers implementation details.
+
+## Plan Self-Review
+
+- Spec coverage: Tasks 1–3 cover the bundled contract, Registry persistence, installation and locked execution; Task 4 covers user initialization; Task 5 changes the public source package and legal provenance; Task 6 aligns product guidance and acceptance evidence.
+- Placeholder scan: temporary paths are confined to explicit verification commands; the upstream commit is intentionally discovered from the release tag before copying and must be recorded as an exact value before publication.
+- Type consistency: all new runtime reads use `bundled:superpowers`; old task locks remain `configured:superpowers`; new standard package and profile versions are `2.0.0`.

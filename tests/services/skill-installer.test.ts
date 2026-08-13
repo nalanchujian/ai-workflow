@@ -6,7 +6,7 @@ import { LocalConfig } from '../../src/services/local-config.js';
 import { MethodSourceResolver } from '../../src/services/method-source-resolver.js';
 import { SkillInstaller } from '../../src/services/skill-installer.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
-import { createSkillRepositoryFixture } from '../helpers/skill-repository-fixture.js';
+import { createBundledSkillRepositoryFixture, createSkillRepositoryFixture } from '../helpers/skill-repository-fixture.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
 describe('SkillInstaller', () => {
@@ -27,6 +27,47 @@ describe('SkillInstaller', () => {
     expect(installed.skills).toHaveLength(6);
     expect(installed.skills[0]).toMatchObject({ registrySource: { revision: 'abc123' } });
     expect(await registry.listProfiles()).toHaveLength(1);
+  });
+
+  it('installs bundled methods without a local Superpowers configuration', async () => {
+    const directory = await createTempDirectory('aiw-skill-installer-');
+    directories.push(directory);
+    const { repository } = await createBundledSkillRepositoryFixture(directory);
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    const installer = new SkillInstaller({
+      git: { async clone() { return { directory: repository, revision: 'b'.repeat(40) }; } },
+      methodSources: {
+        async resolve() { throw new Error('不应读取本机方法配置'); },
+        async assertLocked() {},
+        async readLocked() { throw new Error('不应读取本机方法配置'); },
+      },
+      registry,
+    });
+
+    const installed = await installer.install({ url: 'https://example.test/skills.git' });
+
+    expect(installed.methods).toHaveLength(3);
+    expect(installed.skills).toHaveLength(6);
+    await expect(registry.listMethods()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: expect.objectContaining({ source: 'bundled:superpowers', id: 'superpowers:brainstorming' }) }),
+    ]));
+  });
+
+  it('rejects an invalid bundled reference without changing the Registry', async () => {
+    const directory = await createTempDirectory('aiw-skill-installer-');
+    directories.push(directory);
+    const { repository } = await createBundledSkillRepositoryFixture(directory);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: invalid reference\nphases: [clarify]\nmethodSources:\n  - id: superpowers:missing-method\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    const installer = new SkillInstaller({
+      git: { async clone() { return { directory: repository, revision: 'b'.repeat(40) }; } },
+      methodSources: {} as MethodSourceResolver,
+      registry,
+    });
+
+    await expect(installer.install({ url: 'https://example.test/skills.git' })).rejects.toThrow('未提供声明的方法来源');
+    await expect(registry.list()).resolves.toEqual([]);
+    await expect(registry.listMethods()).resolves.toEqual([]);
   });
 
   it('does not mutate the registry when a method source is not configured', async () => {

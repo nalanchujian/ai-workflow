@@ -6,9 +6,10 @@ import { parse } from 'yaml';
 import { ResolvedMethodSourceSchema, type MethodSource, type ResolvedMethodSource } from '../domain/method-source.js';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import { LocalConfig } from './local-config.js';
+import { SkillRegistry } from './skill-registry.js';
 
 export class MethodSourceResolver implements MethodSourceResolverPort {
-  constructor(private readonly config: LocalConfig) {}
+  constructor(private readonly config: LocalConfig, private readonly registry?: SkillRegistry) {}
 
   async resolve(source: MethodSource): Promise<ResolvedMethodSource> {
     return (await this.load(source)).source;
@@ -30,6 +31,9 @@ export class MethodSourceResolver implements MethodSourceResolverPort {
   }
 
   private async load(source: MethodSource): Promise<{ source: ResolvedMethodSource; content: string }> {
+    if (source.source.startsWith('bundled:')) {
+      return this.loadBundled(source);
+    }
     const match = /^configured:([a-z][a-z0-9-]*)$/.exec(source.source);
     const method = /^superpowers:([a-z][a-z0-9-]*)$/.exec(source.id);
     if (match === null || method === null) {
@@ -51,6 +55,31 @@ export class MethodSourceResolver implements MethodSourceResolverPort {
       content,
     };
   }
+
+  private async loadBundled(source: MethodSource): Promise<{ source: ResolvedMethodSource; content: string }> {
+    if (this.registry === undefined) {
+      throw new Error('Method source is unavailable');
+    }
+    const expected = isResolved(source) ? source : undefined;
+    const candidates = (await this.registry.listMethods()).filter((method) => (
+      method.source.id === source.id
+      && method.source.source === source.source
+      && method.source.version === source.version
+      && (expected === undefined || (
+        method.source.revision === expected.revision
+        && method.source.sha256 === expected.sha256
+      ))
+    ));
+    if (candidates.length === 0) {
+      throw new Error(expected === undefined ? 'Method source is unavailable' : '方法来源内容已变化');
+    }
+    const method = candidates[0];
+    return { source: method.source, content: method.content };
+  }
+}
+
+function isResolved(source: MethodSource): source is ResolvedMethodSource {
+  return 'revision' in source && 'sha256' in source;
 }
 
 function assertMethodName(content: string, expectedName: string): void {

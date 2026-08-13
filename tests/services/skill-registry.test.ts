@@ -14,4 +14,34 @@ describe('SkillRegistry', () => {
 
     await expect(new SkillRegistry(join(directory, 'registry.yaml')).list()).resolves.toEqual([]);
   });
+
+  it('persists bundled methods and replaces only methods from the same team source', async () => {
+    const directory = await createTempDirectory('aiw-skill-registry-');
+    directories.push(directory);
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    const first = bundledMethod('https://example.test/first.git', 'a');
+    const second = bundledMethod('https://example.test/second.git', 'b');
+
+    await registry.replace({ skills: [], profiles: [], methods: [first, second] });
+    await registry.replaceSource({ sourceUrl: 'https://example.test/first.git', skills: [], profiles: [], methods: [bundledMethod('https://example.test/first.git', 'c')] });
+
+    await expect(registry.listMethods()).resolves.toEqual([
+      expect.objectContaining({ registrySource: expect.objectContaining({ url: 'https://example.test/second.git' }) }),
+      expect.objectContaining({ registrySource: expect.objectContaining({ url: 'https://example.test/first.git', revision: 'c'.repeat(40) }) }),
+    ]);
+  });
 });
+
+function bundledMethod(url: string, revisionCharacter: string) {
+  return {
+    source: {
+      id: 'superpowers:brainstorming',
+      source: 'bundled:superpowers',
+      version: '6.2.0',
+      revision: 'd'.repeat(40),
+      sha256: 'e'.repeat(64),
+    },
+    content: '---\nname: brainstorming\n---\n\n# Brainstorming\n',
+    registrySource: { url, revision: revisionCharacter.repeat(40) },
+  };
+}

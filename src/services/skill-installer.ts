@@ -3,24 +3,28 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 
+import { BundledMethodManifestSchema, type InstalledBundledMethod } from '../domain/bundled-method-source.js';
 import { SkillSchema, type InstalledSkill } from '../domain/skill.js';
+import type { MethodSource, ResolvedMethodSource } from '../domain/method-source.js';
 import { WorkflowProfileSchema, type InstalledWorkflowProfile } from '../domain/workflow-profile.js';
 import type { GitClient } from '../ports/git-client.js';
-import { MethodSourceResolver } from './method-source-resolver.js';
+import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import { SkillRegistry } from './skill-registry.js';
 
 export interface InstallResult {
   skills: InstalledSkill[];
   profiles: InstalledWorkflowProfile[];
+  methods: InstalledBundledMethod[];
 }
 
 export class SkillInstaller {
-  constructor(private readonly deps: { git: GitClient; methodSources: MethodSourceResolver; registry: SkillRegistry }) {}
+  constructor(private readonly deps: { git: GitClient; methodSources: MethodSourceResolverPort; registry: SkillRegistry }) {}
 
   async install(input: { url: string; ref?: string }): Promise<InstallResult> {
     const cloned = await this.deps.git.clone(input);
     const registrySource = { url: input.url, revision: cloned.revision };
-    const skills = await this.readSkills(cloned.directory, registrySource);
+    const bundledMethods = await this.readBundledMethods(cloned.directory, registrySource);
+    const skills = await this.readSkills(cloned.directory, registrySource, bundledMethods);
     const installedSkills = await this.deps.registry.list();
     const profiles = await this.readProfiles(
       cloned.directory,
@@ -30,13 +34,17 @@ export class SkillInstaller {
     if (skills.length === 0 && profiles.length === 0) {
       throw new Error('技能包未包含有效技能或工作流模板');
     }
-    await this.deps.registry.replaceSource({ sourceUrl: input.url, skills, profiles });
-    return { skills, profiles };
+    await this.deps.registry.replaceSource({ sourceUrl: input.url, skills, profiles, methods: bundledMethods });
+    return { skills, profiles, methods: bundledMethods };
   }
 
-  private async readSkills(directory: string, registrySource: { url: string; revision: string }): Promise<InstalledSkill[]> {
+  private async readSkills(
+    directory: string,
+    registrySource: { url: string; revision: string },
+    bundledMethods: InstalledBundledMethod[],
+  ): Promise<InstalledSkill[]> {
     const skillDirectories = await listDirectories(join(directory, 'skills'));
-    return Promise.all(skillDirectories.map(async (name) => {
+    const skills = await Promise.all(skillDirectories.map(async (name) => {
       const path = join(directory, 'skills', name, 'SKILL.md');
       const content = await readFile(path, 'utf8');
       const skill = SkillSchema.parse({ ...readFrontMatter(content), body: bodyOf(content) });
@@ -44,7 +52,7 @@ export class SkillInstaller {
         throw new Error(`技能目录与名称不一致：${name}`);
       }
       assertSkillBody(skill.body);
-      const methodSources = await Promise.all(skill.methodSources.map((source) => this.deps.methodSources.resolve(source)));
+      const methodSources = await Promise.all(skill.methodSources.map((source) => this.resolveMethodSource(source, bundledMethods)));
       return {
         ...skill,
         registrySource,
@@ -52,6 +60,55 @@ export class SkillInstaller {
         methodSources,
       };
     }));
+    return skills;
+  }
+
+  private async resolveMethodSource(source: MethodSource, bundledMethods: InstalledBundledMethod[]): Promise<ResolvedMethodSource> {
+    if (!source.source.startsWith('bundled:')) {
+      return this.deps.methodSources.resolve(source);
+    }
+    const method = bundledMethods.find((candidate) => (
+      candidate.source.id === source.id
+      && candidate.source.source === source.source
+      && candidate.source.version === source.version
+    ));
+    if (method === undefined) {
+      throw new Error(`团队技能包未提供声明的方法来源：${source.id}@${source.version}`);
+    }
+    return method.source;
+  }
+
+  private async readBundledMethods(
+    directory: string,
+    registrySource: { url: string; revision: string },
+  ): Promise<InstalledBundledMethod[]> {
+    const sourceDirectories = await listDirectories(join(directory, 'method-sources'));
+    const bundles = await Promise.all(sourceDirectories.map(async (sourceName) => {
+      const versions = await listDirectories(join(directory, 'method-sources', sourceName));
+      return Promise.all(versions.map(async (version) => {
+        const root = join(directory, 'method-sources', sourceName, version);
+        const manifest = BundledMethodManifestSchema.parse(parse(await readFile(join(root, 'SOURCE.yaml'), 'utf8')));
+        if (manifest.id !== sourceName || manifest.version !== version) {
+          throw new Error(`内置方法目录与 SOURCE.yaml 不一致：${sourceName}@${version}`);
+        }
+        return Promise.all(manifest.methods.map(async (name) => {
+          const content = await readFile(join(root, name, 'SKILL.md'), 'utf8');
+          assertMethodName(content, name);
+          return {
+            source: {
+              id: `${manifest.id}:${name}`,
+              source: `bundled:${manifest.id}`,
+              version: manifest.version,
+              revision: manifest.upstream.revision,
+              sha256: sha256(content),
+            },
+            content,
+            registrySource,
+          };
+        }));
+      }));
+    }));
+    return bundles.flat(2);
   }
 
   private async readProfiles(
@@ -116,6 +173,13 @@ function assertSkillBody(body: string): void {
     if (!new RegExp(`^#{1,6}\\s+${heading}\\s*$`, 'm').test(body)) {
       throw new Error(`SKILL.md 缺少「${heading}」章节`);
     }
+  }
+}
+
+function assertMethodName(content: string, expectedName: string): void {
+  const frontMatter = readFrontMatter(content);
+  if (frontMatter.name !== expectedName) {
+    throw new Error(`方法来源入口与声明不一致：${expectedName}`);
   }
 }
 

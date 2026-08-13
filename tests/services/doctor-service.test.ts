@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { DoctorService } from '../../src/services/doctor-service.js';
 import { LocalConfig } from '../../src/services/local-config.js';
+import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
 describe('DoctorService', () => {
@@ -49,6 +50,31 @@ describe('DoctorService', () => {
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-authorization', status: 'passed' }));
     expect(receivedArguments).toEqual({ path: { document_id: 'doccn123' }, params: { lang: 0 }, useUAT: false });
     expect(JSON.stringify(result)).not.toContain('# requirements');
+  });
+
+  it('accepts connector-only configuration when bundled methods are installed', async () => {
+    const directory = await createTempDirectory('aiw-doctor-');
+    directories.push(directory);
+    await writeFile(join(directory, 'config.yaml'), 'schemaVersion: aiw.local/v1\nconnectors: {}\n', 'utf8');
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    await registry.replace({
+      skills: [],
+      profiles: [],
+      methods: [{
+        source: { id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0', revision: 'a'.repeat(40), sha256: 'b'.repeat(64) },
+        content: '# brainstorming\n',
+        registrySource: { url: 'https://example.test/skills.git', revision: 'c'.repeat(40) },
+      }],
+    });
+
+    const result = await new DoctorService({
+      config: new LocalConfig(join(directory, 'config.yaml')),
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      processRunner: successfulProcessRunner(),
+    }).inspect({ projectRoot: directory, codexBin: 'codex' });
+
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-sources', status: 'passed' }));
   });
 
   it('returns actionable failures instead of throwing when the local configuration is invalid', async () => {

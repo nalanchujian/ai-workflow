@@ -8,7 +8,7 @@ import { FakeNetworkClient } from '../fakes/fake-network-client.js';
 import { FakeProcessRunner } from '../fakes/fake-process-runner.js';
 import { completeNode } from '../helpers/complete-node.js';
 import { runCli } from '../helpers/run-cli.js';
-import { createSkillRepositoryFixture } from '../helpers/skill-repository-fixture.js';
+import { createBundledSkillRepositoryFixture, createSkillRepositoryFixture } from '../helpers/skill-repository-fixture.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
 const directories: string[] = [];
@@ -68,9 +68,26 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
     expect(JSON.parse(status.stdout).nodes.test.status).toBe('completed');
     expect(fixture.process.calls).toHaveLength(6);
   });
+
+  it('creates and dry-runs a task from bundled methods without a Superpowers local configuration', async () => {
+    const fixture = await createFixture({ bundled: true });
+
+    await expect(runCli(['init'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
+    await expect(runCli(['skills', 'install', fixture.skillRepository], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
+    await expect(runCli(['task', 'init', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@2.0.0'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
+    fixture.repository.commitTaskFacts();
+
+    const result = await runCli(['task', 'run', taskId, 'clarify', '--dry-run', '--json'], fixture.runtime);
+
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: 'succeeded',
+      contextManifest: { skill: { methodSources: [expect.objectContaining({ source: 'bundled:superpowers', revision: 'a'.repeat(40) })] } },
+    });
+    expect(fixture.process.calls).toHaveLength(0);
+  });
 });
 
-async function createFixture() {
+async function createFixture(options: { bundled?: boolean } = {}) {
   const root = await createTempDirectory('aiw-e2e-');
   directories.push(root);
   const projectRoot = join(root, 'project');
@@ -78,9 +95,15 @@ async function createFixture() {
   await mkdir(projectRoot, { recursive: true });
   const requirementsPath = join(projectRoot, 'requirements.md');
   await writeFile(requirementsPath, '# 退款需求\n', 'utf8');
-  const skillFixture = await createSkillRepositoryFixture(root);
-  await mkdir(localHome, { recursive: true });
-  await writeFile(join(localHome, 'config.yaml'), `schemaVersion: aiw.local/v1\nmethodSources:\n  superpowers:\n    kind: local-skill-directory\n    root: ${skillFixture.methodRoot}\n    version: 6.2.0\n    revision: 6.2.0\n`, 'utf8');
+  let skillRepository: string;
+  if (options.bundled) {
+    skillRepository = (await createBundledSkillRepositoryFixture(root)).repository;
+  } else {
+    const skillFixture = await createSkillRepositoryFixture(root);
+    skillRepository = skillFixture.repository;
+    await mkdir(localHome, { recursive: true });
+    await writeFile(join(localHome, 'config.yaml'), `schemaVersion: aiw.local/v1\nmethodSources:\n  superpowers:\n    kind: local-skill-directory\n    root: ${skillFixture.methodRoot}\n    version: 6.2.0\n    revision: 6.2.0\n`, 'utf8');
+  }
   const repository = new FakeRepositoryStatus();
   const process = new FakeProcessRunner();
   const runtime = createCliRuntime({
@@ -88,11 +111,11 @@ async function createFixture() {
     projectRoot: () => projectRoot,
     taskCreatedAt: () => new Date('2026-08-13T12:00:00.000Z'),
     ports: {
-      git: new FakeGitClient({ [skillFixture.repository]: { directory: skillFixture.repository, revision: 'fixture-revision' } }),
+      git: new FakeGitClient({ [skillRepository]: { directory: skillRepository, revision: 'fixture-revision' } }),
       repositoryStatus: repository,
       network: new FakeNetworkClient(),
       processRunner: process,
     },
   });
-  return { runtime, repository, process, projectRoot, requirementsPath, skillRepository: skillFixture.repository };
+  return { runtime, repository, process, projectRoot, requirementsPath, skillRepository };
 }

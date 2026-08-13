@@ -17,7 +17,7 @@ AI Workflow 不替代 Codex，也不创建新的聊天系统。它负责四件�
 
 `aiw` 不重新实现通用编码 Agent 或通用研发方法，而是明确分层：
 
-- **Superpowers**：通用研发方法论来源。阶段技能按版本和哈希引用其中的方法（如需求澄清、写计划、测试驱动开发），`aiw` 只叠加任务输入、产物、审批与失效约束。
+- **Superpowers**：通用研发方法论来源。标准团队技能包受控内置实际引用的方法正文，并记录上游版本、commit、许可证与内容哈希；最终用户无需安装或配置它，`aiw` 只叠加任务输入、产物、审批与失效约束。
 - **aiw**：Git 原生的 AI 研发变更治理层。它管理来源快照、任务依赖、产物 revision、决策门禁、最小可信上下文与下游失效；MVP 使用人工审批，后续可接入策略自动门禁。
 - **Codex CLI**：实际执行者，负责分析仓库、修改代码和运行验证。
 - **Trellis**：面向 Coding Agent 的完整研发执行框架，提供任务、Spec、Skill、Hook 与子 Agent 工作方式；它是能力对标对象。在不要求版本化事实、审批门禁与失效传播的场景，可作为低治理要求的降级选项；但不是 `aiw` 的同级替代方案或当前 MVP 的运行时依赖。
@@ -36,9 +36,11 @@ MVP 聚焦“本机单 Agent + Git 共享任务事实与团队技能仓库”。
 ## 目标工作流
 
 ```bash
-aiw skills install https://github.com/nalanchujian/ai-workflow-skills.git --ref v1.0.0
+npm install -g @nalanchujian/ai-workflow
+aiw init
+aiw skills install https://github.com/nalanchujian/ai-workflow-skills.git --ref v2.0.0
 aiw skills profiles list
-aiw task init --project . --source https://example.com/requirements --skill-profile standard-web-feature@1.0.0
+aiw task init --project . --source https://example.com/requirements --skill-profile standard-web-feature@2.0.0
 # 输出 taskId，例如 task-20260813-120000-000；将其填入下方命令
 git add .aiw && git commit -m "chore(aiw): initialize task"
 aiw task run <task-id> clarify
@@ -66,7 +68,7 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 
 **MVP 核心链路已可运行。** `aiw` 已组合技能安装、任务初始化、来源刷新、阶段审批与修订、`task run` 和 Codex Adapter；顶层 CLI 在开发者本机创建实际 Git、网络、Lark MCP 和 Codex 适配器，测试通过确定性替身覆盖完整七阶段主流程。
 
-真实使用前仍需准备 Git、兼容的 Node.js、已授权的 Lark MCP（如使用 Lark 来源）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、方法来源与 Lark MCP 配置；需要验证 Lark 文档授权时，显式传入 `--lark-url <docx-url>`。
+真实使用前仍需准备 Git、兼容的 Node.js、已授权的 Lark MCP（如使用 Lark 来源）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、已安装的内置方法与 Lark MCP 配置；需要验证 Lark 文档授权时，显式传入 `--lark-url <docx-url>`。
 
 ## 本地运行
 
@@ -85,6 +87,7 @@ pnpm exec tsx src/cli.ts skills install <git-url>
 ```bash
 npm install -g @nalanchujian/ai-workflow
 aiw --help
+aiw init
 aiw doctor --project /你的业务仓库
 ```
 
@@ -95,7 +98,7 @@ npm update -g @nalanchujian/ai-workflow
 npm uninstall -g @nalanchujian/ai-workflow
 ```
 
-`aiw doctor` 会检查 Git、Codex CLI、方法来源、Lark MCP 与本机配置；其中 `~/.aiw/config.yaml` 由每位使用者单独配置，不随 npm 包分发。
+`aiw init` 只生成不含凭据、且不会覆盖的 `~/.aiw/config.yaml` 模板。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；只有使用 Lark 文档来源时才需要按模板补充 Lark MCP 映射。
 
 从安装到完成首个任务的完整操作，见 [用户使用手册](https://github.com/nalanchujian/ai-workflow/blob/codex/agent-skill-orchestrator/docs/07-%E5%8F%91%E5%B8%83%E8%BF%90%E8%90%A5/%E7%94%A8%E6%88%B7%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md)。
 
@@ -108,6 +111,7 @@ pnpm setup                     # 仅首次执行；重开终端后继续
 cd /Users/j/ai-workflow
 pnpm run link:global           # 构建并链接当前仓库
 aiw --help
+aiw init
 aiw doctor --project /Users/j/ai-workflow
 ```
 
@@ -120,19 +124,7 @@ pnpm run unlink:global
 
 若不希望全局安装，可始终使用 `pnpm dev -- <command>`，例如 `pnpm dev -- doctor`。
 
-为使用引用 Superpowers 的团队技能，在 `~/.aiw/config.yaml` 中显式配置本机方法来源：
-
-```yaml
-schemaVersion: aiw.local/v1
-methodSources:
-  superpowers:
-    kind: local-skill-directory
-    root: /absolute/path/to/superpowers/skills
-    version: 6.2.0
-    revision: 6.2.0
-```
-
-如需读取 Lark 文档，还应在同一文件配置 `connectors.lark`；完整字段见 [Lark来源连接器规范](docs/03-方案设计/03-接入与接口/Lark来源连接器规范.md)。可通过 `AIW_HOME` 覆盖默认的 `~/.aiw` 本机目录，便于隔离测试或多套配置。
+标准团队技能包把所需的 Superpowers 方法随版本安装并锁定；不需要额外的本机方法来源配置。如需读取 Lark 文档，再在 `aiw init` 生成的文件中配置 `connectors.lark`；完整字段见 [Lark来源连接器规范](docs/03-方案设计/03-接入与接口/Lark来源连接器规范.md)。可通过 `AIW_HOME` 覆盖默认的 `~/.aiw` 本机目录，便于隔离测试或多套配置。
 
 ## 文档
 

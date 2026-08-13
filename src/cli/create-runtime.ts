@@ -11,6 +11,7 @@ import { ContextBuilder } from '../services/context-builder.js';
 import { ConfiguredLarkSourceConnector } from '../services/configured-lark-source-connector.js';
 import { DoctorService } from '../services/doctor-service.js';
 import { LocalConfig } from '../services/local-config.js';
+import { LocalInitializer } from '../services/local-initializer.js';
 import { MethodSourceResolver } from '../services/method-source-resolver.js';
 import { SkillInstaller } from '../services/skill-installer.js';
 import { SkillRegistry } from '../services/skill-registry.js';
@@ -39,6 +40,7 @@ export interface CliRuntime {
   taskRunner: TaskRunner;
   doctor: DoctorService;
   runHistory: RunHistoryService;
+  localInitializer: LocalInitializer;
 }
 
 export function createCliRuntime(input: {
@@ -58,7 +60,7 @@ export function createCliRuntime(input: {
   const taskStore = new TaskStore(projectRoot);
   const registry = new SkillRegistry(join(input.homeDirectory, 'registry.yaml'));
   const config = new LocalConfig(join(input.homeDirectory, 'config.yaml'));
-  const methodSourceResolver = new MethodSourceResolver(config);
+  const methodSourceResolver = new MethodSourceResolver(config, registry);
   const connector = input.ports.mcpClient === undefined || input.ports.mcpServerConfigResolver === undefined
     ? undefined
     : new ConfiguredLarkSourceConnector({
@@ -95,12 +97,14 @@ export function createCliRuntime(input: {
     taskRunner,
     doctor: new DoctorService({
       config,
+      registry,
       projectRepository: input.ports.repositoryStatus,
       processRunner: input.ports.processRunner,
       ...(input.ports.mcpClient === undefined ? {} : { mcpClient: input.ports.mcpClient }),
       ...(input.ports.mcpServerConfigResolver === undefined ? {} : { mcpServerConfigResolver: input.ports.mcpServerConfigResolver }),
     }),
     runHistory: new RunHistoryService({ runtimeRoot: join(input.homeDirectory, 'runtime') }),
+    localInitializer: new LocalInitializer(join(input.homeDirectory, 'config.yaml')),
   };
 }
 
