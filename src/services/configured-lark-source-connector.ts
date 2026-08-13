@@ -14,12 +14,12 @@ export class ConfiguredLarkSourceConnector implements SourceConnector {
     }).supports(input);
   }
 
-  async fetch(input: string): Promise<ConnectorSource> {
+  async fetch(input: string, options?: { section?: string }): Promise<ConnectorSource> {
     const config = await this.deps.config.larkConnector();
     return new LarkSourceConnector({
       client: this.deps.client,
       resolver: this.deps.resolver,
       config: { configPath: config.configSource.path, server: config.server, tool: config.tool, useUAT: config.useUAT },
-    }).fetch(input);
+    }).fetch(input, options);
   }
 }

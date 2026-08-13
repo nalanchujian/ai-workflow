@@ -91,4 +91,56 @@ describe('LarkSourceConnector', () => {
     await expect(connector.fetch('https://acme.larksuite.com/wiki/DJJXwQUSui36aEkFz8QjwPRTp8e'))
       .rejects.toMatchObject({ code: 'LARK_URL_UNSUPPORTED', message: 'Wiki 节点不是可读取的 docx 文档' });
   });
+
+  it('reads Lark Blocks to select a section from a non-Markdown document', async () => {
+    const calls: Array<{ tool: string; arguments: unknown }> = [];
+    const connector = new LarkSourceConnector({
+      client: {
+        async callTool(input) {
+          calls.push({ tool: input.tool, arguments: input.arguments });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                has_more: false,
+                items: [
+                  block('root', 1, '文档标题'),
+                  block('before', 3, '一期'),
+                  block('before-content', 2, '一期内容'),
+                  block('target', 3, '二期 (V2.3)'),
+                  block('target-content', 2, '目标需求'),
+                  block('child', 4, '子需求'),
+                  block('child-content', 2, '子需求内容'),
+                  block('after', 3, '三期'),
+                  block('after-content', 2, '不应包含'),
+                ],
+              }),
+            }],
+          };
+        },
+      },
+      config: { configPath: '/local/config.toml', server: 'lark-openapi', tool: 'docx_v1_document_rawContent', useUAT: false },
+      resolver: { async resolve() { return { args: [], command: 'lark-mcp', env: {}, transport: 'stdio' }; } },
+    });
+
+    await expect(connector.fetch('https://acme.larksuite.com/docx/doccn123', { section: '二期 (V2.3)' }))
+      .resolves.toMatchObject({
+        markdown: '# 二期 (V2.3)\n\n目标需求\n\n## 子需求\n\n子需求内容',
+        section: { title: '二期 (V2.3)', startBlockId: 'target', endBlockId: 'child-content' },
+      });
+    expect(calls).toEqual([
+      {
+        tool: 'docx_v1_documentBlock_list',
+        arguments: { path: { document_id: 'doccn123' }, params: { document_revision_id: -1, page_size: 500 }, useUAT: false },
+      },
+    ]);
+  });
 });
+
+function block(id: string, blockType: number, content: string): Record<string, unknown> {
+  if (blockType === 1) {
+    return { block_id: id, block_type: blockType, page: { elements: [{ text_run: { content } }] } };
+  }
+  const key = blockType === 2 ? 'text' : `heading${blockType - 2}`;
+  return { block_id: id, block_type: blockType, [key]: { elements: [{ text_run: { content } }] } };
+}

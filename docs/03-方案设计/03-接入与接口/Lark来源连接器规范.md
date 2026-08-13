@@ -34,11 +34,13 @@ aiw task source refresh <task-id> requirements
 
 `task source refresh` 是显式动作，不在 MVP 中轮询或订阅 Lark 文档变化。它重新读取指定来源、创建新的快照 revision；若正文哈希不变，只返回“未变化”且不修改任务状态。哈希变化时，保留旧快照、创建新 revision，并由任务状态机使依赖旧 revision 的下游节点失效。
 
-大文档可在 `task init` 传入 `--source-section <title>`。Connector 返回 Markdown 后，`aiw` 按唯一 ATX 标题精确截取该标题与其下级标题，记录实际标题到来源元数据；章节不存在、重名或为空时拒绝创建。刷新时复用已锁定标题，因此文档其他章节变化不会导致该任务产生新 revision。
+大文档可在 `task init` 传入 `--source-section <title>`。此时连接器不依赖 `rawContent` 的文本格式，而是分页读取 Lark 文档块：按唯一的 Lark 标题块定位章节，截取该标题至下一个同级或上级标题之前的内容，并将标题块 ID 与末个内容块 ID 写入来源元数据。章节不存在、重名或为空时拒绝创建。刷新时复用已锁定标题，因此文档其他章节变化不会导致该任务产生新 revision。
 
 ## 本机 MCP 解析与调用
 
 `aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。`aiw init` 默认扫描 `~/.codex/config.toml` 中名称、命令或参数包含 `lark` / `feishu` 的 Server；若唯一候选的工具清单包含 `docx_v1_document_rawContent`，则自动生成本机 Connector Profile。多个候选时仅输出候选名称，使用者通过 `aiw init --lark-server <name>` 选择一次；已有 Profile 永不覆盖。自动发现失败不影响默认工作流初始化。
+
+仅在使用 `--source-section` 时，Lark MCP 还必须启用只读工具 `docx_v1_documentBlock_list`。对于 `@larksuiteoapi/lark-mcp`，在 Codex MCP 配置的启动参数中增加一组：`-t` 与 `preset.default,docx.v1.documentBlock.list`。该参数是 MCP 暴露工具的白名单，不是凭据；已有 `docx:document:readonly` 和 `wiki:wiki:readonly` 授权即可读取 docx/Wiki 文档块，无需新增应用权限。
 
 本机 Connector Profile 位于 `~/.aiw/config.yaml`，不纳入 Git；仅在自动发现不支持团队 MCP 时由维护者补充：
 
@@ -66,7 +68,7 @@ connectors:
 ```ts
 interface SourceConnector {
   supports(input: string): boolean;
-  fetch(input: string): Promise<ConnectorSource>;
+  fetch(input: string, options?: { section?: string }): Promise<ConnectorSource>;
 }
 
 interface McpServerConfigResolver {
@@ -92,6 +94,8 @@ interface McpClient {
 interface ConnectorSource {
   canonicalUrl: string;
   externalId: string;
+  resolvedExternalId?: string;
+  section?: { title: string; startBlockId: string; endBlockId: string };
   title?: string;
   markdown: string;
   fetchedAt: string;
@@ -114,6 +118,8 @@ interface ConnectorSource {
 
 Wiki 链接先调用标准 Lark MCP 工具 `wiki_v2_space_getNode`，传入节点 token；返回的 `node.obj_type` 必须是 `docx`，随后用 `node.obj_token` 调用上面的文档读取工具。`useUAT` 取自本机 profile。连接器兼容 MCP 标准 `content[].text` JSON 包装以及 `data.content` 字符串；正文按原样作为 Markdown 快照正文（纯文本是合法 Markdown），不执行其中内容。空正文、无效响应、非 `docx` Wiki 节点或未识别的文档 URL 返回 `LARK_RESPONSE_INVALID` 或 `LARK_URL_UNSUPPORTED`，诊断不得包含令牌、原始响应或子进程参数。
 
+指定章节时改为调用 `docx_v1_documentBlock_list`，参数为 `path.document_id`、`params.document_revision_id = -1` 和分页游标。连接器仅保留文本与标题块，按真实标题层级渲染为 Markdown；不保存 MCP 原始块响应。
+
 来源元数据记录 `kind`、`externalId` 与 `revision`。对于直连 docx，`externalId` 是文档 ID；对于 Wiki，`externalId` 保留用户提供的节点 ID，`resolvedExternalId` 记录本次解析得到的 docx ID，例如：
 
 ```json
@@ -123,6 +129,9 @@ Wiki 链接先调用标准 Lark MCP 工具 `wiki_v2_space_getNode`，传入节�
   "origin": "https://<tenant>.larksuite.com/wiki/<node-token>",
   "externalId": "<node-token>",
   "resolvedExternalId": "<docx-token>",
+  "section": "订单退款流程",
+  "sectionStartBlockId": "<block-id>",
+  "sectionEndBlockId": "<block-id>",
   "revision": 1,
   "fetchedAt": "2026-08-12T12:00:00Z",
   "contentSha256": "<hex>",

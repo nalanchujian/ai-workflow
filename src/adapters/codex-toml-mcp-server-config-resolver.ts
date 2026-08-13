@@ -62,7 +62,10 @@ function stringValue(section: string, key: string): string | undefined {
 
 function arrayValue(section: string, key: string): string[] | undefined {
   const match = new RegExp(`^${key}\\s*=\\s*\\[([^\\]]*)\\]\\s*$`, 'm').exec(section);
-  return match?.[1].split(',').map((value) => value.trim().replace(/^"|"$/g, '')).filter(Boolean);
+  if (match === null) {
+    return undefined;
+  }
+  return Array.from(match[1].matchAll(/"([^"\\]*)"/g), (value) => value[1]);
 }
 
 function environmentValue(section: string): Record<string, string> {

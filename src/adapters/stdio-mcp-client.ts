@@ -27,7 +27,9 @@ export class StdioMcpClient implements McpClient {
       const timeout = setTimeout(() => {
         child.kill();
         reject(new Error('MCP 调用超时'));
-      }, server.startupTimeoutMs ?? 15_000);
+      // 部分 MCP 工具会返回较大的结构化结果（例如 Lark 文档块列表）。
+      // 该超时覆盖整个初始化与调用过程，15 秒会在结果仍在传输时过早终止。
+      }, server.startupTimeoutMs ?? 60_000);
       let nextId = 1;
       const pending = new Map<number, (result: unknown) => void>();
       const fail = (error: Error): void => {

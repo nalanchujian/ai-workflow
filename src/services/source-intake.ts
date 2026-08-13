@@ -26,6 +26,8 @@ export interface SnapshotRecord {
   externalId?: string;
   resolvedExternalId?: string;
   section?: string;
+  sectionStartBlockId?: string;
+  sectionEndBlockId?: string;
   revision: number;
   fetchedAt: string;
   markdown: string;
@@ -72,6 +74,8 @@ export class SourceIntake {
       ...(snapshot.externalId === undefined ? {} : { externalId: snapshot.externalId }),
       ...(snapshot.resolvedExternalId === undefined ? {} : { resolvedExternalId: snapshot.resolvedExternalId }),
       ...(snapshot.section === undefined ? {} : { section: snapshot.section }),
+      ...(snapshot.sectionStartBlockId === undefined ? {} : { sectionStartBlockId: snapshot.sectionStartBlockId }),
+      ...(snapshot.sectionEndBlockId === undefined ? {} : { sectionEndBlockId: snapshot.sectionEndBlockId }),
       revision: snapshot.revision,
       fetchedAt: snapshot.fetchedAt,
       contentSha256: snapshot.contentSha256,
@@ -85,6 +89,8 @@ export class SourceIntake {
       ...(snapshot.externalId === undefined ? {} : { externalId: snapshot.externalId }),
       ...(snapshot.resolvedExternalId === undefined ? {} : { resolvedExternalId: snapshot.resolvedExternalId }),
       ...(snapshot.section === undefined ? {} : { section: snapshot.section }),
+      ...(snapshot.sectionStartBlockId === undefined ? {} : { sectionStartBlockId: snapshot.sectionStartBlockId }),
+      ...(snapshot.sectionEndBlockId === undefined ? {} : { sectionEndBlockId: snapshot.sectionEndBlockId }),
       revision: snapshot.revision,
       snapshotPath: relative(taskDirectory, snapshotPath).replaceAll('\\', '/'),
       metaPath: relative(taskDirectory, metaPath).replaceAll('\\', '/'),
@@ -152,8 +158,10 @@ export class SourceIntake {
     if (this.deps.connector === undefined || !this.deps.connector.supports(input.value)) {
       throw new SourceIntakeError('SOURCE_UNSUPPORTED', '当前 Connector 不支持该文档类型');
     }
-    const source = await this.deps.connector.fetch(input.value);
-    const section = input.section === undefined ? undefined : extractMarkdownSection(source.markdown, input.section);
+    const source = await this.deps.connector.fetch(input.value, { section: input.section });
+    const section = input.section === undefined ? undefined : source.section === undefined
+      ? extractMarkdownSection(source.markdown, input.section)
+      : { title: source.section.title, markdown: source.markdown };
     const markdown = section?.markdown ?? source.markdown;
     assertSize(markdown);
     return snapshot({
@@ -165,6 +173,7 @@ export class SourceIntake {
       revision: input.revision ?? 1,
       markdown,
       ...(section === undefined ? {} : { section: section.title }),
+      ...(source.section === undefined ? {} : { sectionStartBlockId: source.section.startBlockId, sectionEndBlockId: source.section.endBlockId }),
       extractor: source.extractor,
       fetchedAt: source.fetchedAt,
     });

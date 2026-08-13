@@ -141,10 +141,10 @@ aiw task init --project . --source ./requirements.md --skill-profile standard-we
 |---|---|
 | `--project <path>` | 必填。业务项目根目录。 |
 | `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark `docx` / `wiki` URL。 |
-| `--source-section <title>` | 可选，仅适用于 Lark 文档。按 Markdown 标题精确选择该章节及全部子标题内容，减少快照和后续上下文体积。 |
+| `--source-section <title>` | 可选，仅适用于 Lark 文档。按 Lark 标题块精确选择该章节及全部子标题内容，减少快照和后续上下文体积；MCP 还需启用 `docx_v1_documentBlock_list`。 |
 | `--skill-profile <name[@version]>` | 可选。省略时使用 `~/.aiw/config.yaml` 的默认模板；显式传入时覆盖默认值。模板一次锁定 `clarify` 至 `test` 的六阶段技能。 |
 
-命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark docx 由本机已配置的 Lark MCP Server 读取；Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--source-section` 时，来源元数据额外锁定实际标题和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
+命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark docx 由本机已配置的 Lark MCP Server 读取；Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--source-section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
 ```text
 intake → clarify → solution → plan → implement → verify → test

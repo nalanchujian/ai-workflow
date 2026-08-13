@@ -147,6 +147,33 @@ describe('SourceIntake', () => {
     expect(reference).toMatchObject({ externalId: 'wiki123', resolvedExternalId: 'docx456' });
     expect(metadata).toMatchObject({ externalId: 'wiki123', resolvedExternalId: 'docx456' });
   });
+
+  it('preserves the selected Lark Block range in the snapshot metadata', async () => {
+    const projectRoot = await createTempDirectory('aiw-source-intake-');
+    directories.push(projectRoot);
+    const taskDirectory = join(projectRoot, '.aiw', 'tasks', 'task-1');
+    const connector: SourceConnector = {
+      supports() { return true; },
+      async fetch() {
+        return {
+          canonicalUrl: 'https://acme.larksuite.com/docx/docx456',
+          externalId: 'docx456',
+          extractor: 'lark-mcp/v1',
+          fetchedAt: '2026-08-13T00:00:00.000Z',
+          markdown: '## 二期 (V2.3)\n\n目标需求',
+          section: { title: '二期 (V2.3)', startBlockId: 'block-start', endBlockId: 'block-end' },
+        };
+      },
+    };
+    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot });
+
+    const snapshot = await intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://acme.larksuite.com/docx/docx456', section: '二期 (V2.3)' });
+    const reference = await intake.writeSnapshot({ snapshot, taskDirectory });
+    const metadata = JSON.parse(await readFile(join(taskDirectory, reference.metaPath), 'utf8')) as Record<string, unknown>;
+
+    expect(reference).toMatchObject({ sectionStartBlockId: 'block-start', sectionEndBlockId: 'block-end' });
+    expect(metadata).toMatchObject({ sectionStartBlockId: 'block-start', sectionEndBlockId: 'block-end' });
+  });
 });
 
 function safeNetwork(): NetworkClient {

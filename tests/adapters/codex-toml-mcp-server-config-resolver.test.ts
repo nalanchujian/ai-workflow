@@ -37,6 +37,20 @@ describe('CodexTomlMcpServerConfigResolver', () => {
     });
   });
 
+  it('preserves commas inside a quoted MCP argument', async () => {
+    const directory = await createTempDirectory('aiw-codex-toml-');
+    directories.push(directory);
+    const path = join(directory, 'config.toml');
+    await writeFile(path, [
+      '[mcp_servers.lark-openapi]',
+      'command = "npx"',
+      'args = ["-y", "lark-mcp", "-t", "preset.default,docx.v1.documentBlock.list"]',
+    ].join('\n'));
+
+    await expect(new CodexTomlMcpServerConfigResolver().resolve({ source: 'codex-toml', path, server: 'lark-openapi' }))
+      .resolves.toMatchObject({ args: ['-y', 'lark-mcp', '-t', 'preset.default,docx.v1.documentBlock.list'] });
+  });
+
   it('lists only top-level MCP servers and ignores nested configuration sections', async () => {
     const directory = await createTempDirectory('aiw-codex-toml-');
     directories.push(directory);
