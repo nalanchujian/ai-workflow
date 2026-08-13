@@ -41,7 +41,7 @@ describe('TaskStateCommands', () => {
     await commands.requestChanges('refund-123', 'plan', { actor: 'tech-lead', note: '补充回滚方案' });
 
     await expect(readFile(join(directory, 'revisions', 'plan', 'r2.md'), 'utf8')).resolves.toContain('补充回滚方案');
-    expect((await store.load('refund-123')).nodes.plan.status).toBe('pending');
+    expect((await store.load('refund-123')).nodes.plan.status).toBe('ready');
   });
 
   it('rejects a skill rebind when the installed skill does not support the target phase', async () => {
@@ -68,6 +68,10 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan'): Promise<{ store: 
   directories.push(directory);
   const store = new TaskStore(directory);
   const task = createSevenPhaseTask();
+  if (nodeId === 'plan') {
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+  }
   task.nodes[nodeId].status = 'awaiting_approval';
   task.nodes[nodeId].revision = 1;
   await store.create(task);

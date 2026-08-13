@@ -185,7 +185,7 @@ aiw task revise refund-123 clarify --note "补充退款权限和异常场景"
 | `<node-id>` | 必填。需要修订的节点。 |
 | `--note <text>` | 必填。写入下一次运行所需的修订说明。 |
 
-节点处于 `awaiting_approval` 时必须使用 `task request-changes`，以记录审批决定。其他可修订节点成功后变为 `pending`，在 `revisions/<node-id>/r<next-revision>.md` 写入修改说明，下游已开始节点变为 `invalidated`；旧产物与历史事件保留，只是不再自动注入后续运行。
+节点处于 `awaiting_approval` 时必须使用 `task request-changes`，以记录审批决定。其他可修订节点会在 `revisions/<node-id>/r<next-revision>.md` 写入修改说明，下游已开始节点变为 `invalidated`；当前节点随后自动检查依赖，依赖均已完成时变为 `ready`，否则保持 `pending`。旧产物与历史事件保留，只是不再自动注入后续运行。
 
 ### `aiw task request-changes <task-id> <node-id> --note <text> [--actor <name>]`
 
@@ -196,7 +196,7 @@ aiw task request-changes refund-123 plan --actor tech-lead --note "补充数据�
 git add .aiw && git commit -m "chore(aiw): request plan changes"
 ```
 
-仅当节点处于 `awaiting_approval`，且待审产物及等待审批状态已提交时可执行。`--note` 必填；`--actor` 的读取规则与 `task approve` 相同。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入 `decision: changes_requested` 及全部产物哈希，在 `revisions/<node-id>/r<next-revision>.md` 写入修改说明，将节点置为 `pending` 并使已开始下游节点失效。审批记录、修改说明与状态变化必须提交后才能重新运行。
+仅当节点处于 `awaiting_approval`，且待审产物及等待审批状态已提交时可执行。`--note` 必填；`--actor` 的读取规则与 `task approve` 相同。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入 `decision: changes_requested` 及全部产物哈希，在 `revisions/<node-id>/r<next-revision>.md` 写入修改说明，并使已开始下游节点失效；当前节点随后自动检查依赖，依赖均已完成时变为 `ready`，否则保持 `pending`。审批记录、修改说明与状态变化必须提交后才能重新运行。
 
 ## 命令与任务状态
 
@@ -209,7 +209,7 @@ git add .aiw && git commit -m "chore(aiw): request plan changes"
 | `task run --dry-run` | 无；仅创建运行预演记录。 |
 | `task run` | `ready → running → completed`，或在需要审批时进入 `awaiting_approval`。 |
 | `task approve` | `awaiting_approval → completed`。 |
-| `task request-changes` | 写入审批退回事实与修改说明；当前节点变为 `pending`，下游已开始节点变为 `invalidated`。 |
-| `task revise` | 非审批场景下写入修改说明；当前节点变为 `pending`，下游已开始节点变为 `invalidated`。 |
+| `task request-changes` | 写入审批退回事实与修改说明；当前节点按依赖状态变为 `ready` 或 `pending`，下游已开始节点变为 `invalidated`。 |
+| `task revise` | 非审批场景下写入修改说明；当前节点按依赖状态变为 `ready` 或 `pending`，下游已开始节点变为 `invalidated`。 |
 
 节点状态及其完整约束以《任务模型规范》为准；上下文选择与预算以《上下文包规范》为准。

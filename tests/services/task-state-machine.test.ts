@@ -63,6 +63,8 @@ describe('task state machine', () => {
 
   it('records requested changes and invalidates downstream work', () => {
     const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
     task.nodes.plan.status = 'awaiting_approval';
     task.nodes.implement.status = 'completed';
 
@@ -72,9 +74,9 @@ describe('task state machine', () => {
       note: '补充回滚方案',
     });
 
-    expect(next.nodes.plan.status).toBe('pending');
+    expect(next.nodes.plan.status).toBe('ready');
     expect(next.nodes.implement.status).toBe('invalidated');
-    expect(next.events.at(-1)).toMatchObject({ type: 'request_changes', nodeId: 'plan', note: '补充回滚方案' });
+    expect(next.events).toContainEqual(expect.objectContaining({ type: 'request_changes', nodeId: 'plan', note: '补充回滚方案' }));
   });
 
   it('requires an approval decision instead of directly revising an awaiting approval node', () => {
@@ -83,6 +85,17 @@ describe('task state machine', () => {
 
     expect(() => transitionNode(task, 'clarify', { type: 'revise', actor: 'developer', note: '补充边界' }))
       .toThrow('等待审批');
+  });
+
+  it('re-evaluates a revised node when its dependencies are already completed', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+
+    const next = transitionNode(task, 'solution', { type: 'revise', actor: 'developer', note: '补充异常分支' });
+
+    expect(next.nodes.solution.status).toBe('ready');
+    expect(next.events.map((event) => event.type)).toContain('evaluate');
   });
 
   it('allows an explicit skill rebind only for a node that is not complete', () => {

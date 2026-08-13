@@ -55,8 +55,8 @@
 - 节点仅在全部依赖 `completed` 时变为 `ready`；MVP 调度器一次只允许运行一个节点。
 - 需要审批的 `clarify`、`plan`、`test` 节点，在运行成功后进入 `awaiting_approval`；`solution` 可由高风险任务模板额外设置审批。
 - `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]` 仅可批准当前 revision 的 `awaiting_approval` 节点；待审产物和当前状态均已提交时，写入绑定全部输出哈希的审批文件并将节点置为 `completed`。未提供 `--actor` 时必须读取 Git 用户名，否则失败。
-- `aiw task revise <task-id> <node-id> --note <text>` 将该节点置为 `pending`，并递归将所有已开始下游节点置为 `invalidated`。
-- `aiw task request-changes <task-id> <node-id> --note <text> [--actor <name>]` 仅用于 `awaiting_approval` 节点。它写入 `decision: changes_requested` 的审批事实、下一 revision 的修改说明，将当前节点置为 `pending` 并使已开始下游节点失效；不得用 `task revise` 代替该审批决定。
+- `aiw task revise <task-id> <node-id> --note <text>` 写入修改说明并递归将所有已开始下游节点置为 `invalidated`；当前节点随后重新评估，全部依赖已完成时置为 `ready`，否则保持 `pending`。
+- `aiw task request-changes <task-id> <node-id> --note <text> [--actor <name>]` 仅用于 `awaiting_approval` 节点。它写入 `decision: changes_requested` 的审批事实、下一 revision 的修改说明并使已开始下游节点失效；当前节点随后按依赖状态重新评估为 `ready` 或 `pending`，不得用 `task revise` 代替该审批决定。
 - `aiw task status <task-id>` 显示全部节点状态、依赖、revision、审批与失效原因。
 
 ### FR-5：上下文包与运行预演
@@ -113,7 +113,7 @@
 | AC-22 | Codex 子进程超时、取消或非零退出 | `RunResult` 正确标识失败或取消，节点不被标记为成功，已存在的共享事实保留。 |
 | AC-23 | Lark 来源进入后续节点运行 | Context Manifest 记录实际使用的快照路径、来源 revision 与 SHA-256，不记录 MCP 配置、令牌或原始响应。 |
 | AC-24 | 以工作流模板创建并运行任务 | `task init --skill-profile` 原子写入模板及六阶段精确技能/方法来源锁定；提交前 `task run` 和 dry-run 均拒绝，提交后按节点锁定运行且不再传入技能。 |
-| AC-25 | 审批人要求修改当前计划 revision | `task request-changes` 写入含产物哈希的 `changes_requested` 审批记录和下一版修改说明；当前节点回到 `pending`，已开始下游节点失效，旧产物与审批记录保留。 |
+| AC-25 | 审批人要求修改当前计划 revision | `task request-changes` 写入含产物哈希的 `changes_requested` 审批记录和下一版修改说明；当前节点按依赖状态重新评估为 `ready` 或 `pending`，已开始下游节点失效，旧产物与审批记录保留。 |
 
 ## 完成定义
 

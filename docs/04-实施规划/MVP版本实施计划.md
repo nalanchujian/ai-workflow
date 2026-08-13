@@ -158,7 +158,7 @@ it('rebinds an initialized profile skill only by an explicit exception event and
   const rebound = transitionNode(readyClarifyTask(), 'clarify', { type: 'rebind_skill', skill: replacementClarificationSkill(), note: '需要补充合规检查' });
   expect(rebound.nodes.clarify.skill?.sha256).toMatch(/^[a-f0-9]{64}$/);
   const changed = transitionNode(awaitingPlanTask(), 'plan', { type: 'request_changes', actor: 'tech-lead', note: '补充回滚方案' });
-  expect(changed.nodes.plan.status).toBe('pending');
+  expect(changed.nodes.plan.status).toBe('ready');
 });
 ```
 
@@ -354,7 +354,7 @@ it('records requested changes with the reviewed hashes and a next-revision instr
   await git.commitTaskFacts('refund-123');
   await commands.requestChanges('refund-123', 'plan', { actor: 'tech-lead', note: '补充回滚方案' });
   expect(await readFile(taskPath('revisions/plan/r2.md'), 'utf8')).toContain('补充回滚方案');
-  expect((await store.load('refund-123')).nodes.plan.status).toBe('pending');
+  expect((await store.load('refund-123')).nodes.plan.status).toBe('ready');
 });
 
 it('rejects a downstream run when its approval fact is not committed', async () => {

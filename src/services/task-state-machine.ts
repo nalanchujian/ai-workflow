@@ -55,6 +55,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       node.status = 'pending';
       const afterRequestedChanges = invalidateDependents(next, nodeId, 'approval changes requested');
       addEvent(afterRequestedChanges, 'request_changes', nodeId, { actor: event.actor, note: event.note });
+      evaluateIfDependenciesCompleted(afterRequestedChanges, nodeId);
       return TaskSchema.parse(afterRequestedChanges);
     }
     case 'revise': {
@@ -66,6 +67,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       node.status = 'pending';
       const afterRevision = invalidateDependents(next, nodeId, 'node revised');
       addEvent(afterRevision, 'revise', nodeId, { actor: event.actor, note: event.note });
+      evaluateIfDependenciesCompleted(afterRevision, nodeId);
       return TaskSchema.parse(afterRevision);
     }
     case 'rebind_skill': {
@@ -140,6 +142,14 @@ function unlockDependents(task: Task, upstreamNodeId: string): void {
       node.status = 'ready';
       addEvent(task, 'evaluate', nodeId);
     }
+  }
+}
+
+function evaluateIfDependenciesCompleted(task: Task, nodeId: string): void {
+  const node = getNode(task, nodeId);
+  if (node.status === 'pending' && dependenciesCompleted(task, node)) {
+    node.status = 'ready';
+    addEvent(task, 'evaluate', nodeId);
   }
 }
 
