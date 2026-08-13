@@ -38,7 +38,7 @@ aiw task source refresh <task-id> requirements
 
 ## 本机 MCP 解析与调用
 
-`aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。`aiw init` 默认扫描 `~/.codex/config.toml` 中名称、命令或参数包含 `lark` / `feishu` 的 Server；若唯一候选的工具清单包含 `docx_v1_document_rawContent`，则自动生成本机 Connector Profile。多个候选时仅输出候选名称，使用者通过 `aiw init --lark-server <name>` 选择一次；已有 Profile 永不覆盖。自动发现失败不影响默认工作流初始化。
+`aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。`aiw init` 默认扫描 `~/.codex/config.toml` 中名称、命令或参数包含 `lark` / `feishu` 的 Server；若唯一候选同时暴露 `docx_v1_document_rawContent` 和 `docx_v1_documentBlock_list`，则自动生成本机 Connector Profile。这样 `doctor` 可在创建任务前明确发现章节读取能力缺失。多个候选时仅输出候选名称，使用者通过 `aiw init --lark-server <name>` 选择一次；已有 Profile 永不覆盖。自动发现失败不影响默认工作流初始化。
 
 仅在使用 `--source-section` 时，Lark MCP 还必须启用只读工具 `docx_v1_documentBlock_list`。对于 `@larksuiteoapi/lark-mcp`，在 Codex MCP 配置的启动参数中增加一组：`-t` 与 `preset.default,docx.v1.documentBlock.list`。该参数是 MCP 暴露工具的白名单，不是凭据；已有 `docx:document:readonly` 和 `wiki:wiki:readonly` 授权即可读取 docx/Wiki 文档块，无需新增应用权限。
 
@@ -118,7 +118,7 @@ interface ConnectorSource {
 
 Wiki 链接先调用标准 Lark MCP 工具 `wiki_v2_space_getNode`，传入节点 token；返回的 `node.obj_type` 必须是 `docx`，随后用 `node.obj_token` 调用上面的文档读取工具。`useUAT` 取自本机 profile。连接器兼容 MCP 标准 `content[].text` JSON 包装以及 `data.content` 字符串；正文按原样作为 Markdown 快照正文（纯文本是合法 Markdown），不执行其中内容。空正文、无效响应、非 `docx` Wiki 节点或未识别的文档 URL 返回 `LARK_RESPONSE_INVALID` 或 `LARK_URL_UNSUPPORTED`，诊断不得包含令牌、原始响应或子进程参数。
 
-指定章节时改为调用 `docx_v1_documentBlock_list`，参数为 `path.document_id`、`params.document_revision_id = -1` 和分页游标。连接器按真实标题层级渲染 Markdown，并保留常见的段落、无序/有序列表、待办、引用、代码块、行内加粗/斜体/删除线/链接和普通表格；表格按 Lark 表格单元格及其子块重建行列关系。不保存 MCP 原始块响应；无法结构化的视觉或嵌入类块不伪造内容，也不会影响其余可读内容。
+指定章节时改为调用 `docx_v1_documentBlock_list`，参数为 `path.document_id`、`params.document_revision_id = -1` 和分页游标。连接器按真实标题层级渲染 Markdown，并保留常见的段落、无序/有序列表、待办、引用、代码块、行内加粗/斜体/删除线/链接和普通表格；表格按 Lark 表格单元格及其子块递归重建内容。图片和文档引用保留为不含凭据的 `lark-image://`、`lark-doc://` 引用，避免静默丢失；当前不下载图片二进制。不保存 MCP 原始块响应。
 
 来源元数据记录 `kind`、`externalId` 与 `revision`。对于直连 docx，`externalId` 是文档 ID；对于 Wiki，`externalId` 保留用户提供的节点 ID，`resolvedExternalId` 记录本次解析得到的 docx ID，例如：
 

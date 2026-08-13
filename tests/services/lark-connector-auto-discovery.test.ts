@@ -27,7 +27,7 @@ describe('LarkConnectorAutoDiscovery', () => {
       },
       client: {
         async listTools() {
-          return [{ name: 'docx_v1_document_rawContent' }];
+          return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }];
         },
       },
       config,
@@ -72,7 +72,7 @@ describe('LarkConnectorAutoDiscovery', () => {
           ];
         },
       },
-      client: { async listTools() { return [{ name: 'docx_v1_document_rawContent' }]; } },
+      client: { async listTools() { return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }]; } },
       config: new LocalConfig(path),
     } as never);
 
@@ -101,6 +101,17 @@ describe('LarkConnectorAutoDiscovery', () => {
 
     await expect(discovery.discover()).resolves.toEqual({ status: 'already-configured' });
     await expect(new LocalConfig(path).larkConnector()).resolves.toMatchObject({ server: 'custom-lark', useUAT: true });
+  });
+
+  it('rejects a Lark MCP that cannot list document blocks for section reading', async () => {
+    const path = await configPath(directories);
+    const discovery = new LarkConnectorAutoDiscovery({
+      catalog: { async list() { return [{ name: 'lark-openapi', descriptor: descriptor('lark-mcp') }]; } },
+      client: { async listTools() { return [{ name: 'docx_v1_document_rawContent' }]; } },
+      config: new LocalConfig(path),
+    } as never);
+
+    await expect(discovery.discover()).resolves.toEqual({ status: 'unsupported' });
   });
 });
 

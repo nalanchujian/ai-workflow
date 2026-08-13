@@ -8,6 +8,7 @@ import { LocalConfig, type LocalConfigDocument } from './local-config.js';
 import { SkillRegistry } from './skill-registry.js';
 
 const CHECK_TIMEOUT_MS = 10_000;
+const LARK_REQUIRED_TOOLS = ['docx_v1_document_rawContent', 'docx_v1_documentBlock_list'];
 
 export class DoctorService {
   constructor(private readonly deps: {
@@ -93,12 +94,31 @@ export class DoctorService {
         warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 调用环境后运行 `aiw doctor --lark-url <lark-url>`。'),
       ];
     }
+    let server: Awaited<ReturnType<McpServerConfigResolver['resolve']>>;
     try {
-      await this.deps.mcpServerConfigResolver.resolve({ source: profile.configSource.kind, path: profile.configSource.path, server: profile.server });
+      server = await this.deps.mcpServerConfigResolver.resolve({ source: profile.configSource.kind, path: profile.configSource.path, server: profile.server });
     } catch {
       return [
         failed('lark-configuration', 'Lark MCP 配置', '无法解析指定的 MCP Server。', '检查 `connectors.lark` 和 Codex TOML 中对应的 MCP Server 定义。'),
         warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 配置后运行 `aiw doctor --lark-url <lark-url>`。'),
+      ];
+    }
+    try {
+      if (this.deps.mcpClient.listTools === undefined) {
+        throw new Error('MCP 不支持工具清单');
+      }
+      const available = new Set((await this.deps.mcpClient.listTools({ server })).map((tool) => tool.name));
+      const missing = LARK_REQUIRED_TOOLS.filter((tool) => !available.has(tool));
+      if (missing.length > 0) {
+        return [
+          failed('lark-configuration', 'Lark MCP 配置', `缺少章节读取工具：${missing.join('、')}。`, '为 Lark MCP 启用 `docx_v1_document_rawContent` 与 `docx_v1_documentBlock_list` 后重新运行 `aiw doctor`。'),
+          warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 工具配置后运行 `aiw doctor --lark-url <lark-url>`。'),
+        ];
+      }
+    } catch {
+      return [
+        failed('lark-configuration', 'Lark MCP 配置', '无法读取 Lark MCP 工具清单。', '确认 Lark MCP 可启动并启用文档正文和文档块列表工具。'),
+        warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 工具配置后运行 `aiw doctor --lark-url <lark-url>`。'),
       ];
     }
     if (larkUrl === undefined) {

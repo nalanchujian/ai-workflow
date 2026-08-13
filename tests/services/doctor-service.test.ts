@@ -19,7 +19,7 @@ describe('DoctorService', () => {
       projectRepository: { async assertProjectReady() {} },
       processRunner: successfulProcessRunner(),
       mcpServerConfigResolver: { async resolve() { return { transport: 'stdio', command: 'lark-mcp', args: [], env: {} }; } },
-      mcpClient: { async callTool() { return { data: { content: '# requirements' } }; } },
+      mcpClient: { async callTool() { return { data: { content: '# requirements' } }; }, async listTools() { return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }]; } },
     }).inspect({ projectRoot: directory, codexBin: 'codex' });
 
     expect(result.ok).toBe(true);
@@ -44,6 +44,7 @@ describe('DoctorService', () => {
           receivedArguments = input.arguments;
           return { data: { content: '# requirements' } };
         },
+        async listTools() { return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }]; },
       },
     }).inspect({ projectRoot: directory, codexBin: 'codex', larkUrl: 'https://acme.larksuite.com/docx/doccn123' });
 
@@ -75,6 +76,18 @@ describe('DoctorService', () => {
     }).inspect({ projectRoot: directory, codexBin: 'codex' });
 
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-sources', status: 'passed' }));
+  });
+
+  it('reports a configuration failure before task creation when block listing is unavailable', async () => {
+    const directory = await createConfiguredDirectory(directories);
+    const result = await new DoctorService({
+      config: new LocalConfig(join(directory, 'config.yaml')),
+      projectRepository: { async assertProjectReady() {} }, processRunner: successfulProcessRunner(),
+      mcpServerConfigResolver: { async resolve() { return { transport: 'stdio', command: 'lark-mcp', args: [], env: {} }; } },
+      mcpClient: { async callTool() { return { data: { content: '# requirements' } }; }, async listTools() { return [{ name: 'docx_v1_document_rawContent' }]; } },
+    }).inspect({ projectRoot: directory, codexBin: 'codex' });
+
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-configuration', status: 'failed', message: expect.stringContaining('docx_v1_documentBlock_list') }));
   });
 
   it('returns actionable failures instead of throwing when the local configuration is invalid', async () => {

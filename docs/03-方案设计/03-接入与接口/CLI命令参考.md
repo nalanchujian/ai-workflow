@@ -27,7 +27,7 @@
 
 在 `~/.aiw/config.yaml`（或 `AIW_HOME/config.yaml`）首次创建带中文注释的安全模板，并安装或复用模板中锁定的默认团队技能包与工作流。模板不包含凭据、不包含 Superpowers 路径，也不创建任务或运行目录；技能内容只写入用户目录的本机 Registry。文件已存在时原样保留，随后仍会校验并安装或复用其配置的默认工作流；默认工作流安装失败时保留配置并返回修复提示。
 
-命令还会尝试从 Codex 配置中发现唯一的 Lark MCP Server，查询其工具清单，并仅在存在 `docx_v1_document_rawContent` 文档读取工具时自动写入 `connectors.lark`。已有映射绝不覆盖；没有候选、多个候选、工具不支持或 MCP 不可用都不会使初始化失败。多个候选时输出候选名称，可使用 `--lark-server <name>` 显式选择其中一个；该参数只指定 Server，工具名仍由 MCP 自动发现。
+命令还会尝试从 Codex 配置中发现唯一的 Lark MCP Server，查询其工具清单，并仅在同时存在 `docx_v1_document_rawContent` 与 `docx_v1_documentBlock_list` 时自动写入 `connectors.lark`，以保证正文读取和章节读取均可用。已有映射绝不覆盖；没有候选、多个候选、工具不支持或 MCP 不可用都不会使初始化失败。多个候选时输出候选名称，可使用 `--lark-server <name>` 显式选择其中一个；该参数只指定 Server，工具名仍由 MCP 自动发现。
 
 ### `aiw doctor [--project <path>] [--lark-url <lark-url>]`
 

@@ -196,6 +196,7 @@ interface LarkBlock {
   children: string[];
   tableCells: string[];
   tableColumnCount?: number;
+  imageToken?: string;
 }
 
 function blocksPageFromResponse(response: unknown): { hasMore: boolean; nextPageToken?: string; items: LarkBlock[] } {
@@ -228,6 +229,7 @@ function normalizeBlock(value: unknown): LarkBlock {
     children: stringArray(value.children),
     tableCells: table === undefined ? [] : stringArray(table.cells).length > 0 ? stringArray(table.cells) : stringArray(value.children),
     ...(property !== undefined && positiveInteger(property.column_size) !== undefined ? { tableColumnCount: positiveInteger(property.column_size) } : {}),
+    ...(imageToken(data.value) === undefined ? {} : { imageToken: imageToken(data.value) }),
   };
 }
 
@@ -236,7 +238,7 @@ function blockData(value: Record<string, unknown>): { kind: string; value: unkno
   if (heading !== undefined) {
     return { kind: heading[0], value: heading[1] };
   }
-  const supported = ['page', 'text', 'bullet', 'ordered', 'code', 'quote', 'todo', 'callout', 'table', 'table_cell', 'divider'];
+  const supported = ['page', 'text', 'bullet', 'ordered', 'code', 'quote', 'todo', 'callout', 'table', 'table_cell', 'divider', 'image', 'file'];
   const direct = supported.find((key) => isRecord(value[key]));
   if (direct !== undefined) {
     return { kind: direct, value: value[direct] };
@@ -252,10 +254,16 @@ function richText(value: unknown): string {
     if (!isRecord(element)) {
       return [];
     }
-    if (!isRecord(element.text_run) || typeof element.text_run.content !== 'string') {
-      return [];
+    if (isRecord(element.text_run) && typeof element.text_run.content === 'string') {
+      return [renderTextRun(element.text_run)];
     }
-    return [renderTextRun(element.text_run)];
+    if (isRecord(element.mention_doc) && typeof element.mention_doc.title === 'string') {
+      return [`[${element.mention_doc.title}](lark-doc://${String(element.mention_doc.token ?? '')})`];
+    }
+    if (isRecord(element.equation) && typeof element.equation.content === 'string') {
+      return [`$${element.equation.content}$`];
+    }
+    return [];
   }).join('').trim();
 }
 
@@ -316,6 +324,10 @@ function renderBlock(block: LarkBlock, byId: Map<string, LarkBlock>): string {
       return `\`\`\`\n${block.text}\n\`\`\``;
     case 'divider':
       return '---';
+    case 'image':
+      return block.imageToken === undefined ? '[Lark 图片]' : `![Lark 图片（${block.imageToken}）](lark-image://${block.imageToken})`;
+    case 'file':
+      return block.text.length === 0 ? '[Lark 附件]' : `[Lark 附件：${block.text}]`;
     default:
       return block.text;
   }
@@ -426,7 +438,7 @@ function plainText(markdown: string): string {
 }
 
 function isBlockType(block: LarkBlock): boolean {
-  return ['bullet', 'ordered', 'todo', 'quote', 'code', 'divider', 'callout', 'table'].includes(block.kind);
+  return ['bullet', 'ordered', 'todo', 'quote', 'code', 'divider', 'callout', 'table', 'image', 'file'].includes(block.kind);
 }
 
 function isListType(block: LarkBlock): boolean {
@@ -443,6 +455,14 @@ function stringArray(value: unknown): string[] {
 
 function positiveInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function imageToken(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const token = value.token ?? value.image_token;
+  return typeof token === 'string' && token.length > 0 ? token : undefined;
 }
 
 function normalizeHeading(value: string): string {

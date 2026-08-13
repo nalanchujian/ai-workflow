@@ -7,6 +7,7 @@ import type { McpServerDescriptor } from '../ports/mcp-server-config-resolver.js
 import { LocalConfig } from './local-config.js';
 
 const DOCUMENT_TOOL = 'docx_v1_document_rawContent';
+const BLOCK_TOOL = 'docx_v1_documentBlock_list';
 
 export type LarkConnectorDiscoveryResult =
   | { status: 'configured'; server: string; tool: string }
@@ -47,8 +48,8 @@ export class LarkConnectorAutoDiscovery {
         return { status: 'unavailable' };
       }
       const tools = await this.deps.client.listTools({ server: candidate.descriptor });
-      const documentTools = tools.filter((tool) => tool.name === DOCUMENT_TOOL);
-      if (documentTools.length !== 1) {
+      const toolNames = new Set(tools.map((tool) => tool.name));
+      if (!toolNames.has(DOCUMENT_TOOL) || !toolNames.has(BLOCK_TOOL)) {
         return { status: 'unsupported' };
       }
     } catch {

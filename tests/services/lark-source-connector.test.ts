@@ -196,6 +196,22 @@ describe('LarkSourceConnector', () => {
       });
   });
 
+  it('keeps image and rich-text references instead of silently dropping document blocks', async () => {
+    const connector = new LarkSourceConnector({
+      client: { async callTool() { return { content: [{ type: 'text', text: JSON.stringify({ has_more: false, items: [
+        block('target', 3, '二期 (V2.3)'),
+        { block_id: 'image', block_type: 27, image: { token: 'imgcn123' } },
+        { block_id: 'reference', block_type: 2, text: { elements: [{ mention_doc: { title: '交互说明', token: 'doccn456' } }] } },
+        block('after', 3, '三期'),
+      ] }) }] }; } },
+      config: { configPath: '/local/config.toml', server: 'lark-openapi', tool: 'docx_v1_document_rawContent', useUAT: false },
+      resolver: { async resolve() { return { args: [], command: 'lark-mcp', env: {}, transport: 'stdio' }; } },
+    });
+
+    await expect(connector.fetch('https://acme.larksuite.com/docx/doccn123', { section: '二期 (V2.3)' }))
+      .resolves.toMatchObject({ markdown: '# 二期 (V2.3)\n\n![Lark 图片（imgcn123）](lark-image://imgcn123)\n\n[交互说明](lark-doc://doccn456)' });
+  });
+
   it('expands a table row into recursive Markdown when a cell contains nested blocks', async () => {
     const connector = new LarkSourceConnector({
       client: {
