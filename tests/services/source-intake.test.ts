@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { symlink, writeFile } from 'node:fs/promises';
+import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { NetworkClient } from '../../src/ports/network-client.js';
@@ -119,6 +119,33 @@ describe('SourceIntake', () => {
 
     await expect(intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://acme.larksuite.com/docx/doccn123', section: '需求' }))
       .rejects.toMatchObject({ code: 'SOURCE_INVALID', message: '需求章节不唯一：需求' } satisfies Partial<SourceIntakeError>);
+  });
+
+  it('preserves the original Wiki node and the resolved docx ID in the snapshot metadata', async () => {
+    const projectRoot = await createTempDirectory('aiw-source-intake-');
+    directories.push(projectRoot);
+    const taskDirectory = join(projectRoot, '.aiw', 'tasks', 'task-1');
+    const connector: SourceConnector = {
+      supports() { return true; },
+      async fetch() {
+        return {
+          canonicalUrl: 'https://acme.larksuite.com/wiki/wiki123',
+          externalId: 'wiki123',
+          resolvedExternalId: 'docx456',
+          extractor: 'lark-mcp/v1',
+          fetchedAt: '2026-08-13T00:00:00.000Z',
+          markdown: '# 需求',
+        };
+      },
+    };
+    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot });
+
+    const snapshot = await intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://acme.larksuite.com/wiki/wiki123' });
+    const reference = await intake.writeSnapshot({ snapshot, taskDirectory });
+    const metadata = JSON.parse(await readFile(join(taskDirectory, reference.metaPath), 'utf8')) as Record<string, unknown>;
+
+    expect(reference).toMatchObject({ externalId: 'wiki123', resolvedExternalId: 'docx456' });
+    expect(metadata).toMatchObject({ externalId: 'wiki123', resolvedExternalId: 'docx456' });
   });
 });
 

@@ -24,11 +24,13 @@ Lark 授权、应用凭据和 MCP 配置只能保留在本机受控环境中；�
 
 ```bash
 aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@2.0.0
+# 也可直接使用 Lark Wiki 节点链接
+aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token>
 # 使用上一条命令输出的 taskId
 aiw task source refresh <task-id> requirements
 ```
 
-`task init` 根据 URL 识别来源类型：本地文件、公开 HTTP(S) 地址或 Lark 文档。MVP 仅接受 `https://<tenant>.larksuite.com/docx/<document-id>` 或 `https://<tenant>.feishu.cn/docx/<document-id>`；查询参数和片段不参与文档标识。其他 Lark URL（包括 Wiki、表格、旧版文档）必须提示“当前 Connector 不支持该文档类型”，不得回退为公开 URL 抓取。Lark 文档交给已配置的 Lark Connector；其余现有来源仍沿用原来的接入规则。
+`task init` 根据 URL 识别来源类型：本地文件、公开 HTTP(S) 地址或 Lark 文档。MVP 接受 `https://<tenant>.larksuite.com` 或 `https://<tenant>.feishu.cn` 下的 `docx/<document-id>` 与 `wiki/<node-token>` 链接；查询参数和片段不参与文档标识。Wiki 链接先由 MCP 解析节点，只有其实际对象为 `docx` 时才读取正文；表格、旧版文档或其他对象必须提示不支持，且不得回退为公开 URL 抓取。Lark 文档交给已配置的 Lark Connector；其余现有来源仍沿用原来的接入规则。
 
 `task source refresh` 是显式动作，不在 MVP 中轮询或订阅 Lark 文档变化。它重新读取指定来源、创建新的快照 revision；若正文哈希不变，只返回“未变化”且不修改任务状态。哈希变化时，保留旧快照、创建新 revision，并由任务状态机使依赖旧 revision 的下游节点失效。
 
@@ -97,7 +99,7 @@ interface ConnectorSource {
 }
 ```
 
-MVP 将 `docx/<document-id>` 映射为唯一的 MCP 调用：
+直接 `docx/<document-id>` 链接读取正文：
 
 ```json
 {
@@ -110,16 +112,17 @@ MVP 将 `docx/<document-id>` 映射为唯一的 MCP 调用：
 }
 ```
 
-`useUAT` 取自本机 profile。连接器只接受可解析为 `data.content` 字符串的成功结果；该文本按原样作为 Markdown 快照正文（纯文本是合法 Markdown），不执行其中内容。空正文、缺失 `data.content`、非字符串内容或未识别的文档 URL 返回 `LARK_RESPONSE_INVALID` 或 `LARK_URL_UNSUPPORTED`，诊断不得包含令牌、原始响应或子进程参数。
+Wiki 链接先调用标准 Lark MCP 工具 `wiki_v2_space_getNode`，传入节点 token；返回的 `node.obj_type` 必须是 `docx`，随后用 `node.obj_token` 调用上面的文档读取工具。`useUAT` 取自本机 profile。连接器兼容 MCP 标准 `content[].text` JSON 包装以及 `data.content` 字符串；正文按原样作为 Markdown 快照正文（纯文本是合法 Markdown），不执行其中内容。空正文、无效响应、非 `docx` Wiki 节点或未识别的文档 URL 返回 `LARK_RESPONSE_INVALID` 或 `LARK_URL_UNSUPPORTED`，诊断不得包含令牌、原始响应或子进程参数。
 
-来源元数据新增 `kind`、`externalId` 与 `revision`，例如：
+来源元数据记录 `kind`、`externalId` 与 `revision`。对于直连 docx，`externalId` 是文档 ID；对于 Wiki，`externalId` 保留用户提供的节点 ID，`resolvedExternalId` 记录本次解析得到的 docx ID，例如：
 
 ```json
 {
   "sourceId": "requirements",
   "kind": "lark-document",
-  "origin": "https://<tenant>.larksuite.com/docx/<token>",
-  "externalId": "<token>",
+  "origin": "https://<tenant>.larksuite.com/wiki/<node-token>",
+  "externalId": "<node-token>",
+  "resolvedExternalId": "<docx-token>",
   "revision": 1,
   "fetchedAt": "2026-08-12T12:00:00Z",
   "contentSha256": "<hex>",
@@ -154,7 +157,7 @@ Lark URL
 
 | 连接器验证重点 | 对应产品验收 |
 |---|---|
-| 从本机 profile 解析 `lark-openapi`，以 `docx_v1_document_rawContent` 和 `document_id` 调用可注入的 MCP 客户端替身，并生成 `lark-mcp/v1` 元数据与 Markdown 快照。 | AC-15 |
+| 从本机 profile 解析 `lark-openapi`，能够直接读取 docx，或先将 Wiki 节点解析为 docx 后读取正文，并生成 `lark-mcp/v1` 元数据与 Markdown 快照。 | AC-15 |
 | MCP 未配置、无权限、超时、返回无效结构或正文超限时，不产生不完整任务事实，也不泄露凭据。 | AC-16 |
 | 刷新后正文哈希未变化时，不创建 revision、不改变节点状态。 | AC-17 |
 | 刷新后正文哈希变化时，保留旧快照，创建新 revision，并使已开始的下游节点失效。 | AC-18 |

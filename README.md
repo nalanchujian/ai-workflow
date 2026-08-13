@@ -66,7 +66,7 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 
 **MVP 核心链路已可运行。** `aiw` 已组合技能安装、任务初始化、来源刷新、阶段审批与修订、`task run` 和 Codex Adapter；顶层 CLI 在开发者本机创建实际 Git、网络、Lark MCP 和 Codex 适配器，测试通过确定性替身覆盖完整七阶段主流程。
 
-真实使用前仍需准备 Git、兼容的 Node.js、已授权的 Lark MCP（如使用 Lark 来源）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、已安装的内置方法与 Lark MCP 配置；需要验证 Lark 文档授权时，显式传入 `--lark-url <docx-url>`。
+真实使用前仍需准备 Git、兼容的 Node.js、已授权的 Lark MCP（如使用 Lark 来源）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、已安装的内置方法与 Lark MCP 配置；需要验证 Lark 文档授权时，显式传入 `--lark-url <docx-or-wiki-url>`。
 
 ## 本地运行
 

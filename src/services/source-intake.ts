@@ -24,6 +24,7 @@ export interface SnapshotRecord {
   kind: SourceKind;
   origin: string;
   externalId?: string;
+  resolvedExternalId?: string;
   section?: string;
   revision: number;
   fetchedAt: string;
@@ -69,6 +70,7 @@ export class SourceIntake {
       kind: snapshot.kind,
       origin: snapshot.origin,
       ...(snapshot.externalId === undefined ? {} : { externalId: snapshot.externalId }),
+      ...(snapshot.resolvedExternalId === undefined ? {} : { resolvedExternalId: snapshot.resolvedExternalId }),
       ...(snapshot.section === undefined ? {} : { section: snapshot.section }),
       revision: snapshot.revision,
       fetchedAt: snapshot.fetchedAt,
@@ -81,6 +83,7 @@ export class SourceIntake {
       kind: snapshot.kind,
       origin: snapshot.origin,
       ...(snapshot.externalId === undefined ? {} : { externalId: snapshot.externalId }),
+      ...(snapshot.resolvedExternalId === undefined ? {} : { resolvedExternalId: snapshot.resolvedExternalId }),
       ...(snapshot.section === undefined ? {} : { section: snapshot.section }),
       revision: snapshot.revision,
       snapshotPath: relative(taskDirectory, snapshotPath).replaceAll('\\', '/'),
@@ -158,6 +161,7 @@ export class SourceIntake {
       kind: 'lark-document',
       origin: source.canonicalUrl,
       externalId: source.externalId,
+      ...(source.resolvedExternalId === undefined ? {} : { resolvedExternalId: source.resolvedExternalId }),
       revision: input.revision ?? 1,
       markdown,
       ...(section === undefined ? {} : { section: section.title }),

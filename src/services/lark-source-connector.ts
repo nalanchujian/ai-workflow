@@ -4,6 +4,7 @@ import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolve
 export interface ConnectorSource {
   canonicalUrl: string;
   externalId: string;
+  resolvedExternalId?: string;
   title?: string;
   markdown: string;
   fetchedAt: string;
@@ -35,11 +36,11 @@ export class LarkSourceConnector implements SourceConnector {
   ) {}
 
   supports(input: string): boolean {
-    return parseDocumentUrl(input) !== undefined;
+    return parseLarkUrl(input) !== undefined;
   }
 
   async fetch(input: string): Promise<ConnectorSource> {
-    const parsed = parseDocumentUrl(input);
+    const parsed = parseLarkUrl(input);
     if (parsed === undefined) {
       throw new LarkSourceConnectorError('LARK_URL_UNSUPPORTED', '当前 Connector 不支持该文档类型');
     }
@@ -50,19 +51,17 @@ export class LarkSourceConnector implements SourceConnector {
         path: this.deps.config.configPath,
         server: this.deps.config.server,
       });
+      const documentId = parsed.kind === 'docx' ? parsed.externalId : await this.resolveWikiDocument(server, parsed.externalId);
       const response = await this.deps.client.callTool({
         server,
         tool: this.deps.config.tool,
-        arguments: {
-          path: { document_id: parsed.externalId },
-          params: { lang: 0 },
-          useUAT: this.deps.config.useUAT,
-        },
+        arguments: documentArguments(documentId, this.deps.config.useUAT),
       });
       const markdown = contentFromResponse(response);
       return {
         canonicalUrl: parsed.canonicalUrl,
         externalId: parsed.externalId,
+        ...(parsed.kind === 'wiki' ? { resolvedExternalId: documentId } : {}),
         fetchedAt: new Date().toISOString(),
         markdown,
         extractor: 'lark-mcp/v1',
@@ -74,9 +73,22 @@ export class LarkSourceConnector implements SourceConnector {
       throw new LarkSourceConnectorError('LARK_MCP_UNAVAILABLE', 'Lark MCP 不可用');
     }
   }
+
+  private async resolveWikiDocument(server: Awaited<ReturnType<McpServerConfigResolver['resolve']>>, nodeToken: string): Promise<string> {
+    const response = await this.deps.client.callTool({
+      server,
+      tool: 'wiki_v2_space_getNode',
+      arguments: { params: { token: nodeToken }, useUAT: this.deps.config.useUAT },
+    });
+    const node = objectFromResponse(response)?.node;
+    if (!isRecord(node) || node.obj_type !== 'docx' || typeof node.obj_token !== 'string' || node.obj_token.length === 0) {
+      throw new LarkSourceConnectorError('LARK_URL_UNSUPPORTED', 'Wiki 节点不是可读取的 docx 文档');
+    }
+    return node.obj_token;
+  }
 }
 
-function parseDocumentUrl(input: string): { canonicalUrl: string; externalId: string } | undefined {
+function parseLarkUrl(input: string): { kind: 'docx' | 'wiki'; canonicalUrl: string; externalId: string } | undefined {
   let url: URL;
   try {
     url = new URL(input);
@@ -86,11 +98,11 @@ function parseDocumentUrl(input: string): { canonicalUrl: string; externalId: st
   if (url.protocol !== 'https:' || !isLarkHost(url.hostname)) {
     return undefined;
   }
-  const match = /^\/docx\/([A-Za-z0-9]+)\/?$/.exec(url.pathname);
+  const match = /^\/(docx|wiki)\/([A-Za-z0-9]+)\/?$/.exec(url.pathname);
   if (match === null) {
     return undefined;
   }
-  return { canonicalUrl: `https://${url.host}/docx/${match[1]}`, externalId: match[1] };
+  return { kind: match[1] as 'docx' | 'wiki', canonicalUrl: `https://${url.host}/${match[1]}/${match[2]}`, externalId: match[2] };
 }
 
 function isLarkHost(hostname: string): boolean {
@@ -98,13 +110,35 @@ function isLarkHost(hostname: string): boolean {
 }
 
 function contentFromResponse(response: unknown): string {
-  if (
-    typeof response !== 'object' || response === null ||
-    !('data' in response) || typeof response.data !== 'object' || response.data === null ||
-    !('content' in response.data) || typeof response.data.content !== 'string' ||
-    response.data.content.trim().length === 0
-  ) {
+  const body = isRecord(response) && isRecord(response.data) && typeof response.data.content === 'string'
+    ? response.data.content
+    : objectFromResponse(response)?.content;
+  if (typeof body !== 'string' || body.trim().length === 0) {
     throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', 'Lark MCP 返回了无效正文');
   }
-  return response.data.content;
+  return body;
+}
+
+function documentArguments(documentId: string, useUAT: boolean): unknown {
+  return { path: { document_id: documentId }, params: { lang: 0 }, useUAT };
+}
+
+function objectFromResponse(response: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(response) || !Array.isArray(response.content)) {
+    return undefined;
+  }
+  const text = response.content.find((item) => isRecord(item) && item.type === 'text' && typeof item.text === 'string')?.text;
+  if (text === undefined) {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

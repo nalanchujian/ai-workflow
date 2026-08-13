@@ -39,7 +39,7 @@ export class DoctorService {
       checks.push(input.larkUrl === undefined
         ? warning('lark-configuration', 'Lark MCP 配置', '未检查 Lark MCP 配置，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的 `connectors.lark` 配置。')
         : failed('lark-configuration', 'Lark MCP 配置', '无法验证指定 Lark 文档，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的 `connectors.lark` 配置。'));
-      checks.push(warning('lark-authorization', 'Lark 授权', '未验证，因为本机配置无效。', '修复配置后运行 `aiw doctor --lark-url <docx-url>`。'));
+      checks.push(warning('lark-authorization', 'Lark 授权', '未验证，因为本机配置无效。', '修复配置后运行 `aiw doctor --lark-url <lark-url>`。'));
       return result(checks);
     }
 
@@ -84,13 +84,13 @@ export class DoctorService {
         larkUrl === undefined
           ? warning('lark-configuration', 'Lark MCP 配置', '未配置 Lark Connector。', '如需读取 Lark 文档，在 `~/.aiw/config.yaml` 配置 `connectors.lark`。')
           : failed('lark-configuration', 'Lark MCP 配置', '未配置 Lark Connector，无法验证指定文档。', '在 `~/.aiw/config.yaml` 配置 `connectors.lark`。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '配置 Lark Connector 后运行 `aiw doctor --lark-url <docx-url>`。'),
+        warning('lark-authorization', 'Lark 授权', '未验证。', '配置 Lark Connector 后运行 `aiw doctor --lark-url <lark-url>`。'),
       ];
     }
     if (this.deps.mcpServerConfigResolver === undefined || this.deps.mcpClient === undefined) {
       return [
         failed('lark-configuration', 'Lark MCP 配置', '当前运行环境未提供 MCP 调用能力。', '使用完整的 aiw CLI 运行 `aiw doctor`。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 调用环境后运行 `aiw doctor --lark-url <docx-url>`。'),
+        warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 调用环境后运行 `aiw doctor --lark-url <lark-url>`。'),
       ];
     }
     try {
@@ -98,13 +98,13 @@ export class DoctorService {
     } catch {
       return [
         failed('lark-configuration', 'Lark MCP 配置', '无法解析指定的 MCP Server。', '检查 `connectors.lark` 和 Codex TOML 中对应的 MCP Server 定义。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 配置后运行 `aiw doctor --lark-url <docx-url>`。'),
+        warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 配置后运行 `aiw doctor --lark-url <lark-url>`。'),
       ];
     }
     if (larkUrl === undefined) {
       return [
         passed('lark-configuration', 'Lark MCP 配置', 'Connector Profile 与 MCP Server 定义可解析。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '运行 `aiw doctor --lark-url <docx-url>` 验证文档读取权限。'),
+        warning('lark-authorization', 'Lark 授权', '未验证。', '运行 `aiw doctor --lark-url <lark-url>` 验证文档读取权限。'),
       ];
     }
     try {

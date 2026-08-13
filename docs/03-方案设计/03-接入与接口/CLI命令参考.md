@@ -28,19 +28,19 @@
 
 命令还会尝试从 Codex 配置中发现唯一的 Lark MCP Server，查询其工具清单，并仅在存在 `docx_v1_document_rawContent` 文档读取工具时自动写入 `connectors.lark`。已有映射绝不覆盖；没有候选、多个候选、工具不支持或 MCP 不可用都不会使初始化失败。多个候选时输出候选名称，可使用 `--lark-server <name>` 显式选择其中一个；该参数只指定 Server，工具名仍由 MCP 自动发现。
 
-### `aiw doctor [--project <path>] [--lark-url <docx-url>]`
+### `aiw doctor [--project <path>] [--lark-url <lark-url>]`
 
 只读检查本机研发环境，返回 Git CLI、目标项目 Git 状态、Codex CLI、本机配置、已安装的内置方法和 Lark MCP 的诊断结果。每项结果包含 `passed`、`warning` 或 `failed`、原因及可执行修复建议；`--json` 时输出单个 `aiw.doctor/v1` JSON 对象。该命令不创建任务、不写入快照、不调用 Codex 执行任务。
 
 ```bash
 aiw doctor --project .
-aiw doctor --project /workspace/shop --lark-url https://<tenant>.larksuite.com/docx/<document-id>
+aiw doctor --project /workspace/shop --lark-url https://<tenant>.larksuite.com/wiki/<node-token>
 ```
 
 | 参数 | 说明 |
 |---|---|
 | `--project <path>` | 可选。要检查的业务仓库；未提供时使用当前目录。 |
-| `--lark-url <docx-url>` | 可选。显式使用该文档验证 Lark MCP 的读取权限；不会保存其正文或创建任务快照。 |
+| `--lark-url <lark-url>` | 可选。显式使用 Lark docx 或 Wiki 链接验证 MCP 的读取权限；不会保存其正文或创建任务快照。 |
 
 未传 `--lark-url` 时，命令仅检查 Lark Connector Profile 和对应 MCP Server 定义是否可解析，并将 Lark 授权标记为未验证；不得将此状态误报为已授权。传入该参数后，命令通过已配置的 MCP 读取一次指定文档，仅报告成功或失败，不输出令牌、MCP 参数或文档正文。Lark Connector 是可选能力；未配置时显示警告，只有显式请求验证 Lark URL 时才成为失败项。
 
@@ -132,19 +132,19 @@ aiw skills profiles list --json
 ```bash
 aiw task init --project . --source ./requirements.md
 aiw task init --project /workspace/shop --source https://example.com/requirements
-aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token>
-aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --source-section "订单退款流程"
+aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token>
+aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token> --source-section "订单退款流程"
 aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@2.0.0
 ```
 
 | 参数 | 说明 |
 |---|---|
 | `--project <path>` | 必填。业务项目根目录。 |
-| `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark `docx` 文档 URL。 |
-| `--source-section <title>` | 可选，仅适用于 Lark `docx`。按 Markdown 标题精确选择该章节及全部子标题内容，减少快照和后续上下文体积。 |
+| `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark `docx` / `wiki` URL。 |
+| `--source-section <title>` | 可选，仅适用于 Lark 文档。按 Markdown 标题精确选择该章节及全部子标题内容，减少快照和后续上下文体积。 |
 | `--skill-profile <name[@version]>` | 可选。省略时使用 `~/.aiw/config.yaml` 的默认模板；显式传入时覆盖默认值。模板一次锁定 `clarify` 至 `test` 的六阶段技能。 |
 
-命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark URL 由本机已配置的 Lark MCP Server 读取；指定 `--source-section` 时，来源元数据额外锁定原文档、实际标题和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
+命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark docx 由本机已配置的 Lark MCP Server 读取；Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--source-section` 时，来源元数据额外锁定实际标题和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
 ```text
 intake → clarify → solution → plan → implement → verify → test

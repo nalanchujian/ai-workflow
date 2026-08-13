@@ -44,8 +44,8 @@
 - 本地来源必须是项目目录内的真实普通文件；符号链接、目录、设备文件、FIFO 以及解析后落在项目目录外的路径均必须拒绝，其文本保存为 `sources/<source-id>/r1/snapshot.md`。
 - URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。
 - URL 请求必须拒绝回环、私网、链路本地及保留 IP，并限制重定向次数、响应大小与请求超时。
-- 已配置 Lark Connector 时，Lark `docx` 文档 URL 必须通过本机 Lark MCP Server 获取；Connector 返回的 Markdown、规范化 URL、文档标识和获取时间形成 `lark-mcp/v1` 快照。MCP 配置、令牌和原始响应不得进入任务事实。
-- `--source-section` 仅适用于 Lark `docx`：按唯一 Markdown 标题截取该标题及子标题内容，并锁定实际标题与截取内容哈希。空标题、不存在、重名、空章节或非 Lark 来源必须拒绝初始化；后续刷新必须沿用锁定章节。
+- 已配置 Lark Connector 时，Lark `docx` 或 Wiki 文档 URL 必须通过本机 Lark MCP Server 获取；Wiki 节点先解析为 docx。Connector 返回的 Markdown、规范化 URL、文档标识和获取时间形成 `lark-mcp/v1` 快照。MCP 配置、令牌和原始响应不得进入任务事实。
+- `--source-section` 仅适用于 Lark 文档：按唯一 Markdown 标题截取该标题及子标题内容，并锁定实际标题与截取内容哈希。空标题、不存在、重名、空章节或非 Lark 来源必须拒绝初始化；后续刷新必须沿用锁定章节。
 - 快照元数据记录来源类型、来源、revision、获取时间、内容 SHA-256 与提取器版本；不得记录本机绝对路径、Cookie、令牌或授权头。
 - 需要团队审批的来源快照必须可由业务仓库读者访问，并通过 Git 提交；敏感来源必须先形成脱敏快照。
 - `aiw task source refresh <task-id> <source-id>` 重新读取指定来源；正文哈希未变化时不创建 revision、不改变任务状态；哈希变化时创建新 revision、保留旧快照并递归使已开始下游节点失效。
@@ -106,7 +106,7 @@
 | AC-12 | 审批当前澄清 revision | 生成含审批人和全部产物 SHA-256 的审批文件；待审批状态或审批文件未提交时 `solution` 不可运行。 |
 | AC-13 | 敏感来源未脱敏 | 命令拒绝将正文写入共享 `.aiw/`。 |
 | AC-14 | `.aiw/` 被 Git 忽略或项目不是 Git 工作树 | 初始化失败，不创建任务目录。 |
-| AC-15 | 从已配置 Lark MCP 读取需求 | 生成 `lark-mcp/v1` Markdown 快照与不含凭据的元数据；`intake` 完成。 |
+| AC-15 | 从已配置 Lark MCP 读取需求 | 可读取 Lark docx，或先解析 Wiki 节点为 docx 后读取；生成 `lark-mcp/v1` Markdown 快照与不含凭据的元数据；`intake` 完成。 |
 | AC-16 | Lark MCP 未配置、无权限、超时、正文超限或返回无效正文 | 命令失败，不创建或覆盖快照，不泄露 MCP 配置或令牌。 |
 | AC-17 | 刷新 Lark 来源且正文未变化 | 不创建新 revision，任务状态与下游节点不变。 |
 | AC-18 | 刷新 Lark 来源且正文变化 | 保留旧快照，创建新 revision；`clarify` 至 `test` 的已开始节点失效。 |
