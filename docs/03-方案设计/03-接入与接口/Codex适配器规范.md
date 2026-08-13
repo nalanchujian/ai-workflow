@@ -29,7 +29,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
 }
 ```
 
-Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
+Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。它还必须从本机 Registry 与显式配置的方法来源重新读取节点锁定的 `SKILL.md`，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
 
 ## 输出：RunResult
 
@@ -68,12 +68,12 @@ Adapter 将 `AIW_CODEX_BIN` 解析为可执行文件；变量未设置时使用 
 <AIW_CODEX_BIN|codex> exec
   --cd <projectRoot>
   --sandbox workspace-write
-  --ask-for-approval never
+  --approve-for-me
   --output-last-message <runDirectory>/last-message.md
   -
 ```
 
-`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`workspace-write` 将 Agent 写入范围限制为项目工作目录；`never` 仅适用于用户显式运行的 `aiw task run`，并且不得替换为绕过 sandbox 的参数。Adapter 必须将实际二进制路径、参数和运行模式写入本机 `request.json`；共享任务目录只记录去敏摘要。
+`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`workspace-write` 将 Agent 写入范围限制为项目工作目录；`--approve-for-me` 仅适用于用户显式运行的 `aiw task run`，将审批请求交由该受限 sandbox 的自动审查处理，不得替换为绕过 sandbox 的参数。Adapter 必须将实际二进制路径、参数和运行模式写入本机 `request.json`；共享任务目录只记录去敏摘要。
 
 ## 失败与恢复
 
