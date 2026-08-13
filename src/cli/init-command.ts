@@ -18,40 +18,46 @@ export function createInitCommand(deps: { bootstrapper: DefaultWorkflowBootstrap
 }
 
 function renderInitResult(result: Awaited<ReturnType<DefaultWorkflowBootstrapper['init']>>): string {
-  const configMessage = result.status === 'created'
-    ? '已创建本机配置模板。'
-    : result.status === 'updated'
-      ? '已补充本机默认工作流配置。'
-      : '已使用现有本机配置。';
   return [
-    'AI Workflow 本机环境已就绪',
+    'AI Workflow 已就绪，可以创建任务。',
     '',
-    configMessage,
-    `位置：${result.configPath}`,
-    `默认工作流：${result.workflow.profile}`,
-    `技能包：已就绪（${result.workflow.status === 'installed' ? '本次已安装' : '使用本机已安装版本'}）`,
-    ...(result.lark === undefined ? [] : [`Lark 文档支持：${renderLarkStatus(result.lark)}`]),
+    ...renderInitializationMessage(result.status),
+    `默认工作流：${result.workflow.profile}（可用）`,
+    ...(result.lark === undefined ? [] : renderLarkStatus(result.lark)),
     '',
     '下一步：',
     'aiw task init --project <业务仓库> --source <需求来源>',
+    '',
+    `配置位置：${result.configPath}`,
   ].join('\n');
 }
 
-function renderLarkStatus(result: NonNullable<Awaited<ReturnType<DefaultWorkflowBootstrapper['init']>>['lark']>): string {
-  if (result.status === 'configured') {
-    return `已就绪（已识别 ${result.server}）`;
+function renderInitializationMessage(status: Awaited<ReturnType<DefaultWorkflowBootstrapper['init']>>['status']): string[] {
+  if (status === 'created') {
+    return ['已完成首次本机初始化。'];
   }
-  if (result.status === 'already-configured') {
-    return '已就绪（使用现有配置）';
+  if (status === 'updated') {
+    return ['已更新本机默认工作流配置。'];
   }
-  if (result.status === 'not-found') {
-    return '未就绪（未发现已配置的 Lark Server）';
+  return [];
+}
+
+function renderLarkStatus(result: NonNullable<Awaited<ReturnType<DefaultWorkflowBootstrapper['init']>>['lark']>): string[] {
+  if (result.status === 'configured' || result.status === 'already-configured') {
+    return ['Lark 文档：可用'];
   }
   if (result.status === 'ambiguous') {
-    return `未就绪（多个候选：${result.servers.join('、')}）`;
+    return [
+      'Lark 文档：需要选择连接',
+      `候选：${result.servers.join('、')}`,
+      '执行：aiw init --lark-server <名称>',
+    ];
+  }
+  if (result.status === 'not-found') {
+    return ['Lark 文档：未连接', '仍可使用本地文件或公开链接创建任务。'];
   }
   if (result.status === 'unsupported') {
-    return '未就绪（未发现支持的文档读取工具）';
+    return ['Lark 文档：未连接（当前 MCP 不支持读取 Lark 文档）', '仍可使用本地文件或公开链接创建任务。'];
   }
-  return '未就绪（暂时无法自动检测）';
+  return ['Lark 文档：暂时无法检测', '仍可使用本地文件或公开链接创建任务。'];
 }
