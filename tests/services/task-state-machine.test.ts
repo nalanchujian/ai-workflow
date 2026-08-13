@@ -4,6 +4,33 @@ import { TaskTransitionError, invalidateDependents, transitionNode } from '../..
 import { createSevenPhaseTask, createSkillLock } from '../helpers/task-fixtures.js';
 
 describe('task state machine', () => {
+  it('marks the task completed when every node is completed', () => {
+    const task = createSevenPhaseTask();
+    for (const node of Object.values(task.nodes)) {
+      node.status = 'completed';
+    }
+    task.nodes.test.status = 'running';
+    task.nodes.test.requiresApproval = false;
+
+    const next = transitionNode(task, 'test', { type: 'succeed', outputs: [] });
+
+    expect(next.status).toBe('completed');
+  });
+
+  it('marks the task blocked when no node can progress after a failure', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.intake.status = 'completed';
+    task.nodes.clarify.status = 'running';
+    for (const node of Object.values(task.nodes)) {
+      if (node !== task.nodes.intake && node !== task.nodes.clarify) {
+        node.status = 'pending';
+      }
+    }
+
+    const next = transitionNode(task, 'clarify', { type: 'fail', message: 'Codex unavailable' });
+
+    expect(next.status).toBe('blocked');
+  });
   it('makes a pending node ready only after every dependency completes', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';

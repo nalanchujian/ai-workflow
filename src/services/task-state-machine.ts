@@ -56,7 +56,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       const afterRequestedChanges = invalidateDependents(next, nodeId, 'approval changes requested');
       addEvent(afterRequestedChanges, 'request_changes', nodeId, { actor: event.actor, note: event.note });
       evaluateIfDependenciesCompleted(afterRequestedChanges, nodeId);
-      return TaskSchema.parse(afterRequestedChanges);
+      return TaskSchema.parse(deriveTaskStatus(afterRequestedChanges));
     }
     case 'revise': {
       if (node.status === 'awaiting_approval') {
@@ -68,7 +68,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       const afterRevision = invalidateDependents(next, nodeId, 'node revised');
       addEvent(afterRevision, 'revise', nodeId, { actor: event.actor, note: event.note });
       evaluateIfDependenciesCompleted(afterRevision, nodeId);
-      return TaskSchema.parse(afterRevision);
+      return TaskSchema.parse(deriveTaskStatus(afterRevision));
     }
     case 'rebind_skill': {
       assertStatus(node, ['pending', 'ready', 'failed', 'invalidated'], '只能重新绑定待执行或失效节点的技能');
@@ -77,7 +77,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       node.skill = event.skill;
       const afterRebind = invalidateDependents(next, nodeId, 'skill rebound');
       addEvent(afterRebind, 'rebind_skill', nodeId, { note: event.note, previousSkill, nextSkill: event.skill });
-      return TaskSchema.parse(afterRebind);
+      return TaskSchema.parse(deriveTaskStatus(afterRebind));
     }
     case 'fail':
       assertStatus(node, ['running'], '只能将运行中的节点标记为失败');
@@ -91,7 +91,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       break;
   }
 
-  return TaskSchema.parse(next);
+  return TaskSchema.parse(deriveTaskStatus(next));
 }
 
 export function invalidateDependents(task: Task, upstreamNodeId: string, reason: string): Task {
@@ -122,7 +122,7 @@ export function invalidateDependents(task: Task, upstreamNodeId: string, reason:
     }
   }
 
-  return TaskSchema.parse(next);
+  return TaskSchema.parse(deriveTaskStatus(next));
 }
 
 function getNode(task: Task, nodeId: string): TaskNode {
@@ -173,4 +173,20 @@ function addEvent(
   detail: Omit<Task['events'][number], 'at' | 'nodeId' | 'type'> = {},
 ): void {
   task.events.push({ type, nodeId, at: new Date().toISOString(), ...detail });
+}
+
+function deriveTaskStatus(task: Task): Task {
+  const statuses = Object.values(task.nodes).map((node) => node.status);
+  if (statuses.every((status) => status === 'completed')) {
+    task.status = 'completed';
+    return task;
+  }
+  if (statuses.every((status) => status === 'completed' || status === 'cancelled') && statuses.includes('cancelled')) {
+    task.status = 'cancelled';
+    return task;
+  }
+  const canProgress = statuses.some((status) => ['ready', 'running', 'awaiting_approval'].includes(status));
+  const hasBlockedWork = statuses.some((status) => ['failed', 'invalidated'].includes(status));
+  task.status = hasBlockedWork && !canProgress ? 'blocked' : 'active';
+  return task;
 }
