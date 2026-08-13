@@ -32,7 +32,7 @@ import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolve
 import type { NetworkClient } from '../ports/network-client.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
-import type { RepositoryStatus } from '../ports/repository-status.js';
+import type { RepositoryStatus, WorkingTreeStatus } from '../ports/repository-status.js';
 
 export interface CliRuntime {
   registry: SkillRegistry;
@@ -54,7 +54,7 @@ export function createCliRuntime(input: {
   taskCreatedAt?: () => Date;
   ports: {
     git: GitClient;
-    repositoryStatus: RepositoryStatus & ProjectRepository;
+    repositoryStatus: RepositoryStatus & ProjectRepository & WorkingTreeStatus;
     network: NetworkClient;
     processRunner: ProcessRunner;
     mcpClient?: McpClient;
@@ -106,6 +106,7 @@ export function createCliRuntime(input: {
     methodSourceResolver,
     contextBuilder: new ContextBuilder({ taskDirectory: (task) => taskStore.taskDirectory(task.id), projectRoot: (task) => task.repository }),
     taskFactGuard,
+    changeInspector: input.ports.repositoryStatus,
     adapter: new CodexAdapter({ processRunner: input.ports.processRunner }),
     runtimeRoot: join(input.homeDirectory, 'runtime'),
   });

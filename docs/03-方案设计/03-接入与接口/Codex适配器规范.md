@@ -24,7 +24,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
 }
 ```
 
-Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。它还必须从本机 Registry 与显式配置的方法来源重新读取节点锁定的 `SKILL.md`，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
+Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。执行模式还必须要求业务工作树干净，记录当前节点的允许变更范围，并在 Adapter 返回后采集 Git 变更路径；范围外变更必须保留证据、将节点标记失败，不能进入下一节点。它还必须从本机 Registry 与显式配置的方法来源重新读取节点锁定的 `SKILL.md`，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
 
 ## 输出：RunResult
 
@@ -48,10 +48,20 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提
 1. `validate(request)`：验证 schema、路径边界、文件哈希和运行模式。
 2. `prepare(request)`：在本机 `runDirectory` 生成只读的 `context.md`，其中包含技能、用户任务和 manifest 列出的文件，并保留路径边界。
 3. `execute(request)`：以 `projectRoot` 为工作目录启动 Codex CLI；默认最长运行 15 分钟，超时后先终止子进程，必要时强制终止；将 stdout、stderr 和退出信息写入本机运行目录。
-4. `collect(request)`：校验预期产物并返回去敏 `RunResult`。
+4. `collect(request)`：采集 Git 变更路径，与执行前写入的允许范围比较；超范围时写入 `change-diff.json` 并返回失败，否则校验预期产物并返回去敏 `RunResult`。
 5. `cleanup(request)`：仅删除 Adapter 创建的本机临时文件；不得删除任务产物、来源快照或业务代码。
 
 Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业务仓库 `.aiw/tasks/<id>/runs/<run-id>/`；完整请求、`context.md`、标准输出、标准错误和最后消息不得进入共享任务目录。
+
+每次执行还会写入 `change-scope.json`（执行前允许范围）与 `change-diff.json`（执行后实际变更路径及违规路径）。`implement` 节点的业务路径必须来自已批准实施计划中的 YAML 片段：
+
+```yaml
+allowedPaths:
+  - src/refunds/**
+  - tests/refunds/**
+```
+
+其他节点只允许写入其声明的 `.aiw` 产物；任何范围外路径都会失败。
 
 `dry-run` 只执行第 1、2 步并输出将要执行的 Codex 调用，绝不启动 Codex。
 

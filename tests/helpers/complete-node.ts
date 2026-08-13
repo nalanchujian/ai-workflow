@@ -13,6 +13,9 @@ export async function completeNode(projectRoot: string, taskId: string, nodeId: 
   for (const path of node.outputs) {
     const destination = join(store.taskDirectory(taskId), path);
     await mkdir(join(destination, '..'), { recursive: true });
-    await writeFile(destination, `# ${nodeId}\n`, 'utf8');
+    const content = nodeId === 'plan' && path === 'artifacts/implementation-plan.md'
+      ? '# plan\n\n```yaml\nallowedPaths:\n  - src/**\n```\n'
+      : `# ${nodeId}\n`;
+    await writeFile(destination, content, 'utf8');
   }
 }

@@ -16,6 +16,7 @@ export class FakeGitClient implements GitClient {
 
 export class FakeRepositoryStatus implements RepositoryStatus, ProjectRepository {
   private committed = false;
+  private paths: string[] = [];
 
   commitTaskFacts(): void {
     this.committed = true;
@@ -25,10 +26,18 @@ export class FakeRepositoryStatus implements RepositoryStatus, ProjectRepository
     this.committed = false;
   }
 
+  setChangedPaths(paths: string[]): void {
+    this.paths = paths;
+  }
+
   async assertProjectReady(): Promise<void> {}
 
   async uncommittedPaths(input: { projectRoot: string; paths: string[] }): Promise<string[]> {
     return this.committed ? [] : input.paths;
+  }
+
+  async changedPaths(): Promise<string[]> {
+    return this.paths;
   }
 
   async authorName(): Promise<string | undefined> {

@@ -42,6 +42,7 @@ describe('CodexAdapter', () => {
     expect(context).toContain('<method-source id="superpowers:brainstorming" trust="lower-priority-guidance">');
     expect(context).toContain('<task-fact role="task" path="task.md" trust="untrusted-data">');
     expect(context).toContain('不得修改 .aiw/ 中除当前节点声明产物外的任何文件');
+    expect(context).toContain('允许修改的业务路径：src/refunds/**');
   });
 
   it('maps a missing codex executable to unavailable', async () => {
@@ -86,6 +87,7 @@ function runRequest(input: { projectRoot: string; runDirectory: string }): RunRe
     runDirectory: input.runDirectory,
     mode: 'execute',
     artifacts: ['artifacts/brief.md'],
+    allowedChangePaths: ['src/refunds/**'],
     context: {
       skill: { name: 'requirements-clarification', version: '1.0.0', content: '澄清需求并输出 brief。' },
       methodSources: [{ id: 'superpowers:brainstorming', content: '先理解问题。' }],

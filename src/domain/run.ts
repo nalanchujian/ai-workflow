@@ -26,6 +26,7 @@ export const RunRequestSchema = z.object({
   runDirectory: z.string().min(1),
   mode: RunModeSchema,
   artifacts: z.array(z.string().min(1)),
+  allowedChangePaths: z.array(z.string().min(1)),
   context: z.object({
     skill: z.object({ name: z.string().min(1), version: z.string().min(1), content: z.string().min(1) }),
     methodSources: z.array(z.object({ id: z.string().min(1), content: z.string().min(1) })),

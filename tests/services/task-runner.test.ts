@@ -62,6 +62,27 @@ describe('TaskRunner', () => {
       .rejects.toMatchObject({ code: 'NODE_NOT_RUNNABLE' });
     expect(fixture.processCalls).toHaveLength(0);
   });
+
+  it('blocks execution when the business working tree already has uncommitted changes', async () => {
+    const fixture = await createRunnerFixture({ changeSnapshots: [['src/existing-change.ts']] });
+
+    await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] }))
+      .rejects.toMatchObject({ code: 'WORKTREE_DIRTY' });
+    expect(fixture.processCalls).toHaveLength(0);
+  });
+
+  it('fails a node and records evidence when Codex changes a path outside the declared scope', async () => {
+    const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', 'src/unapproved.ts']] });
+    await mkdir(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts'), { recursive: true });
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'brief.md'), '# Brief\n', 'utf8');
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'CHANGE_SCOPE_VIOLATION' } });
+    expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('failed');
+    await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-diff.json'), 'utf8'))
+      .resolves.toContain('src/unapproved.ts');
+  });
 });
 
 async function createRunnerFixture(options: {
@@ -69,6 +90,7 @@ async function createRunnerFixture(options: {
   missingExecutable?: boolean;
   maxTokens?: number;
   runLock?: { acquire(input: { taskId: string }): Promise<undefined> };
+  changeSnapshots?: string[][];
 }) {
   const projectRoot = await temporaryDirectory();
   const taskStore = new TaskStore(projectRoot);
@@ -119,6 +141,9 @@ async function createRunnerFixture(options: {
     contextBuilder: new ContextBuilder({ taskDirectory: (input) => taskStore.taskDirectory(input.id), projectRoot: (input) => input.repository, maxTokens: options.maxTokens }),
     taskFactGuard: { async assertCommitted() {}, async actor() { return 'tester'; } } as never,
     adapter,
+    changeInspector: {
+      async changedPaths() { return options.changeSnapshots?.shift() ?? []; },
+    },
     runtimeRoot: join(projectRoot, '.aiw-runtime'),
     runIdFactory: () => 'run-1',
     ...(options.runLock === undefined ? {} : { runLock: options.runLock }),

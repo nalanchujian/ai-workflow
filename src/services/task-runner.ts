@@ -7,6 +7,7 @@ import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.
 import type { ContextManifest } from '../domain/context.js';
 import type { OutputRecord, SkillLock, Task } from '../domain/task.js';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
+import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
 import { SkillRegistry } from './skill-registry.js';
 import { TaskFactGuard } from './task-fact-guard.js';
@@ -15,7 +16,7 @@ import { transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 
 export class TaskRunnerError extends Error {
-  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING', message: string) {
+  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'WORKTREE_DIRTY' | 'CHANGE_SCOPE_MISSING', message: string) {
     super(message);
     this.name = 'TaskRunnerError';
   }
@@ -30,6 +31,7 @@ export class TaskRunner {
     methodSourceResolver: MethodSourceResolverPort;
     contextBuilder: ContextBuilder;
     taskFactGuard: TaskFactGuard;
+    changeInspector: WorkingTreeStatus;
     adapter: CodexAdapter;
     runtimeRoot: string;
     runIdFactory?: () => string;
@@ -73,9 +75,13 @@ export class TaskRunner {
       ],
     });
     await this.deps.taskFactGuard.assertCommitted({ task, paths: committedPaths(task, this.deps.taskStore, manifest) });
+    if (!input.dryRun) {
+      await this.assertWorkingTreeClean(task);
+    }
 
     const runId = this.deps.runIdFactory?.() ?? randomUUID();
     const runDirectory = join(this.deps.runtimeRoot, task.id, runId);
+    const scope = input.dryRun ? undefined : await this.changeScope(task, input.nodeId, runId);
     const contextManifestFactPath = `runs/${runId}/context-manifest.json`;
     await this.deps.taskStore.createFact(task.id, contextManifestFactPath, JSON.stringify(manifest, null, 2) + '\n');
     const request: RunRequest = {
@@ -87,6 +93,7 @@ export class TaskRunner {
       runDirectory,
       mode: input.dryRun ? 'dry-run' : 'execute',
       artifacts: node.outputs,
+      allowedChangePaths: scope?.allowedPaths ?? [],
       context: {
         skill: { name: skill.name, version: skill.version, content: skill.body },
         methodSources: methods.map((method) => ({ id: method.source.id, content: method.content })),
@@ -102,7 +109,11 @@ export class TaskRunner {
 
     const startedTask = transitionNode(task, input.nodeId, { type: 'start', runId });
     await this.deps.taskStore.update(startedTask);
-    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId)), contextManifest: manifest });
+    if (scope === undefined) {
+      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少变更范围');
+    }
+    await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
+    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope)), contextManifest: manifest });
     await this.writeResult(task.id, runId, result);
     const next = result.status === 'succeeded'
       ? transitionNode(startedTask, input.nodeId, { type: 'succeed', outputs: result.artifacts })
@@ -111,7 +122,7 @@ export class TaskRunner {
     return result;
   }
 
-  private async execute(request: RunRequest, task: Task, nodeId: string): Promise<RunResult> {
+  private async execute(request: RunRequest, task: Task, nodeId: string, scope: ChangeScope): Promise<RunResult> {
     let result: RunResult;
     try {
       result = await this.deps.adapter.run(request);
@@ -119,14 +130,52 @@ export class TaskRunner {
       result = failedResult(request, 'CODEX_EXECUTION_ERROR', error instanceof Error ? error.message : 'Codex 调用失败');
     }
     if (result.status !== 'succeeded') {
+      await this.recordChangeDiff(task, request.runId, scope);
       return result;
     }
     try {
+      const diff = await this.recordChangeDiff(task, request.runId, scope);
+      if (diff.violations.length > 0) {
+        return failedResult(request, 'CHANGE_SCOPE_VIOLATION', `检测到超出允许范围的变更：${diff.violations.join(', ')}`);
+      }
       return RunResultSchema.parse({ ...result, artifacts: await outputRecords(task, this.deps.taskStore, nodeId) });
     } catch (error) {
       const message = error instanceof Error ? error.message : '节点产物校验失败';
       return failedResult(request, 'ARTIFACT_MISSING', message);
     }
+  }
+
+  private async assertWorkingTreeClean(task: Task): Promise<void> {
+    const changed = await this.deps.changeInspector.changedPaths({ projectRoot: task.repository });
+    if (changed.length > 0) {
+      throw new TaskRunnerError('WORKTREE_DIRTY', `业务仓库存在未提交变更，无法建立可信基线：${changed.join(', ')}`);
+    }
+  }
+
+  private async changeScope(task: Task, nodeId: string, runId: string): Promise<ChangeScope> {
+    const node = task.nodes[nodeId];
+    if (node === undefined) {
+      throw new TaskRunnerError('NODE_NOT_RUNNABLE', `未知节点：${nodeId}`);
+    }
+    const taskRoot = relative(task.repository, this.deps.taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
+    const allowedPaths = [
+      `${taskRoot}/task.yaml`,
+      `${taskRoot}/runs/${runId}/**`,
+      ...node.outputs.map((path) => `${taskRoot}/${path}`),
+      ...(node.phase === 'implement' ? await implementationAllowedPaths(task, this.deps.taskStore) : []),
+    ];
+    if (node.phase === 'implement' && allowedPaths.length === 2 + node.outputs.length) {
+      throw new TaskRunnerError('CHANGE_SCOPE_MISSING', '实施计划未声明允许变更范围');
+    }
+    return { schemaVersion: 'aiw.change-scope/v1', taskId: task.id, nodeId, runId, allowedPaths };
+  }
+
+  private async recordChangeDiff(task: Task, runId: string, scope: ChangeScope): Promise<ChangeDiff> {
+    const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot: task.repository });
+    const violations = changedPaths.filter((path) => !scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
+    const diff: ChangeDiff = { schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId, changedPaths, violations };
+    await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-diff.json`, JSON.stringify(diff, null, 2) + '\n');
+    return diff;
   }
 
   private async loadLockedSkill(lock: SkillLock) {
@@ -150,6 +199,42 @@ export class TaskRunner {
     };
     await this.deps.taskStore.createFact(taskId, `runs/${runId}/result.json`, JSON.stringify(sharedResult, null, 2) + '\n');
   }
+}
+
+interface ChangeScope {
+  schemaVersion: 'aiw.change-scope/v1';
+  taskId: string;
+  nodeId: string;
+  runId: string;
+  allowedPaths: string[];
+}
+
+interface ChangeDiff {
+  schemaVersion: 'aiw.change-diff/v1';
+  taskId: string;
+  runId: string;
+  changedPaths: string[];
+  violations: string[];
+}
+
+async function implementationAllowedPaths(task: Task, taskStore: TaskStore): Promise<string[]> {
+  const planPath = join(taskStore.taskDirectory(task.id), 'artifacts', 'implementation-plan.md');
+  const content = await readFile(planPath, 'utf8');
+  const match = /```ya?ml\s*\n([\s\S]*?)```/i.exec(content);
+  if (match === null) {
+    return [];
+  }
+  const allowed = Array.from(match[1].matchAll(/^\s*-\s*([^\s#]+)\s*$/gm), (entry) => entry[1])
+    .filter((path) => path !== 'allowedPaths:' && isAllowedBusinessPath(path));
+  return [...new Set(allowed)];
+}
+
+function isAllowedBusinessPath(path: string): boolean {
+  return !path.startsWith('.') && !path.startsWith('/') && !path.split('/').includes('..');
+}
+
+function matchesAllowedPath(path: string, allowed: string): boolean {
+  return allowed.endsWith('/**') ? path.startsWith(allowed.slice(0, -2)) : path === allowed;
 }
 
 async function loadContextFiles(task: Task, taskStore: TaskStore, manifest: ContextManifest): Promise<RunRequest['context']['files']> {

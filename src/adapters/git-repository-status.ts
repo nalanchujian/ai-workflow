@@ -36,6 +36,16 @@ export class GitRepositoryStatus implements RepositoryStatus, ProjectRepository 
     return input.paths.filter((path) => changed.some((candidate) => candidate === path || candidate.startsWith(`${path}/`) || path.startsWith(`${candidate}/`)));
   }
 
+  async changedPaths(input: { projectRoot: string }): Promise<string[]> {
+    const { stdout } = await execFileAsync('git', ['-C', input.projectRoot, 'status', '--porcelain=v1', '--untracked-files=all', '-z']);
+    return stdout.split('\0')
+      .filter(Boolean)
+      .filter((entry) => entry.length >= 4 && entry[2] === ' ')
+      .map((entry) => entry.slice(3))
+      .filter((path) => path.length > 0)
+      .sort();
+  }
+
   async authorName(): Promise<string | undefined> {
     try {
       const { stdout } = await execFileAsync('git', ['config', 'user.name']);
