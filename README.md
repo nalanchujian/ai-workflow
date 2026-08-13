@@ -95,6 +95,8 @@ npm uninstall -g @nalanchujian/ai-workflow
 
 `aiw doctor` 会检查 Git、Codex CLI、方法来源、Lark MCP 与本机配置；其中 `~/.aiw/config.yaml` 由每位使用者单独配置，不随 npm 包分发。
 
+从安装到完成首个任务的完整操作，见 [用户使用手册](https://github.com/nalanchujian/ai-workflow/blob/codex/agent-skill-orchestrator/docs/07-%E5%8F%91%E5%B8%83%E8%BF%90%E8%90%A5/%E7%94%A8%E6%88%B7%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md)。
+
 ### 开发环境的全局链接
 
 本地开发才使用 pnpm 全局链接。`package.json` 已将 `aiw` 映射到构建产物 `dist/cli.js`。首次使用前执行一次 `pnpm setup`，重开终端后确认 `PNPM_HOME` 已在 `PATH` 中；这是 pnpm 用于放置全局命令的目录。
@@ -178,7 +180,8 @@ methodSources:
 
 ### 07 发布运营
 
-当前尚无正式文档；发布准备与人工发布顺序见[公开 npm 发布实施计划](docs/04-实施规划/公开npm发布实施计划.md)。
+- [用户使用手册](docs/07-发布运营/用户使用手册.md)：安装、个人配置、任务创建、七阶段推进、变更处理和常见问题。
+- [公开 npm 发布实施计划](docs/04-实施规划/公开npm发布实施计划.md)：发布准备与人工发布顺序。
 
 ## 计划中的目录
 
