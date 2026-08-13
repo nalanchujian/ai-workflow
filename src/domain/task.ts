@@ -103,6 +103,8 @@ export const TaskEventSchema = z.object({
   actor: z.string().optional(),
   runId: z.string().optional(),
   outputs: z.array(OutputRecordSchema).optional(),
+  previousSkill: SkillLockSchema.optional(),
+  nextSkill: SkillLockSchema.optional(),
 });
 
 const TaskBaseSchema = z.object({

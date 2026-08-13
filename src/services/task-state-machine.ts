@@ -73,9 +73,10 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
     case 'rebind_skill': {
       assertStatus(node, ['pending', 'ready', 'failed', 'invalidated'], '只能重新绑定待执行或失效节点的技能');
       assertNote(event.note);
+      const previousSkill = node.skill;
       node.skill = event.skill;
       const afterRebind = invalidateDependents(next, nodeId, 'skill rebound');
-      addEvent(afterRebind, 'rebind_skill', nodeId, { note: event.note });
+      addEvent(afterRebind, 'rebind_skill', nodeId, { note: event.note, previousSkill, nextSkill: event.skill });
       return TaskSchema.parse(afterRebind);
     }
     case 'fail':

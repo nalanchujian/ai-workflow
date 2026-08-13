@@ -21,16 +21,21 @@ export class SkillInstaller {
     const cloned = await this.deps.git.clone(input);
     const registrySource = { url: input.url, revision: cloned.revision };
     const skills = await this.readSkills(cloned.directory, registrySource);
-    const profiles = await this.readProfiles(cloned.directory, registrySource, skills);
+    const installedSkills = await this.deps.registry.list();
+    const profiles = await this.readProfiles(
+      cloned.directory,
+      registrySource,
+      [...installedSkills.filter((skill) => skill.registrySource.url !== input.url), ...skills],
+    );
+    if (skills.length === 0 && profiles.length === 0) {
+      throw new Error('技能包未包含有效技能或工作流模板');
+    }
     await this.deps.registry.replaceSource({ sourceUrl: input.url, skills, profiles });
     return { skills, profiles };
   }
 
   private async readSkills(directory: string, registrySource: { url: string; revision: string }): Promise<InstalledSkill[]> {
     const skillDirectories = await listDirectories(join(directory, 'skills'));
-    if (skillDirectories.length === 0) {
-      throw new Error('技能包未包含 skills 目录');
-    }
     return Promise.all(skillDirectories.map(async (name) => {
       const path = join(directory, 'skills', name, 'SKILL.md');
       const content = await readFile(path, 'utf8');
@@ -55,9 +60,6 @@ export class SkillInstaller {
     skills: InstalledSkill[],
   ): Promise<InstalledWorkflowProfile[]> {
     const profileDirectories = await listDirectories(join(directory, 'profiles'));
-    if (profileDirectories.length === 0) {
-      throw new Error('技能包未包含 profiles 目录');
-    }
     return Promise.all(profileDirectories.map(async (name) => {
       const path = join(directory, 'profiles', name, 'PROFILE.yaml');
       const content = await readFile(path, 'utf8');

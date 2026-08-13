@@ -100,15 +100,23 @@ describe('task state machine', () => {
 
   it('allows an explicit skill rebind only for a node that is not complete', () => {
     const task = createSevenPhaseTask();
+    const previousSkill = task.nodes.clarify.skill;
+    const replacementSkill = createSkillLock('requirements-clarification-v2');
 
     const next = transitionNode(task, 'clarify', {
       type: 'rebind_skill',
-      skill: createSkillLock('requirements-clarification-v2'),
+      skill: replacementSkill,
       note: '增加合规检查',
     });
 
     expect(next.nodes.clarify.skill?.name).toBe('requirements-clarification-v2');
-    expect(next.events.at(-1)).toMatchObject({ type: 'rebind_skill', nodeId: 'clarify', note: '增加合规检查' });
+    expect(next.events.at(-1)).toMatchObject({
+      type: 'rebind_skill',
+      nodeId: 'clarify',
+      note: '增加合规检查',
+      previousSkill,
+      nextSkill: replacementSkill,
+    });
 
     next.nodes.clarify.status = 'completed';
     expect(() => transitionNode(next, 'clarify', {
