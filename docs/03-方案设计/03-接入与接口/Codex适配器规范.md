@@ -82,6 +82,7 @@ Adapter 将 `AIW_CODEX_BIN` 解析为可执行文件；变量未设置时使用 
 ## 失败与恢复
 
 - Runner 将 `failed`、`cancelled` 或 `unavailable` 映射为节点 `failed`，保留运行记录。
+- 若下一次命令已成功取得任务执行锁，但目标节点仍为 `running`，说明上次 AIW 进程已异常退出。Runner 必须自动记录 `fail` 事件并将节点置为 `failed`，返回 `RUN_RECOVERED`；不得继续启动新的 Codex。用户随后通过 `task revise` 记录重试原因后再运行。
 - 用户可在修正环境或输入后重新运行；新的运行使用新的 `runId`，不覆盖旧记录。
 - Adapter 超时或收到取消时必须终止其启动的子进程并记录信号；超时固定映射为 `failed` / `CODEX_TIMEOUT`，不得将节点错误标为成功。
 - Adapter 不得把完整来源、凭据、环境变量或未授权文件写入 `request.json`、日志或终端输出。

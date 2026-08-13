@@ -48,6 +48,19 @@ describe('TaskRunner', () => {
     expect(fixture.processCalls).toHaveLength(0);
   });
 
+  it('recovers a stranded running node after acquiring its stale execution lock', async () => {
+    const fixture = await createRunnerFixture({});
+    const task = await fixture.taskStore.load('refund-123');
+    task.nodes.clarify!.status = 'running';
+    task.events.push({ type: 'start', nodeId: 'clarify', at: '2026-08-13T00:00:00.000Z', runId: 'stranded-run' });
+    await fixture.taskStore.update(task);
+
+    await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] }))
+      .rejects.toMatchObject({ code: 'RUN_RECOVERED' });
+    expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('failed');
+    expect(fixture.processCalls).toHaveLength(0);
+  });
+
   it('counts the locked skill and method content in the run budget', async () => {
     const fixture = await createRunnerFixture({ maxTokens: 10 });
 

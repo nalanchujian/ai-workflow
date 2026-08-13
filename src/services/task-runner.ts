@@ -16,7 +16,7 @@ import { transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 
 export class TaskRunnerError extends Error {
-  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'WORKTREE_DIRTY' | 'CHANGE_SCOPE_MISSING', message: string) {
+  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'WORKTREE_DIRTY' | 'CHANGE_SCOPE_MISSING' | 'RUN_RECOVERED', message: string) {
     super(message);
     this.name = 'TaskRunnerError';
   }
@@ -55,6 +55,11 @@ export class TaskRunner {
   private async runLocked(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult> {
     const task = await this.deps.taskStore.load(input.taskId);
     const node = task.nodes[input.nodeId];
+    if (node !== undefined && node.status === 'running') {
+      const recovered = transitionNode(task, input.nodeId, { type: 'fail', message: '检测到节点仍处于 running 但本机执行锁已不再被持有，已自动恢复为失败状态' });
+      await this.deps.taskStore.update(recovered);
+      throw new TaskRunnerError('RUN_RECOVERED', '上次运行未正常结束，节点已自动标记失败；请使用 task revise 记录重试原因后重新运行');
+    }
     if (node === undefined || node.phase === 'intake' || node.status !== 'ready' || node.skill === undefined) {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪且已锁定技能的节点');
     }
