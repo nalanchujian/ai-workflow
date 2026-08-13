@@ -148,10 +148,19 @@ function parseReference(reference: string, label: string): [string, string] {
 }
 
 function detectSourceKind(source: string): SourceKind {
-  if (/^https:\/\/([\w-]+\.)?larksuite\.com\//.test(source) || /^https:\/\/([\w-]+\.)?feishu\.cn\//.test(source)) {
-    return 'lark-document';
+  try {
+    const url = new URL(source);
+    if (url.protocol === 'https:' && (isLarkHost(url.hostname, 'larksuite.com') || isLarkHost(url.hostname, 'feishu.cn'))) {
+      return 'lark-document';
+    }
+  } catch {
+    // The source is handled as a local file below.
   }
   return /^https?:\/\//.test(source) ? 'public-url' : 'local-file';
+}
+
+function isLarkHost(hostname: string, suffix: string): boolean {
+  return hostname === suffix || hostname.endsWith(`.${suffix}`);
 }
 
 function createNodes(skills: Record<(typeof executableStages)[number], InstalledSkill>): Record<string, TaskNode> {

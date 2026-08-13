@@ -42,4 +42,14 @@ describe('LarkSourceConnector', () => {
     await expect(connector.fetch('https://example.larksuite.com/docx/doccn123'))
       .rejects.toMatchObject({ code: 'LARK_MCP_UNAVAILABLE', message: 'Lark MCP 不可用' });
   });
+
+  it('recognizes a docx URL under a multi-label Lark tenant domain', () => {
+    const connector = new LarkSourceConnector({
+      client: { async callTool() { throw new Error('不应调用'); } },
+      config: { configPath: '/local/config.toml', server: 'lark-openapi', tool: 'docx_v1_document_rawContent', useUAT: false },
+      resolver: { async resolve() { throw new Error('不应调用'); } },
+    });
+
+    expect(connector.supports('https://jphmzyvzr43.jp.larksuite.com/docx/doccn123')).toBe(true);
+  });
 });

@@ -83,7 +83,7 @@ function parseDocumentUrl(input: string): { canonicalUrl: string; externalId: st
   } catch {
     return undefined;
   }
-  if (url.protocol !== 'https:' || !/^[a-z0-9-]+\.(larksuite\.com|feishu\.cn)$/i.test(url.hostname)) {
+  if (url.protocol !== 'https:' || !isLarkHost(url.hostname)) {
     return undefined;
   }
   const match = /^\/docx\/([A-Za-z0-9]+)\/?$/.exec(url.pathname);
@@ -91,6 +91,10 @@ function parseDocumentUrl(input: string): { canonicalUrl: string; externalId: st
     return undefined;
   }
   return { canonicalUrl: `https://${url.host}/docx/${match[1]}`, externalId: match[1] };
+}
+
+function isLarkHost(hostname: string): boolean {
+  return hostname.endsWith('.larksuite.com') || hostname.endsWith('.feishu.cn');
 }
 
 function contentFromResponse(response: unknown): string {
