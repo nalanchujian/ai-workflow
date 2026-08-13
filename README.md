@@ -75,6 +75,27 @@ pnpm exec tsx src/cli.ts run prune --older-than 30d
 pnpm exec tsx src/cli.ts skills install <git-url>
 ```
 
+### 安装为 `aiw` 命令
+
+`package.json` 已将 `aiw` 映射到构建产物 `dist/cli.js`。首次使用 pnpm 全局链接前，先执行一次 `pnpm setup`，重开终端后确认 `PNPM_HOME` 已在 `PATH` 中；这是 pnpm 用于放置全局命令的目录。
+
+```bash
+pnpm setup                     # 仅首次执行；重开终端后继续
+cd /Users/j/ai-workflow
+pnpm run link:global           # 构建并链接当前仓库
+aiw --help
+aiw doctor --project /Users/j/ai-workflow
+```
+
+源码更新后再次运行 `pnpm run link:global` 即可刷新构建产物。取消本机链接时执行：
+
+```bash
+cd /Users/j/ai-workflow
+pnpm run unlink:global
+```
+
+若不希望全局安装，可始终使用 `pnpm dev -- <command>`，例如 `pnpm dev -- doctor`。
+
 为使用引用 Superpowers 的团队技能，在 `~/.aiw/config.yaml` 中显式配置本机方法来源：
 
 ```yaml

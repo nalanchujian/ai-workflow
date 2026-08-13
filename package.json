@@ -11,11 +11,18 @@
   "bin": {
     "aiw": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "dev": "tsx src/cli.ts",
+    "link:global": "pnpm build && pnpm link --global",
     "lint": "eslint .",
+    "prepack": "pnpm build",
     "typecheck": "tsc --noEmit",
+    "unlink:global": "pnpm unlink --global",
     "test": "vitest run"
   },
   "dependencies": {
