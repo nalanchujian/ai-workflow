@@ -36,7 +36,7 @@ MVP 聚焦“本机单 Agent + Git 共享任务事实与团队技能仓库”。
 ## 目标工作流
 
 ```bash
-aiw skills install git@github.com:your-org/agent-skills.git
+aiw skills install https://github.com/nalanchujian/ai-workflow-skills.git --ref v1.0.0
 aiw skills profiles list
 aiw task init --project . --source https://example.com/requirements --skill-profile standard-web-feature@1.0.0
 # 输出 taskId，例如 task-20260813-120000-000；将其填入下方命令
@@ -59,6 +59,8 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 ```
 
 这是 MVP 流程：经允许共享的需求资料固化为业务仓库中的来源快照，任务创建时一次选择并锁定团队工作流模板，再经人工确认逐步产出需求澄清、技术方案、实施计划、实现说明、工程验证与测试证据。每个阶段产物、待审批状态和审批记录均需通过 Git 固化后，才可作为下游依据；审批人要求修改时使用 `task request-changes`，它保留退回证据和下一版修改说明。仅在例外情况才使用 `task skill rebind` 替换单个节点的方法。工作流在测试验证获批后结束，不管理 PR、发布或线上运维。后续自动模式只替换人工门禁的决定方式，不省略过程产物、策略版本或运行证据。
+
+上例使用公开的 `ai-workflow-skills` 标准模板来源。团队应 Fork 该仓库后再定义自己的技能、版本和治理规则；已有任务始终使用创建时锁定的来源版本。
 
 ## 当前状态
 
