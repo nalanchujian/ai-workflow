@@ -32,6 +32,8 @@ aiw task source refresh <task-id> requirements
 
 `task source refresh` 是显式动作，不在 MVP 中轮询或订阅 Lark 文档变化。它重新读取指定来源、创建新的快照 revision；若正文哈希不变，只返回“未变化”且不修改任务状态。哈希变化时，保留旧快照、创建新 revision，并由任务状态机使依赖旧 revision 的下游节点失效。
 
+大文档可在 `task init` 传入 `--source-section <title>`。Connector 返回 Markdown 后，`aiw` 按唯一 ATX 标题精确截取该标题与其下级标题，记录实际标题到来源元数据；章节不存在、重名或为空时拒绝创建。刷新时复用已锁定标题，因此文档其他章节变化不会导致该任务产生新 revision。
+
 ## 本机 MCP 解析与调用
 
 `aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。`aiw init` 默认扫描 `~/.codex/config.toml` 中名称、命令或参数包含 `lark` / `feishu` 的 Server；若唯一候选的工具清单包含 `docx_v1_document_rawContent`，则自动生成本机 Connector Profile。多个候选时仅输出候选名称，使用者通过 `aiw init --lark-server <name>` 选择一次；已有 Profile 永不覆盖。自动发现失败不影响默认工作流初始化。

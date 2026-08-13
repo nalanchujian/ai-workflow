@@ -13,7 +13,7 @@ import { SkillRegistry } from './skill-registry.js';
 import { TaskStore } from './task-store.js';
 
 interface SourceIntakePort {
-  snapshot(input: { kind: SourceKind; sourceId: string; value: string; revision?: number }): Promise<SnapshotRecord>;
+  snapshot(input: { kind: SourceKind; sourceId: string; value: string; section?: string; revision?: number }): Promise<SnapshotRecord>;
   writeSnapshot(input: { snapshot: SnapshotRecord; taskDirectory: string }): ReturnType<SourceIntake['writeSnapshot']>;
 }
 
@@ -26,7 +26,7 @@ export class TaskInitializer {
     now?: () => Date;
   }) {}
 
-  async init(input: { projectRoot: string; source: string; skillProfile: string }): Promise<Task> {
+  async init(input: { projectRoot: string; source: string; sourceSection?: string; skillProfile: string }): Promise<Task> {
     const id = taskIdAt(this.deps.now?.() ?? new Date());
     assertTaskId(id);
     await this.deps.projectRepository.assertProjectReady(input.projectRoot);
@@ -40,7 +40,13 @@ export class TaskInitializer {
     const sourceId = 'requirements';
     const sourceIntake = this.deps.sourceIntakeFactory(input.projectRoot);
     const taskStore = this.deps.taskStoreFactory(input.projectRoot);
-    const source = await sourceIntake.snapshot({ kind: detectSourceKind(input.source), sourceId, value: input.source, revision: 1 });
+    const source = await sourceIntake.snapshot({
+      kind: detectSourceKind(input.source),
+      sourceId,
+      value: input.source,
+      ...(input.sourceSection === undefined ? {} : { section: input.sourceSection }),
+      revision: 1,
+    });
     const projectConfig = await readProjectConfig(input.projectRoot);
     const taskDirectory = taskStore.taskDirectory(id);
     const stagingDirectory = join(dirname(taskDirectory), `.${id}.initializing-${randomUUID()}`);

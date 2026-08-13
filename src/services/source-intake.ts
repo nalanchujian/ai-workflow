@@ -15,6 +15,7 @@ export interface SourceInput {
   kind: SourceKind;
   sourceId: string;
   value: string;
+  section?: string;
   revision?: number;
 }
 
@@ -23,6 +24,7 @@ export interface SnapshotRecord {
   kind: SourceKind;
   origin: string;
   externalId?: string;
+  section?: string;
   revision: number;
   fetchedAt: string;
   markdown: string;
@@ -43,6 +45,9 @@ export class SourceIntake {
   ) {}
 
   async snapshot(input: SourceInput): Promise<SnapshotRecord> {
+    if (input.section !== undefined && input.kind !== 'lark-document') {
+      throw new SourceIntakeError('SOURCE_INVALID', '需求章节仅支持 Lark 文档来源');
+    }
     switch (input.kind) {
       case 'local-file':
         return this.snapshotLocalFile(input);
@@ -64,6 +69,7 @@ export class SourceIntake {
       kind: snapshot.kind,
       origin: snapshot.origin,
       ...(snapshot.externalId === undefined ? {} : { externalId: snapshot.externalId }),
+      ...(snapshot.section === undefined ? {} : { section: snapshot.section }),
       revision: snapshot.revision,
       fetchedAt: snapshot.fetchedAt,
       contentSha256: snapshot.contentSha256,
@@ -75,6 +81,7 @@ export class SourceIntake {
       kind: snapshot.kind,
       origin: snapshot.origin,
       ...(snapshot.externalId === undefined ? {} : { externalId: snapshot.externalId }),
+      ...(snapshot.section === undefined ? {} : { section: snapshot.section }),
       revision: snapshot.revision,
       snapshotPath: relative(taskDirectory, snapshotPath).replaceAll('\\', '/'),
       metaPath: relative(taskDirectory, metaPath).replaceAll('\\', '/'),
@@ -143,18 +150,52 @@ export class SourceIntake {
       throw new SourceIntakeError('SOURCE_UNSUPPORTED', '当前 Connector 不支持该文档类型');
     }
     const source = await this.deps.connector.fetch(input.value);
-    assertSize(source.markdown);
+    const section = input.section === undefined ? undefined : extractMarkdownSection(source.markdown, input.section);
+    const markdown = section?.markdown ?? source.markdown;
+    assertSize(markdown);
     return snapshot({
       sourceId: input.sourceId,
       kind: 'lark-document',
       origin: source.canonicalUrl,
       externalId: source.externalId,
       revision: input.revision ?? 1,
-      markdown: source.markdown,
+      markdown,
+      ...(section === undefined ? {} : { section: section.title }),
       extractor: source.extractor,
       fetchedAt: source.fetchedAt,
     });
   }
+}
+
+function extractMarkdownSection(markdown: string, requestedTitle: string): { title: string; markdown: string } {
+  const requested = normalizeHeading(requestedTitle);
+  if (requested.length === 0) {
+    throw new SourceIntakeError('SOURCE_INVALID', '需求章节不能为空');
+  }
+  const lines = markdown.split(/\r?\n/);
+  const headings = lines.flatMap((line, index) => {
+    const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    return match === null ? [] : [{ index, level: match[1].length, title: match[2].trim() }];
+  });
+  const matches = headings.filter((heading) => normalizeHeading(heading.title) === requested);
+  if (matches.length === 0) {
+    throw new SourceIntakeError('SOURCE_INVALID', `未找到需求章节：${requestedTitle.trim()}`);
+  }
+  if (matches.length > 1) {
+    throw new SourceIntakeError('SOURCE_INVALID', `需求章节不唯一：${requestedTitle.trim()}`);
+  }
+  const heading = matches[0];
+  const next = headings.find((candidate) => candidate.index > heading.index && candidate.level <= heading.level);
+  const content = lines.slice(heading.index, next?.index).join('\n').trim();
+  const body = content.replace(/^#{1,6}\s+.*(?:\r?\n|$)/, '').trim();
+  if (body.length === 0) {
+    throw new SourceIntakeError('SOURCE_INVALID', `需求章节为空：${heading.title}`);
+  }
+  return { title: heading.title, markdown: content };
+}
+
+function normalizeHeading(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 }
 
 function isWithinDirectory(directory: string, target: string): boolean {

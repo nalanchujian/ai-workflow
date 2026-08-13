@@ -66,6 +66,7 @@ export const SourceReferenceSchema = z.object({
   kind: SourceKindSchema,
   origin: z.string().min(1),
   externalId: z.string().min(1).optional(),
+  section: z.string().min(1).optional(),
   revision: z.number().int().positive(),
   snapshotPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径'),
   metaPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径'),

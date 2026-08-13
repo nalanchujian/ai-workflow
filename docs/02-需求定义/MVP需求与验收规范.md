@@ -39,12 +39,13 @@
 ### FR-3：任务创建、来源快照与刷新
 
 - `aiw init` 创建本机安全配置并安装其锁定的默认团队技能包；配置保存默认 Git 来源/ref 与工作流模板，Registry 保存实际校验结果。
-- `aiw task init --project <path> --source <source> [--skill-profile <name[@version]>]` 以 UTC 日期时间自动生成任务 ID（`task-YYYYMMDD-HHmmss-SSS`），创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照；不接受调用者指定任务 ID。省略模板时使用本机默认值。
+- `aiw task init --project <path> --source <source> [--source-section <title>] [--skill-profile <name[@version]>]` 以 UTC 日期时间自动生成任务 ID（`task-YYYYMMDD-HHmmss-SSS`），创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照；不接受调用者指定任务 ID。省略模板时使用本机默认值。
 - `--project` 必须是 Git 工作树，且 `.aiw/` 不得被 Git 忽略；不满足时初始化失败且不写入任务事实。
 - 本地来源必须是项目目录内的真实普通文件；符号链接、目录、设备文件、FIFO 以及解析后落在项目目录外的路径均必须拒绝，其文本保存为 `sources/<source-id>/r1/snapshot.md`。
 - URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。
 - URL 请求必须拒绝回环、私网、链路本地及保留 IP，并限制重定向次数、响应大小与请求超时。
 - 已配置 Lark Connector 时，Lark `docx` 文档 URL 必须通过本机 Lark MCP Server 获取；Connector 返回的 Markdown、规范化 URL、文档标识和获取时间形成 `lark-mcp/v1` 快照。MCP 配置、令牌和原始响应不得进入任务事实。
+- `--source-section` 仅适用于 Lark `docx`：按唯一 Markdown 标题截取该标题及子标题内容，并锁定实际标题与截取内容哈希。空标题、不存在、重名、空章节或非 Lark 来源必须拒绝初始化；后续刷新必须沿用锁定章节。
 - 快照元数据记录来源类型、来源、revision、获取时间、内容 SHA-256 与提取器版本；不得记录本机绝对路径、Cookie、令牌或授权头。
 - 需要团队审批的来源快照必须可由业务仓库读者访问，并通过 Git 提交；敏感来源必须先形成脱敏快照。
 - `aiw task source refresh <task-id> <source-id>` 重新读取指定来源；正文哈希未变化时不创建 revision、不改变任务状态；哈希变化时创建新 revision、保留旧快照并递归使已开始下游节点失效。
@@ -116,6 +117,7 @@
 | AC-23 | Lark 来源进入后续节点运行 | Context Manifest 记录实际使用的快照路径、来源 revision 与 SHA-256，不记录 MCP 配置、令牌或原始响应。 |
 | AC-24 | 以工作流模板创建并运行任务 | `task init` 使用显式模板或本机默认模板，原子写入模板及六阶段精确技能/方法来源锁定；提交前 `task run` 和 dry-run 均拒绝，提交后按节点锁定运行且不再传入技能。 |
 | AC-25 | 审批人要求修改当前计划 revision | `task request-changes` 写入含产物哈希的 `changes_requested` 审批记录和下一版修改说明；当前节点按依赖状态重新评估为 `ready` 或 `pending`，已开始下游节点失效，旧产物与审批记录保留。 |
+| AC-26 | 以 Lark 文档章节创建并刷新任务 | 快照只包含唯一指定标题及子标题内容，并记录标题；文档其他章节变化不创建 revision，指定章节变化才触发后续失效。 |
 
 ## 完成定义
 

@@ -53,6 +53,24 @@ describe('SourceRefresher', () => {
     expect(result).toMatchObject({ changed: false, revision: 1 });
     expect(result.task.nodes.clarify.status).toBe('ready');
   });
+
+  it('refreshes the same selected Lark section instead of the complete document', async () => {
+    const projectRoot = await createTempDirectory('aiw-source-refresh-');
+    directories.push(projectRoot);
+    const connector = mutableLarkConnector('## 订单退款流程\n退款规则\n## 其他需求\nv1');
+    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot });
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    const first = await intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123', section: '订单退款流程' });
+    const reference = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
+    task.sources.requirements = reference;
+    await store.create(task);
+    connector.content = '## 订单退款流程\n退款规则\n## 其他需求\nv2';
+
+    const result = await new SourceRefresher({ intake, taskStore: store }).refresh({ sourceId: 'requirements', taskId: task.id });
+
+    expect(result).toMatchObject({ changed: false, revision: 1 });
+  });
 });
 
 function mutableLarkConnector(content: string): SourceConnector & { content: string } {

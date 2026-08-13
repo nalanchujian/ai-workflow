@@ -30,6 +30,7 @@ export class SourceRefresher {
       kind: current.kind,
       sourceId: input.sourceId,
       value: sourceValue(task, current.kind, current.origin),
+      ...(current.section === undefined ? {} : { section: current.section }),
       revision: current.revision + 1,
     });
     if (snapshot.contentSha256 === current.contentSha256) {

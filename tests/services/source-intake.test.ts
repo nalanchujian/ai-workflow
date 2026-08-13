@@ -3,6 +3,7 @@ import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { NetworkClient } from '../../src/ports/network-client.js';
+import type { SourceConnector } from '../../src/services/lark-source-connector.js';
 import { SourceIntake, SourceIntakeError } from '../../src/services/source-intake.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -70,6 +71,54 @@ describe('SourceIntake', () => {
       .rejects.toMatchObject({ code: 'UNSAFE_URL' } satisfies Partial<SourceIntakeError>);
 
     expect(fetchCalls).toBe(0);
+  });
+
+  it('snapshots only the selected Lark Markdown section and its child headings', async () => {
+    const connector: SourceConnector = {
+      supports() { return true; },
+      async fetch(input) {
+        return {
+          canonicalUrl: input,
+          externalId: 'doccn123',
+          extractor: 'lark-mcp/v1',
+          fetchedAt: '2026-08-13T00:00:00.000Z',
+          markdown: [
+            '# 总览',
+            '不应包含。',
+            '## 订单退款流程',
+            '允许用户退款。',
+            '### 例外情况',
+            '管理员可以拒绝。',
+            '## 发票流程',
+            '不应包含。',
+          ].join('\n'),
+        };
+      },
+    };
+    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot: '/project' });
+
+    const snapshot = await intake.snapshot({
+      kind: 'lark-document',
+      sourceId: 'requirements',
+      value: 'https://acme.larksuite.com/docx/doccn123',
+      section: '订单退款流程',
+    });
+
+    expect(snapshot.markdown).toBe('## 订单退款流程\n允许用户退款。\n### 例外情况\n管理员可以拒绝。');
+    expect(snapshot.section).toBe('订单退款流程');
+  });
+
+  it('rejects a selected section that is not unique in a Lark document', async () => {
+    const connector: SourceConnector = {
+      supports() { return true; },
+      async fetch(input) {
+        return { canonicalUrl: input, externalId: 'doccn123', extractor: 'lark-mcp/v1', fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '## 需求\nA\n## 需求\nB' };
+      },
+    };
+    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot: '/project' });
+
+    await expect(intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://acme.larksuite.com/docx/doccn123', section: '需求' }))
+      .rejects.toMatchObject({ code: 'SOURCE_INVALID', message: '需求章节不唯一：需求' } satisfies Partial<SourceIntakeError>);
   });
 });
 
