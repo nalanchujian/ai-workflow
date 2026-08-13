@@ -1,9 +1,25 @@
 {
-  "name": "ai-workflow",
+  "name": "@nalanchujian/ai-workflow",
   "version": "0.1.0",
-  "private": true,
+  "description": "可信、可控、可追责的 AI 研发工作流 CLI。",
+  "private": false,
   "type": "module",
   "packageManager": "pnpm@10.22.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nalanchujian/ai-workflow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nalanchujian/ai-workflow/issues"
+  },
+  "homepage": "https://github.com/nalanchujian/ai-workflow#readme",
+  "keywords": [
+    "ai",
+    "agent",
+    "workflow",
+    "codex",
+    "cli"
+  ],
   "engines": {
     "node": ">=22.0.0 <23.0.0 || >=24.0.0",
     "pnpm": ">=10.0.0"
@@ -15,12 +31,19 @@
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "dev": "tsx src/cli.ts",
     "link:global": "pnpm build && pnpm link --global",
     "lint": "eslint .",
+    "pack:check": "pnpm build && npm pack --dry-run",
     "prepack": "pnpm build",
+    "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "publish:public": "npm publish --access public --registry=https://registry.npmjs.org",
     "typecheck": "tsc --noEmit",
     "unlink:global": "pnpm unlink --global",
     "test": "vitest run"

@@ -78,7 +78,26 @@ pnpm exec tsx src/cli.ts skills install <git-url>
 
 ### 安装为 `aiw` 命令
 
-`package.json` 已将 `aiw` 映射到构建产物 `dist/cli.js`。首次使用 pnpm 全局链接前，先执行一次 `pnpm setup`，重开终端后确认 `PNPM_HOME` 已在 `PATH` 中；这是 pnpm 用于放置全局命令的目录。
+推荐从 npm 公共 Registry 安装：
+
+```bash
+npm install -g @nalanchujian/ai-workflow
+aiw --help
+aiw doctor --project /你的业务仓库
+```
+
+升级和卸载：
+
+```bash
+npm update -g @nalanchujian/ai-workflow
+npm uninstall -g @nalanchujian/ai-workflow
+```
+
+`aiw doctor` 会检查 Git、Codex CLI、方法来源、Lark MCP 与本机配置；其中 `~/.aiw/config.yaml` 由每位使用者单独配置，不随 npm 包分发。
+
+### 开发环境的全局链接
+
+本地开发才使用 pnpm 全局链接。`package.json` 已将 `aiw` 映射到构建产物 `dist/cli.js`。首次使用前执行一次 `pnpm setup`，重开终端后确认 `PNPM_HOME` 已在 `PATH` 中；这是 pnpm 用于放置全局命令的目录。
 
 ```bash
 pnpm setup                     # 仅首次执行；重开终端后继续
@@ -159,7 +178,7 @@ methodSources:
 
 ### 07 发布运营
 
-当前尚无正式文档；后续补充发布方案、运维手册与复盘报告。
+当前尚无正式文档；发布准备与人工发布顺序见[公开 npm 发布实施计划](docs/04-实施规划/公开npm发布实施计划.md)。
 
 ## 计划中的目录
 
