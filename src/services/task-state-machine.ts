@@ -58,7 +58,10 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       return TaskSchema.parse(afterRequestedChanges);
     }
     case 'revise': {
-      assertStatus(node, ['pending', 'ready', 'failed', 'invalidated', 'awaiting_approval', 'completed'], '当前节点不能修订');
+      if (node.status === 'awaiting_approval') {
+        throw new TaskTransitionError('等待审批节点必须使用 request_changes');
+      }
+      assertStatus(node, ['pending', 'ready', 'failed', 'invalidated', 'completed'], '当前节点不能修订');
       assertNote(event.note);
       node.status = 'pending';
       const afterRevision = invalidateDependents(next, nodeId, 'node revised');

@@ -66,6 +66,26 @@ export class TaskStore {
     await this.writeTask(parsed);
   }
 
+  async createFact(taskId: string, path: string, content: string): Promise<void> {
+    const directory = this.taskDirectory(taskId);
+    const absolutePath = resolve(directory, path);
+    if (this.relativeTaskPath(taskId, absolutePath) !== path) {
+      throw new TaskStoreError('任务事实路径无效');
+    }
+    try {
+      await access(absolutePath);
+      throw new TaskStoreError(`任务事实已存在：${path}`);
+    } catch (error) {
+      if (error instanceof TaskStoreError) {
+        throw error;
+      }
+    }
+    await mkdir(dirname(absolutePath), { recursive: true });
+    const temporaryPath = `${absolutePath}.tmp`;
+    await writeFile(temporaryPath, content, 'utf8');
+    await rename(temporaryPath, absolutePath);
+  }
+
   relativeTaskPath(taskId: string, absolutePath: string): string {
     const taskDirectory = resolve(this.taskDirectory(taskId));
     const resolved = resolve(absolutePath);

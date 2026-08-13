@@ -77,6 +77,14 @@ describe('task state machine', () => {
     expect(next.events.at(-1)).toMatchObject({ type: 'request_changes', nodeId: 'plan', note: '补充回滚方案' });
   });
 
+  it('requires an approval decision instead of directly revising an awaiting approval node', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'awaiting_approval';
+
+    expect(() => transitionNode(task, 'clarify', { type: 'revise', actor: 'developer', note: '补充边界' }))
+      .toThrow('等待审批');
+  });
+
   it('allows an explicit skill rebind only for a node that is not complete', () => {
     const task = createSevenPhaseTask();
 
