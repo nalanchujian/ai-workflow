@@ -9,11 +9,13 @@ import { ShellGitClient } from '../adapters/shell-git-client.js';
 import { StdioMcpClient } from '../adapters/stdio-mcp-client.js';
 import { ContextBuilder } from '../services/context-builder.js';
 import { ConfiguredLarkSourceConnector } from '../services/configured-lark-source-connector.js';
+import { DoctorService } from '../services/doctor-service.js';
 import { LocalConfig } from '../services/local-config.js';
 import { MethodSourceResolver } from '../services/method-source-resolver.js';
 import { SkillInstaller } from '../services/skill-installer.js';
 import { SkillRegistry } from '../services/skill-registry.js';
 import { SourceIntake } from '../services/source-intake.js';
+import { RunHistoryService } from '../services/run-history-service.js';
 import { SourceRefresher } from '../services/source-refresher.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { TaskInitializer } from '../services/task-initializer.js';
@@ -35,6 +37,8 @@ export interface CliRuntime {
   sourceRefresher: SourceRefresher;
   stateCommands: TaskStateCommands;
   taskRunner: TaskRunner;
+  doctor: DoctorService;
+  runHistory: RunHistoryService;
 }
 
 export function createCliRuntime(input: {
@@ -87,6 +91,14 @@ export function createCliRuntime(input: {
     sourceRefresher,
     stateCommands,
     taskRunner,
+    doctor: new DoctorService({
+      config,
+      projectRepository: input.ports.repositoryStatus,
+      processRunner: input.ports.processRunner,
+      ...(input.ports.mcpClient === undefined ? {} : { mcpClient: input.ports.mcpClient }),
+      ...(input.ports.mcpServerConfigResolver === undefined ? {} : { mcpServerConfigResolver: input.ports.mcpServerConfigResolver }),
+    }),
+    runHistory: new RunHistoryService({ runtimeRoot: join(input.homeDirectory, 'runtime') }),
   };
 }
 

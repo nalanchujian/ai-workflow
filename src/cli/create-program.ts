@@ -1,5 +1,7 @@
 import { Command } from 'commander';
 
+import { createDoctorCommand } from './doctor-command.js';
+import { createRunHistoryCommand } from './run-history-command.js';
 import { createSkillsCommand } from './skills-commands.js';
 import { createTaskInitCommand } from './task-init-command.js';
 import { createTaskRunCommand } from './task-run-command.js';
@@ -21,10 +23,14 @@ export function createProgram(deps: CliDependencies): Command {
     .option('--json', '以单个 JSON 文档输出结果');
   if (deps.runtime === undefined) {
     return program
+      .addCommand(new Command('doctor').description('检查本机研发环境与可执行修复建议'))
+      .addCommand(new Command('run').description('查看和清理本机运行记录'))
       .addCommand(new Command('skills').description('管理团队技能和工作流模板'))
       .addCommand(new Command('task').description('管理研发任务和阶段执行'));
   }
   const stdout = deps.stdout ?? process.stdout;
+  program.addCommand(createDoctorCommand({ doctor: deps.runtime.doctor, stdout }));
+  program.addCommand(createRunHistoryCommand({ history: deps.runtime.runHistory, stdout }));
   program.addCommand(createSkillsCommand({ installer: deps.runtime.installer, registry: deps.runtime.registry, stdout }));
   const task = new Command('task').description('管理研发任务和阶段执行');
   task.addCommand(createTaskInitCommand({ initializer: deps.runtime.initializer, stdout }));

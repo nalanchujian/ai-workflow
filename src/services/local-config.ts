@@ -22,8 +22,9 @@ const LocalConfigSchema = z.object({
   }).default({}),
 });
 
-export type LocalMethodSourceProfile = z.infer<typeof LocalConfigSchema>['methodSources'][string];
-export type LocalLarkConnectorProfile = NonNullable<z.infer<typeof LocalConfigSchema>['connectors']['lark']>;
+export type LocalConfigDocument = z.infer<typeof LocalConfigSchema>;
+export type LocalMethodSourceProfile = LocalConfigDocument['methodSources'][string];
+export type LocalLarkConnectorProfile = NonNullable<LocalConfigDocument['connectors']['lark']>;
 
 export class LocalConfig {
   constructor(private readonly path: string) {}
@@ -48,7 +49,7 @@ export class LocalConfig {
     };
   }
 
-  private async read(): Promise<z.infer<typeof LocalConfigSchema>> {
+  async read(): Promise<LocalConfigDocument> {
     return LocalConfigSchema.parse(parse(await readFile(this.path, 'utf8')));
   }
 }

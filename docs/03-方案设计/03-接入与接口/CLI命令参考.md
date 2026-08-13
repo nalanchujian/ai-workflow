@@ -22,6 +22,49 @@
 
 显示指定命令的参数和示例，不修改本地状态。
 
+### `aiw doctor [--project <path>] [--lark-url <docx-url>]`
+
+只读检查本机研发环境，返回 Git CLI、目标项目 Git 状态、Codex CLI、本机配置、已配置方法来源和 Lark MCP 的诊断结果。每项结果包含 `passed`、`warning` 或 `failed`、原因及可执行修复建议；`--json` 时输出单个 `aiw.doctor/v1` JSON 对象。该命令不创建任务、不写入快照、不调用 Codex 执行任务。
+
+```bash
+aiw doctor --project .
+aiw doctor --project /workspace/shop --lark-url https://<tenant>.larksuite.com/docx/<document-id>
+```
+
+| 参数 | 说明 |
+|---|---|
+| `--project <path>` | 可选。要检查的业务仓库；未提供时使用当前目录。 |
+| `--lark-url <docx-url>` | 可选。显式使用该文档验证 Lark MCP 的读取权限；不会保存其正文或创建任务快照。 |
+
+未传 `--lark-url` 时，命令仅检查 Lark Connector Profile 和对应 MCP Server 定义是否可解析，并将 Lark 授权标记为未验证；不得将此状态误报为已授权。传入该参数后，命令通过已配置的 MCP 读取一次指定文档，仅报告成功或失败，不输出令牌、MCP 参数或文档正文。Lark Connector 是可选能力；未配置时显示警告，只有显式请求验证 Lark URL 时才成为失败项。
+
+### `aiw run show <task-id> <run-id> [--project <path>]`
+
+查看一次已完成或失败运行的共享结果、本机日志路径和上下文摘要。完整 `context.md`、标准输出、标准错误和请求文件均不写入 stdout；命令只报告它们在本机是否存在以及可查看路径。
+
+```bash
+aiw run show refund-123 run_01JABC --project .
+```
+
+返回运行状态、开始/结束时间、产物哈希、失败摘要，以及 Context Manifest 的节点、revision、文件数量、角色、估算 token 与预算。共享 `result.json` 或 `context-manifest.json` 缺失、无效或与请求任务不一致时命令失败，不猜测或重建运行记录。
+
+### `aiw run prune [--older-than <days>d] [--apply]`
+
+安全清理本机 `~/.aiw/runtime/<task-id>/<run-id>/` 目录。默认保留期为 30 天，且默认只预览候选目录，不删除任何文件。
+
+```bash
+aiw run prune
+aiw run prune --older-than 60d
+aiw run prune --older-than 30d --apply
+```
+
+| 参数 | 说明 |
+|---|---|
+| `--older-than <days>d` | 可选。保留期，默认 `30d`；必须是正整数天数。 |
+| `--apply` | 可选。明确执行删除；未提供时只输出候选目录。 |
+
+命令只遍历本机运行根目录下的直接 `<task-id>/<run-id>` 普通目录，跳过符号链接、锁目录和其他非运行条目；不会删除业务仓库 `.aiw/`、技能缓存或用户指定的任意路径。输出同时列出候选项和实际删除项，便于审计。
+
 ## 技能命令
 
 ### `aiw skills install <git-url> [--ref <tag-or-commit>]`
