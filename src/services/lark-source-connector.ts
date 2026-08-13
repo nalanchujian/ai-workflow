@@ -274,7 +274,7 @@ function renderTextRun(textRun: Record<string, unknown>): string {
   if (style.italic === true) {
     text = `*${text}*`;
   }
-  if (style.strikethrough === true || style.strike_through === true) {
+  if (style.strikethrough === true || style.strike_through === true || style.strikeThrough === true) {
     text = `~~${text}~~`;
   }
   const link = isRecord(style.link) && typeof style.link.url === 'string' ? style.link.url : undefined;
@@ -357,31 +357,80 @@ function renderTable(table: LarkBlock, byId: Map<string, LarkBlock>): string {
   if (columns === 0 || table.tableCells.length === 0 || table.tableCells.length % columns !== 0) {
     return table.text;
   }
-  const cells = table.tableCells.map((cellId) => tableCellText(cellId, byId));
+  const cells = table.tableCells.map((cellId) => renderTableCell(cellId, byId));
   const rows = Array.from({ length: cells.length / columns }, (_, index) => cells.slice(index * columns, (index + 1) * columns));
   const [header, ...body] = rows;
+  if (body.some((row) => row.some((cell) => cell.isBlockContent))) {
+    return renderStructuredTable(header, body);
+  }
   return [
-    `| ${header.map(escapeTableCell).join(' | ')} |`,
+    `| ${header.map((cell) => escapeTableCell(cell.markdown)).join(' | ')} |`,
     `| ${header.map(() => '---').join(' | ')} |`,
-    ...body.map((row) => `| ${row.map(escapeTableCell).join(' | ')} |`),
+    ...body.map((row) => `| ${row.map((cell) => escapeTableCell(cell.markdown)).join(' | ')} |`),
   ].join('\n');
 }
 
-function tableCellText(cellId: string, byId: Map<string, LarkBlock>): string {
-  const cell = byId.get(cellId);
-  if (cell === undefined) {
-    return '';
-  }
-  const values = cell.children.flatMap((childId) => descendantTexts(childId, byId));
-  return values.join('<br>');
+interface RenderedTableCell {
+  markdown: string;
+  isBlockContent: boolean;
 }
 
-function descendantTexts(id: string, byId: Map<string, LarkBlock>): string[] {
+function renderTableCell(cellId: string, byId: Map<string, LarkBlock>): RenderedTableCell {
+  const cell = byId.get(cellId);
+  if (cell === undefined) {
+    return { markdown: '', isBlockContent: false };
+  }
+  const blocks = cell.children.flatMap((childId) => renderBlockTree(childId, byId));
+  return {
+    markdown: blocks.map((block) => block.markdown).join('\n\n').trim(),
+    isBlockContent: blocks.some((block) => block.isBlockContent),
+  };
+}
+
+function renderBlockTree(id: string, byId: Map<string, LarkBlock>): RenderedTableCell[] {
   const block = byId.get(id);
   if (block === undefined) {
     return [];
   }
-  return [block.text, ...block.children.flatMap((childId) => descendantTexts(childId, byId))].filter((text) => text.length > 0);
+  const own = renderBlock(block, byId);
+  const children = block.children.flatMap((childId) => renderBlockTree(childId, byId));
+  if (children.length === 0) {
+    return own.length === 0 ? [] : [{ markdown: own, isBlockContent: isBlockType(block) }];
+  }
+  const content = own.length === 0
+    ? children.map((child) => child.markdown).join('\n\n')
+    : `${own}${isListType(block) ? '\n' : '\n\n'}${children.map((child) => child.markdown).join('\n\n')}`;
+  return [{ markdown: content, isBlockContent: isBlockType(block) || children.some((child) => child.isBlockContent) }];
+}
+
+function renderStructuredTable(header: RenderedTableCell[], body: RenderedTableCell[][]): string {
+  const labels = header.map((cell, index) => plainText(cell.markdown) || `列 ${index + 1}`);
+  return body.map((row, rowIndex) => {
+    const title = plainText(row[0]?.markdown ?? '') || `第 ${rowIndex + 1} 项`;
+    const sections = row.slice(1).flatMap((cell, index) => {
+      if (cell.markdown.length === 0) {
+        return [];
+      }
+      return [`### ${labels[index + 1]}`, cell.markdown];
+    });
+    return [`## ${title}`, ...sections].join('\n\n');
+  }).join('\n\n');
+}
+
+function plainText(markdown: string): string {
+  return markdown
+    .replace(/\*\*|~~|`|\*/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isBlockType(block: LarkBlock): boolean {
+  return ['bullet', 'ordered', 'todo', 'quote', 'code', 'divider', 'callout', 'table'].includes(block.kind);
+}
+
+function isListType(block: LarkBlock): boolean {
+  return ['bullet', 'ordered', 'todo'].includes(block.kind);
 }
 
 function escapeTableCell(text: string): string {

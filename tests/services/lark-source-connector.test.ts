@@ -195,6 +195,59 @@ describe('LarkSourceConnector', () => {
         ].join('\n'),
       });
   });
+
+  it('expands a table row into recursive Markdown when a cell contains nested blocks', async () => {
+    const connector = new LarkSourceConnector({
+      client: {
+        async callTool() {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                has_more: false,
+                items: [
+                  block('target', 3, '二期 (V2.3)'),
+                  { block_id: 'table', block_type: 31, table: { cells: ['header-a', 'header-b', 'value-a', 'value-b'], property: { row_size: 2, column_size: 2 } } },
+                  tableCell('header-a', 'header-a-text'),
+                  richBlock('header-a-text', 'text', 'Feature name', {}, 'header-a'),
+                  tableCell('header-b', 'header-b-text'),
+                  richBlock('header-b-text', 'text', 'Feature Details', {}, 'header-b'),
+                  tableCell('value-a', 'value-a-text'),
+                  richBlock('value-a-text', 'text', '主表格', {}, 'value-a'),
+                  { block_id: 'value-b', block_type: 32, table_cell: {}, children: ['intro', 'export', 'quote'] },
+                  richBlock('intro', 'text', 'Free Trial+Tracking links:', {}, 'value-b'),
+                  richBlock('export', 'bullet', '导出更新', {}, 'value-b', ['all-data']),
+                  richBlock('all-data', 'bullet', 'All data', { bold: true }, 'export'),
+                  richBlock('quote', 'quote', '仅支持已选择的字段', { strikethrough: true }, 'value-b'),
+                  block('after', 3, '三期'),
+                ],
+              }),
+            }],
+          };
+        },
+      },
+      config: { configPath: '/local/config.toml', server: 'lark-openapi', tool: 'docx_v1_document_rawContent', useUAT: false },
+      resolver: { async resolve() { return { args: [], command: 'lark-mcp', env: {}, transport: 'stdio' }; } },
+    });
+
+    await expect(connector.fetch('https://acme.larksuite.com/docx/doccn123', { section: '二期 (V2.3)' }))
+      .resolves.toMatchObject({
+        markdown: [
+          '# 二期 (V2.3)',
+          '',
+          '## 主表格',
+          '',
+          '### Feature Details',
+          '',
+          'Free Trial+Tracking links:',
+          '',
+          '- 导出更新',
+          '  - **All data**',
+          '',
+          '> ~~仅支持已选择的字段~~',
+        ].join('\n'),
+      });
+  });
 });
 
 function block(id: string, blockType: number, content: string): Record<string, unknown> {
@@ -211,11 +264,13 @@ function richBlock(
   content: string,
   style: Record<string, unknown> = {},
   parentId?: string,
+  children?: string[],
 ): Record<string, unknown> {
   return {
     block_id: id,
     block_type: type === 'text' ? 2 : type === 'bullet' ? 12 : type === 'ordered' ? 13 : 15,
     ...(parentId === undefined ? {} : { parent_id: parentId }),
+    ...(children === undefined ? {} : { children }),
     [type]: { elements: [{ text_run: { content, text_element_style: style } }] },
   };
 }
