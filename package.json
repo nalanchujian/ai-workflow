@@ -1,6 +1,6 @@
 {
   "name": "@nalanchujian/ai-workflow",
-  "version": "0.2.7",
+  "version": "0.2.10",
   "description": "可信、可控、可追责的 AI 研发工作流 CLI。",
   "private": false,
   "type": "module",
@@ -43,7 +43,7 @@
     "pack:check": "pnpm build && npm pack --dry-run",
     "prepack": "pnpm build",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
-    "publish:public": "npm publish --access public --registry=https://registry.npmjs.org",
+    "publish:public": "npm publish --access public --registry=https://registry.npmjs.org && node scripts/commit-published-package.mjs",
     "release:patch": "pnpm version patch --no-git-tag-version && pnpm publish:public",
     "typecheck": "tsc --noEmit",
     "unlink:global": "pnpm unlink --global",
