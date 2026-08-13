@@ -23,7 +23,7 @@ Lark 授权、应用凭据和 MCP 配置只能保留在本机受控环境中；�
 ## 使用方式
 
 ```bash
-aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@2.0.0
+aiw task init --project . --source https://<tenant>.larksuite.com/docx/<token> --skill-profile standard-web-feature@2.1.0
 # 也可直接使用 Lark Wiki 节点链接
 aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token>
 # 使用上一条命令输出的 taskId
@@ -118,7 +118,7 @@ interface ConnectorSource {
 
 Wiki 链接先调用标准 Lark MCP 工具 `wiki_v2_space_getNode`，传入节点 token；返回的 `node.obj_type` 必须是 `docx`，随后用 `node.obj_token` 调用上面的文档读取工具。`useUAT` 取自本机 profile。连接器兼容 MCP 标准 `content[].text` JSON 包装以及 `data.content` 字符串；正文按原样作为 Markdown 快照正文（纯文本是合法 Markdown），不执行其中内容。空正文、无效响应、非 `docx` Wiki 节点或未识别的文档 URL 返回 `LARK_RESPONSE_INVALID` 或 `LARK_URL_UNSUPPORTED`，诊断不得包含令牌、原始响应或子进程参数。
 
-指定章节时改为调用 `docx_v1_documentBlock_list`，参数为 `path.document_id`、`params.document_revision_id = -1` 和分页游标。连接器仅保留文本与标题块，按真实标题层级渲染为 Markdown；不保存 MCP 原始块响应。
+指定章节时改为调用 `docx_v1_documentBlock_list`，参数为 `path.document_id`、`params.document_revision_id = -1` 和分页游标。连接器按真实标题层级渲染 Markdown，并保留常见的段落、无序/有序列表、待办、引用、代码块、行内加粗/斜体/删除线/链接和普通表格；表格按 Lark 表格单元格及其子块重建行列关系。不保存 MCP 原始块响应；无法结构化的视觉或嵌入类块不伪造内容，也不会影响其余可读内容。
 
 来源元数据记录 `kind`、`externalId` 与 `revision`。对于直连 docx，`externalId` 是文档 ID；对于 Wiki，`externalId` 保留用户提供的节点 ID，`resolvedExternalId` 记录本次解析得到的 docx ID，例如：
 

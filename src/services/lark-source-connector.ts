@@ -119,8 +119,8 @@ export class LarkSourceConnector implements SourceConnector {
       throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', 'Lark MCP 返回了无效章节标题');
     }
     const next = headings.find((candidate) => candidate.index > heading.index && candidate.headingLevel !== undefined && candidate.headingLevel <= headingLevel);
-    const selected = blocks.slice(heading.index, next?.index).filter((block) => block.text.length > 0);
-    const markdown = selected.map(renderBlock).join('\n\n').trim();
+    const selected = blocks.slice(heading.index, next?.index);
+    const markdown = renderBlocks(selected);
     if (selected.length <= 1 || markdown.replace(/^#{1,9}\s+.*(?:\n|$)/, '').trim().length === 0) {
       throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', `需求章节为空：${heading.text}`);
     }
@@ -189,8 +189,13 @@ function blockArguments(documentId: string, useUAT: boolean, pageToken: string |
 
 interface LarkBlock {
   id: string;
+  kind: string;
   text: string;
   headingLevel?: number;
+  parentId?: string;
+  children: string[];
+  tableCells: string[];
+  tableColumnCount?: number;
 }
 
 function blocksPageFromResponse(response: unknown): { hasMore: boolean; nextPageToken?: string; items: LarkBlock[] } {
@@ -210,15 +215,36 @@ function normalizeBlock(value: unknown): LarkBlock {
   if (!isRecord(value) || typeof value.block_id !== 'string' || value.block_id.length === 0) {
     throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', 'Lark MCP 返回了无效文档块');
   }
-  const heading = Object.entries(value).find(([key, data]) => /^heading[1-9]$/.test(key) && isRecord(data));
+  const data = blockData(value);
+  const heading = /^heading([1-9])$/.exec(data.kind);
+  const table = data.kind === 'table' && isRecord(data.value) ? data.value : undefined;
+  const property = table === undefined ? undefined : isRecord(table.property) ? table.property : undefined;
   return {
     id: value.block_id,
-    text: blockText(heading?.[1] ?? Object.values(value).find((data) => isRecord(data) && Array.isArray(data.elements))),
-    ...(heading === undefined ? {} : { headingLevel: Number(heading[0].slice('heading'.length)) }),
+    kind: data.kind,
+    text: richText(data.value),
+    ...(heading === null ? {} : { headingLevel: Number(heading[1]) }),
+    ...(typeof value.parent_id === 'string' && value.parent_id.length > 0 ? { parentId: value.parent_id } : {}),
+    children: stringArray(value.children),
+    tableCells: table === undefined ? [] : stringArray(table.cells).length > 0 ? stringArray(table.cells) : stringArray(value.children),
+    ...(property !== undefined && positiveInteger(property.column_size) !== undefined ? { tableColumnCount: positiveInteger(property.column_size) } : {}),
   };
 }
 
-function blockText(value: unknown): string {
+function blockData(value: Record<string, unknown>): { kind: string; value: unknown } {
+  const heading = Object.entries(value).find(([key, data]) => /^heading[1-9]$/.test(key) && isRecord(data));
+  if (heading !== undefined) {
+    return { kind: heading[0], value: heading[1] };
+  }
+  const supported = ['page', 'text', 'bullet', 'ordered', 'code', 'quote', 'todo', 'callout', 'table', 'table_cell', 'divider'];
+  const direct = supported.find((key) => isRecord(value[key]));
+  if (direct !== undefined) {
+    return { kind: direct, value: value[direct] };
+  }
+  return { kind: 'unsupported', value: undefined };
+}
+
+function richText(value: unknown): string {
   if (!isRecord(value) || !Array.isArray(value.elements)) {
     return '';
   }
@@ -226,13 +252,148 @@ function blockText(value: unknown): string {
     if (!isRecord(element)) {
       return [];
     }
-    const textRun = isRecord(element.text_run) && typeof element.text_run.content === 'string' ? element.text_run.content : undefined;
-    return textRun === undefined ? [] : [textRun];
+    if (!isRecord(element.text_run) || typeof element.text_run.content !== 'string') {
+      return [];
+    }
+    return [renderTextRun(element.text_run)];
   }).join('').trim();
 }
 
-function renderBlock(block: LarkBlock): string {
-  return block.headingLevel === undefined ? block.text : `${'#'.repeat(block.headingLevel)} ${block.text}`;
+function renderTextRun(textRun: Record<string, unknown>): string {
+  let text = textRun.content as string;
+  const style = isRecord(textRun.text_element_style) ? textRun.text_element_style : isRecord(textRun.style) ? textRun.style : undefined;
+  if (style === undefined) {
+    return text;
+  }
+  if (style.code_inline === true || style.codeInline === true) {
+    text = `\`${text}\``;
+  }
+  if (style.bold === true) {
+    text = `**${text}**`;
+  }
+  if (style.italic === true) {
+    text = `*${text}*`;
+  }
+  if (style.strikethrough === true || style.strike_through === true) {
+    text = `~~${text}~~`;
+  }
+  const link = isRecord(style.link) && typeof style.link.url === 'string' ? style.link.url : undefined;
+  return link === undefined ? text : `[${text}](${decodeURIComponent(link)})`;
+}
+
+function renderBlocks(blocks: LarkBlock[]): string {
+  const byId = new Map(blocks.map((block) => [block.id, block]));
+  const consumed = new Set<string>();
+  const parts = blocks.flatMap((block) => {
+    if (consumed.has(block.id) || block.kind === 'table_cell' || block.kind === 'page' || block.kind === 'unsupported') {
+      return [];
+    }
+    if (block.kind === 'table') {
+      collectTableContents(block, byId, consumed);
+      const table = renderTable(block, byId);
+      return table.length === 0 ? [] : [table];
+    }
+    const markdown = renderBlock(block, byId);
+    return markdown.length === 0 ? [] : [markdown];
+  });
+  return parts.join('\n\n').trim();
+}
+
+function renderBlock(block: LarkBlock, byId: Map<string, LarkBlock>): string {
+  if (block.headingLevel !== undefined) {
+    return `${'#'.repeat(block.headingLevel)} ${block.text}`;
+  }
+  switch (block.kind) {
+    case 'bullet':
+      return `${listIndentation(block, byId)}- ${block.text}`;
+    case 'ordered':
+      return `${listIndentation(block, byId)}1. ${block.text}`;
+    case 'todo':
+      return `${listIndentation(block, byId)}- [ ] ${block.text}`;
+    case 'quote':
+      return `> ${block.text}`;
+    case 'code':
+      return `\`\`\`\n${block.text}\n\`\`\``;
+    case 'divider':
+      return '---';
+    default:
+      return block.text;
+  }
+}
+
+function listIndentation(block: LarkBlock, byId: Map<string, LarkBlock>): string {
+  let parent = block.parentId === undefined ? undefined : byId.get(block.parentId);
+  let depth = 0;
+  while (parent !== undefined) {
+    if (['bullet', 'ordered', 'todo'].includes(parent.kind)) {
+      depth += 1;
+    }
+    parent = parent.parentId === undefined ? undefined : byId.get(parent.parentId);
+  }
+  return '  '.repeat(depth);
+}
+
+function collectTableContents(block: LarkBlock, byId: Map<string, LarkBlock>, consumed: Set<string>): void {
+  for (const cellId of block.tableCells) {
+    collectDescendants(cellId, byId, consumed);
+  }
+}
+
+function collectDescendants(id: string, byId: Map<string, LarkBlock>, consumed: Set<string>): void {
+  if (consumed.has(id)) {
+    return;
+  }
+  consumed.add(id);
+  const block = byId.get(id);
+  if (block !== undefined) {
+    for (const childId of block.children) {
+      collectDescendants(childId, byId, consumed);
+    }
+  }
+}
+
+function renderTable(table: LarkBlock, byId: Map<string, LarkBlock>): string {
+  const columns = table.tableColumnCount ?? table.tableCells.length;
+  if (columns === 0 || table.tableCells.length === 0 || table.tableCells.length % columns !== 0) {
+    return table.text;
+  }
+  const cells = table.tableCells.map((cellId) => tableCellText(cellId, byId));
+  const rows = Array.from({ length: cells.length / columns }, (_, index) => cells.slice(index * columns, (index + 1) * columns));
+  const [header, ...body] = rows;
+  return [
+    `| ${header.map(escapeTableCell).join(' | ')} |`,
+    `| ${header.map(() => '---').join(' | ')} |`,
+    ...body.map((row) => `| ${row.map(escapeTableCell).join(' | ')} |`),
+  ].join('\n');
+}
+
+function tableCellText(cellId: string, byId: Map<string, LarkBlock>): string {
+  const cell = byId.get(cellId);
+  if (cell === undefined) {
+    return '';
+  }
+  const values = cell.children.flatMap((childId) => descendantTexts(childId, byId));
+  return values.join('<br>');
+}
+
+function descendantTexts(id: string, byId: Map<string, LarkBlock>): string[] {
+  const block = byId.get(id);
+  if (block === undefined) {
+    return [];
+  }
+  return [block.text, ...block.children.flatMap((childId) => descendantTexts(childId, byId))].filter((text) => text.length > 0);
+}
+
+function escapeTableCell(text: string): string {
+  return text.replaceAll('|', '\\|').replaceAll('\n', '<br>');
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : [];
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function normalizeHeading(value: string): string {

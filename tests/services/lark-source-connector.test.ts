@@ -135,6 +135,66 @@ describe('LarkSourceConnector', () => {
       },
     ]);
   });
+
+  it('preserves Lark list, quote, code, rich text and table structure in a selected section', async () => {
+    const connector = new LarkSourceConnector({
+      client: {
+        async callTool() {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                has_more: false,
+                items: [
+                  block('target', 3, '二期 (V2.3)'),
+                  richBlock('paragraph', 'text', '支持', { bold: true, link: { url: 'https%3A%2F%2Fexample.com%2Fspec' } }),
+                  richBlock('bullet', 'bullet', '可调整展示顺序'),
+                  richBlock('ordered', 'ordered', '导出结果保持一致'),
+                  richBlock('quote', 'quote', '依赖接口确认'),
+                  { block_id: 'code', block_type: 14, code: { elements: [{ text_run: { content: 'const enabled = true;' } }], style: { language: 49 } } },
+                  { block_id: 'table', block_type: 31, table: { cells: ['header-a', 'header-b', 'value-a', 'value-b'], property: { row_size: 2, column_size: 2 } } },
+                  tableCell('header-a', 'header-a-text'),
+                  richBlock('header-a-text', 'text', '字段', {}, 'header-a'),
+                  tableCell('header-b', 'header-b-text'),
+                  richBlock('header-b-text', 'text', '说明', {}, 'header-b'),
+                  tableCell('value-a', 'value-a-text'),
+                  richBlock('value-a-text', 'text', 'Clicks', {}, 'value-a'),
+                  tableCell('value-b', 'value-b-text'),
+                  richBlock('value-b-text', 'text', '点击数', {}, 'value-b'),
+                  block('after', 3, '三期'),
+                ],
+              }),
+            }],
+          };
+        },
+      },
+      config: { configPath: '/local/config.toml', server: 'lark-openapi', tool: 'docx_v1_document_rawContent', useUAT: false },
+      resolver: { async resolve() { return { args: [], command: 'lark-mcp', env: {}, transport: 'stdio' }; } },
+    });
+
+    await expect(connector.fetch('https://acme.larksuite.com/docx/doccn123', { section: '二期 (V2.3)' }))
+      .resolves.toMatchObject({
+        markdown: [
+          '# 二期 (V2.3)',
+          '',
+          '[**支持**](https://example.com/spec)',
+          '',
+          '- 可调整展示顺序',
+          '',
+          '1. 导出结果保持一致',
+          '',
+          '> 依赖接口确认',
+          '',
+          '```',
+          'const enabled = true;',
+          '```',
+          '',
+          '| 字段 | 说明 |',
+          '| --- | --- |',
+          '| Clicks | 点击数 |',
+        ].join('\n'),
+      });
+  });
 });
 
 function block(id: string, blockType: number, content: string): Record<string, unknown> {
@@ -143,4 +203,23 @@ function block(id: string, blockType: number, content: string): Record<string, u
   }
   const key = blockType === 2 ? 'text' : `heading${blockType - 2}`;
   return { block_id: id, block_type: blockType, [key]: { elements: [{ text_run: { content } }] } };
+}
+
+function richBlock(
+  id: string,
+  type: string,
+  content: string,
+  style: Record<string, unknown> = {},
+  parentId?: string,
+): Record<string, unknown> {
+  return {
+    block_id: id,
+    block_type: type === 'text' ? 2 : type === 'bullet' ? 12 : type === 'ordered' ? 13 : 15,
+    ...(parentId === undefined ? {} : { parent_id: parentId }),
+    [type]: { elements: [{ text_run: { content, text_element_style: style } }] },
+  };
+}
+
+function tableCell(id: string, childId: string): Record<string, unknown> {
+  return { block_id: id, block_type: 32, table_cell: {}, children: [childId] };
 }
