@@ -28,10 +28,15 @@ function renderInitResult(result: Awaited<ReturnType<DefaultWorkflowBootstrapper
     configMessage,
     `位置：${result.configPath}`,
     `默认工作流：${result.workflow.profile}`,
-    `技能版本：ai-workflow-skills@${result.workflow.source.ref}`,
-    `技能状态：${result.workflow.status === 'installed' ? '已安装' : '已复用'}（${result.workflow.revision}）`,
+    `技能包来源：${repositoryName(result.workflow.source.url)}（Git 标签：${result.workflow.source.ref}）`,
+    `技能状态：${result.workflow.status === 'installed' ? '已安装' : '已复用'}`,
     '',
     '下一步：',
     'aiw task init --project <业务仓库> --source <需求来源>',
   ].join('\n');
+}
+
+function repositoryName(url: string): string {
+  const name = url.split('/').at(-1)?.replace(/\.git$/, '');
+  return name === undefined || name.length === 0 ? url : name;
 }

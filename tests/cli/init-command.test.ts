@@ -16,7 +16,9 @@ describe('init command', () => {
     expect(output).toContain('AI Workflow 本机环境已就绪');
     expect(output).toContain('/home/j/.aiw/config.yaml');
     expect(output).toContain('standard-web-feature@2.0.0');
-    expect(output).toContain('v2.0.0');
+    expect(output).toContain('技能包来源：ai-workflow-skills（Git 标签：v2.0.0）');
+    expect(output).toContain('技能状态：已安装');
+    expect(output).not.toContain('revision');
     expect(output).toContain('aiw task init --project <业务仓库> --source <需求来源>');
   });
 
