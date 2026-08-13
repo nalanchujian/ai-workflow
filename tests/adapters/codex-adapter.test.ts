@@ -32,7 +32,7 @@ describe('CodexAdapter', () => {
     expect(result.status).toBe('succeeded');
     expect(calls).toEqual([{
       command: 'codex',
-      args: ['exec', '--cd', projectRoot, '--sandbox', 'workspace-write', '--approve-for-me', '--output-last-message', join(runDirectory, 'last-message.md'), '-'],
+      args: ['exec', '--cd', projectRoot, '--approve-for-me', '--output-last-message', join(runDirectory, 'last-message.md'), '-'],
       cwd: projectRoot,
       stdin: expect.stringContaining('<method-source id="superpowers:brainstorming" trust="lower-priority-guidance">'),
       timeoutMs: 900000,

@@ -27,7 +27,6 @@ export class CodexAdapter {
         args: [
           'exec',
           '--cd', request.task.projectRoot,
-          '--sandbox', 'workspace-write',
           '--approve-for-me',
           '--output-last-message', join(request.runDirectory, 'last-message.md'),
           '-',

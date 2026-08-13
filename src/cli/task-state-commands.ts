@@ -36,6 +36,14 @@ export class TaskStateCommands {
     return this.decide(taskId, nodeId, 'changes_requested', options);
   }
 
+  async fail(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
+    const task = await this.deps.taskStore.load(taskId);
+    const actor = await this.deps.taskFactGuard.actor(options.actor);
+    const next = transitionNode(task, nodeId, { type: 'fail', message: options.note.trim(), actor });
+    await this.deps.taskStore.update(next);
+    return next;
+  }
+
   async revise(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
     const task = await this.deps.taskStore.load(taskId);
     const next = transitionNode(task, nodeId, { type: 'revise', actor: await this.deps.taskFactGuard.actor(options.actor), note: options.note });
@@ -125,6 +133,9 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   }));
   command.addCommand(new Command('request-changes').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     writeCommandResult(await deps.commands.requestChanges(taskId, nodeId, options), current, deps.stdout);
+  }));
+  command.addCommand(new Command('fail').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
+    writeCommandResult(await deps.commands.fail(taskId, nodeId, options), current, deps.stdout);
   }));
   command.addCommand(new Command('revise').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     writeCommandResult(await deps.commands.revise(taskId, nodeId, options), current, deps.stdout);

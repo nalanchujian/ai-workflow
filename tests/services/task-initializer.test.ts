@@ -43,6 +43,87 @@ describe('TaskInitializer', () => {
     await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
   });
 
+  it('rejects an unfinished task with the same normalized requirement before reading the source again', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    await registry.replace({ skills: allSkills(), profiles: [profile()] });
+    const store = new TaskStore(projectRoot);
+    let sourceReads = 0;
+    let milliseconds = 0;
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      sourceIntakeFactory: () => ({
+        async snapshot() {
+          sourceReads += 1;
+          return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' };
+        },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+      }) as never,
+      taskStoreFactory: () => store,
+      now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
+    });
+
+    await initializer.init({ projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature@1.0.0' });
+
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' }))
+      .rejects.toThrow('已存在相同需求的未完成任务：task-20260813-120000-000');
+    expect(sourceReads).toBe(1);
+  });
+
+  it('allows an explicit force-new request to initialize another task for the same requirement', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    await registry.replace({ skills: allSkills(), profiles: [profile()] });
+    const store = new TaskStore(projectRoot);
+    let milliseconds = 0;
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      sourceIntakeFactory: () => ({
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+      }) as never,
+      taskStoreFactory: () => store,
+      now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
+    });
+
+    await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' });
+    const task = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0', forceNew: true });
+
+    expect(task.id).toBe('task-20260813-120000-001');
+  });
+
+  it('allows a new task after the earlier task has no unfinished nodes', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    await registry.replace({ skills: allSkills(), profiles: [profile()] });
+    const store = new TaskStore(projectRoot);
+    let milliseconds = 0;
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      sourceIntakeFactory: () => ({
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+      }) as never,
+      taskStoreFactory: () => store,
+      now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
+    });
+
+    const earlier = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' });
+    for (const node of Object.values(earlier.nodes)) {
+      node.status = 'completed';
+    }
+    await store.update(earlier);
+
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' }))
+      .resolves.toMatchObject({ id: 'task-20260813-120000-001' });
+  });
+
   it('does not create a task when the requested profile is missing', async () => {
     const projectRoot = await createTempDirectory('aiw-task-init-');
     directories.push(projectRoot);

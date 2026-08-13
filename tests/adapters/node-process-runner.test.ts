@@ -30,4 +30,18 @@ describe('NodeProcessRunner', () => {
 
     expect(result.timedOut).toBe(true);
   });
+
+  it('returns the child exit result when stdin closes before the input is written', async () => {
+    const runner = new NodeProcessRunner();
+
+    const result = await runner.run({
+      command: process.execPath,
+      args: ['-e', 'process.exit(2)'],
+      cwd: process.cwd(),
+      stdin: 'x'.repeat(8 * 1024 * 1024),
+      timeoutMs: 1_000,
+    });
+
+    expect(result).toMatchObject({ exitCode: 2, signal: null, timedOut: false });
+  });
 });

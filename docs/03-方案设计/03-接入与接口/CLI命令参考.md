@@ -125,7 +125,7 @@ aiw skills profiles list --json
 
 ## 任务命令
 
-### `aiw task init --project <path> --source <source> [--source-section <title>] [--skill-profile <name[@version]>]`
+### `aiw task init --project <path> --source <source> [--source-section <title>] [--skill-profile <name[@version]>] [--force-new]`
 
 在目标项目创建任务、来源快照和默认任务图。
 
@@ -135,6 +135,7 @@ aiw task init --project /workspace/shop --source https://example.com/requirement
 aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token>
 aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token> --source-section "订单退款流程"
 aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@2.0.0
+aiw task init --project . --source ./requirements.md --force-new
 ```
 
 | 参数 | 说明 |
@@ -143,6 +144,7 @@ aiw task init --project . --source ./requirements.md --skill-profile standard-we
 | `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark `docx` / `wiki` URL。 |
 | `--source-section <title>` | 可选，仅适用于 Lark 文档。按 Lark 标题块精确选择该章节及全部子标题内容，减少快照和后续上下文体积；MCP 还需启用 `docx_v1_documentBlock_list`。 |
 | `--skill-profile <name[@version]>` | 可选。省略时使用 `~/.aiw/config.yaml` 的默认模板；显式传入时覆盖默认值。模板一次锁定 `clarify` 至 `test` 的六阶段技能。 |
+| `--force-new` | 可选。默认发现同一仓库、同一规范化需求来源和章节存在未完成任务时拒绝创建；仅在确需另建任务时显式使用。 |
 
 命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark docx 由本机已配置的 Lark MCP Server 读取；Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--source-section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
@@ -152,7 +154,9 @@ intake → clarify → solution → plan → implement → verify → test
 
 来源快照成功后，`intake` 自动完成，`clarify` 成为 `ready`。`clarify`、`plan`、`test` 完成执行后等待人工审批；`intake` 不允许通过 `task run` 运行。
 
-失败情形包括：自动生成的任务 ID 与现有任务冲突、模板不存在/版本不唯一/阶段不匹配/引用技能不可用、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、Lark Connector 未配置或无权限、来源类型不受支持，以及章节参数用于非 Lark 来源、章节为空、不存在或重名。失败不得留下不完整来源快照或任务目录。
+初始化前会检查同一业务仓库内、同一规范化需求来源和章节的未完成任务。命中时输出已有 `taskId`，不会再次抓取本地、公开 URL 或 Lark 文档；应使用该 ID 继续任务。只有需要并行处理或重新开始时才加 `--force-new`。
+
+失败情形包括：自动生成的任务 ID 与现有任务冲突、同一需求已有未完成任务、模板不存在/版本不唯一/阶段不匹配/引用技能不可用、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、Lark Connector 未配置或无权限、来源类型不受支持，以及章节参数用于非 Lark 来源、章节为空、不存在或重名。失败不得留下不完整来源快照或任务目录。
 
 ### `aiw task source refresh <task-id> <source-id>`
 
@@ -247,6 +251,17 @@ aiw task revise refund-123 clarify --note "补充退款权限和异常场景"
 
 节点处于 `awaiting_approval` 时必须使用 `task request-changes`，以记录审批决定。其他可修订节点会在 `revisions/<node-id>/r<next-revision>.md` 写入修改说明，下游已开始节点变为 `invalidated`；当前节点随后自动检查依赖，依赖均已完成时变为 `ready`，否则保持 `pending`。旧产物与历史事件保留，只是不再自动注入后续运行。
 
+### `aiw task fail <task-id> <node-id> --note <text> [--actor <name>]`
+
+将因进程异常、终端中断等原因遗留在 `running` 的节点正式标记为失败。
+
+```bash
+aiw task fail refund-123 clarify --note "Codex CLI 异常退出"
+aiw task revise refund-123 clarify --note "修复执行环境后重试"
+```
+
+仅允许 `running` 节点使用；`--note` 必填，`--actor` 未提供时使用当前仓库的 Git 作者。命令不删除现有上下文、日志或产物，只在 `task.yaml` 中追加失败事件及原因，并将节点置为 `failed`。必须提交该状态变化后，再用 `task revise` 创建可重试的 revision。
+
 ### `aiw task request-changes <task-id> <node-id> --note <text> [--actor <name>]`
 
 由审批人对当前 revision 要求修改。
@@ -268,6 +283,7 @@ git add .aiw && git commit -m "chore(aiw): request plan changes"
 | `task skill rebind` | 显式替换技能锁定，并使已开始下游节点失效。 |
 | `task run --dry-run` | 无；仅创建运行预演记录。 |
 | `task run` | `ready → running → completed`，或在需要审批时进入 `awaiting_approval`。 |
+| `task fail` | `running → failed`，保留失败原因和运行记录。 |
 | `task approve` | `awaiting_approval → completed`。 |
 | `task request-changes` | 写入审批退回事实与修改说明；当前节点按依赖状态变为 `ready` 或 `pending`，下游已开始节点变为 `invalidated`。 |
 | `task revise` | 非审批场景下写入修改说明；当前节点按依赖状态变为 `ready` 或 `pending`，下游已开始节点变为 `invalidated`。 |

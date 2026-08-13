@@ -39,7 +39,8 @@
 ### FR-3：任务创建、来源快照与刷新
 
 - `aiw init` 创建本机安全配置并安装其锁定的默认团队技能包；配置保存默认 Git 来源/ref 与工作流模板，Registry 保存实际校验结果。
-- `aiw task init --project <path> --source <source> [--source-section <title>] [--skill-profile <name[@version]>]` 以 UTC 日期时间自动生成任务 ID（`task-YYYYMMDD-HHmmss-SSS`），创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照；不接受调用者指定任务 ID。省略模板时使用本机默认值。
+- `aiw task init --project <path> --source <source> [--source-section <title>] [--skill-profile <name[@version]>] [--force-new]` 以 UTC 日期时间自动生成任务 ID（`task-YYYYMMDD-HHmmss-SSS`），创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 与首个来源快照；不接受调用者指定任务 ID。省略模板时使用本机默认值。
+- 默认按同一业务仓库、规范化需求来源和需求章节检查未完成任务；命中时必须拒绝创建、返回已有任务 ID，且不得再次读取来源。仅在确需并行或重新开始时由调用者显式传入 `--force-new`。
 - `--project` 必须是 Git 工作树，且 `.aiw/` 不得被 Git 忽略；不满足时初始化失败且不写入任务事实。
 - 本地来源必须是项目目录内的真实普通文件；符号链接、目录、设备文件、FIFO 以及解析后落在项目目录外的路径均必须拒绝，其文本保存为 `sources/<source-id>/r1/snapshot.md`。
 - URL 来源仅支持 `http`/`https` 的 `text/plain`、`text/markdown`、`text/html`；HTML 必须转换为纯 Markdown/文本。

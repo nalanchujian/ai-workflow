@@ -8,7 +8,7 @@ export type NodeEvent =
   | { type: 'approve'; actor: string; note?: string }
   | { type: 'request_changes'; actor: string; note: string }
   | { type: 'revise'; actor: string; note: string }
-  | { type: 'fail'; message: string }
+  | { type: 'fail'; message: string; actor?: string }
   | { type: 'cancel'; note: string };
 
 export class TaskTransitionError extends Error {
@@ -82,7 +82,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
     case 'fail':
       assertStatus(node, ['running'], '只能将运行中的节点标记为失败');
       node.status = 'failed';
-      addEvent(next, 'fail', nodeId, { reason: event.message });
+      addEvent(next, 'fail', nodeId, { reason: event.message, ...(event.actor === undefined ? {} : { actor: event.actor }) });
       break;
     case 'cancel':
       assertStatus(node, ['running'], '只能取消运行中的节点');

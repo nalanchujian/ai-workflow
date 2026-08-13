@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parse, stringify } from 'yaml';
 
@@ -61,6 +61,21 @@ export class TaskStore {
     }
   }
 
+  async list(): Promise<Task[]> {
+    const tasksDirectory = join(this.projectRoot, '.aiw', 'tasks');
+    try {
+      const entries = await readdir(tasksDirectory, { withFileTypes: true });
+      return Promise.all(entries
+        .filter((entry) => entry.isDirectory() && /^[a-z][a-z0-9-]{1,63}$/.test(entry.name))
+        .map((entry) => this.load(entry.name)));
+    } catch (error) {
+      if (isMissingFile(error)) {
+        return [];
+      }
+      throw new TaskStoreError('无法读取任务列表');
+    }
+  }
+
   async update(task: Task): Promise<void> {
     const parsed = TaskSchema.parse(task);
     await this.writeTask(parsed);
@@ -107,4 +122,8 @@ export class TaskStore {
     await writeFile(temporaryPath, stringify(task), 'utf8');
     await rename(temporaryPath, taskPath);
   }
+}
+
+function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }

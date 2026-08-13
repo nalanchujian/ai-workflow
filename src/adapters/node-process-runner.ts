@@ -25,6 +25,13 @@ export class NodeProcessRunner implements ProcessRunner {
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => { stdout += chunk; });
       child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+      child.stdin.on('error', (error) => {
+        if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
+          return;
+        }
+        clearTimers();
+        reject(error);
+      });
       child.once('error', (error) => {
         clearTimers();
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

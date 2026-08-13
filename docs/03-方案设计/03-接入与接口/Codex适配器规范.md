@@ -62,13 +62,12 @@ Adapter 将 `AIW_CODEX_BIN` 解析为可执行文件；变量未设置时使用 
 ```text
 <AIW_CODEX_BIN|codex> exec
   --cd <projectRoot>
-  --sandbox workspace-write
   --approve-for-me
   --output-last-message <runDirectory>/last-message.md
   -
 ```
 
-`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`workspace-write` 将 Agent 写入范围限制为项目工作目录；`--approve-for-me` 仅适用于用户显式运行的 `aiw task run`，将审批请求交由该受限 sandbox 的自动审查处理，不得替换为绕过 sandbox 的参数。Adapter 必须将实际二进制路径、参数和运行模式写入本机 `request.json`；共享任务目录只记录去敏摘要。
+`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`--approve-for-me` 仅适用于用户显式运行的 `aiw task run`；当前 Codex CLI 会在该模式下使用 `workspace-write`，且不允许再显式传入 `--sandbox workspace-write`。Adapter 不得替换为绕过 sandbox 的参数。Adapter 必须将实际二进制路径、参数和运行模式写入本机 `request.json`；共享任务目录只记录去敏摘要。
 
 ## 失败与恢复
 

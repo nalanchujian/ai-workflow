@@ -61,4 +61,22 @@ describe('task init command', () => {
       skillProfile: 'standard-web-feature@2.0.0',
     });
   });
+
+  it('forwards force-new only when the caller explicitly requests another task', async () => {
+    let received: unknown;
+    const command = createTaskInitCommand({
+      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature', version: '2.0.0' }, nodes: {} }; } } as never,
+      defaultSkillProfile: async () => 'standard-web-feature@2.0.0',
+      stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--force-new']);
+
+    expect(received).toEqual({
+      projectRoot: '/repo',
+      source: '/repo/requirements.md',
+      skillProfile: 'standard-web-feature@2.0.0',
+      forceNew: true,
+    });
+  });
 });

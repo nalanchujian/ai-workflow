@@ -44,6 +44,23 @@ describe('TaskStateCommands', () => {
     expect((await store.load('refund-123')).nodes.plan.status).toBe('ready');
   });
 
+  it('marks an interrupted running node as failed with an auditable reason', async () => {
+    const { store } = await createApprovalTask('clarify');
+    const task = await store.load('refund-123');
+    task.nodes.clarify.status = 'running';
+    await store.update(task);
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'developer'; } } }),
+    });
+
+    await commands.fail('refund-123', 'clarify', { note: 'Codex CLI 参数冲突导致进程中断' });
+
+    const failed = await store.load('refund-123');
+    expect(failed.nodes.clarify.status).toBe('failed');
+    expect(failed.events.at(-1)).toMatchObject({ type: 'fail', nodeId: 'clarify', actor: 'developer', reason: 'Codex CLI 参数冲突导致进程中断' });
+  });
+
   it('rejects a skill rebind when the installed skill does not support the target phase', async () => {
     const { store, directory } = await createApprovalTask('plan');
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));

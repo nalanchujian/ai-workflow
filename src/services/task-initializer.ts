@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
@@ -26,10 +26,14 @@ export class TaskInitializer {
     now?: () => Date;
   }) {}
 
-  async init(input: { projectRoot: string; source: string; sourceSection?: string; skillProfile: string }): Promise<Task> {
+  async init(input: { projectRoot: string; source: string; sourceSection?: string; skillProfile: string; forceNew?: boolean }): Promise<Task> {
+    await this.deps.projectRepository.assertProjectReady(input.projectRoot);
+    const taskStore = this.deps.taskStoreFactory(input.projectRoot);
+    if (input.forceNew !== true) {
+      await this.rejectDuplicateTask(taskStore, input);
+    }
     const id = taskIdAt(this.deps.now?.() ?? new Date());
     assertTaskId(id);
-    await this.deps.projectRepository.assertProjectReady(input.projectRoot);
     const [profileName, profileVersion] = parseReference(input.skillProfile, '工作流模板');
     const profile = await this.deps.registry.findProfile(profileName, profileVersion);
     if (profile === undefined) {
@@ -39,7 +43,6 @@ export class TaskInitializer {
     const skills = await this.resolveSkills(profile.skills);
     const sourceId = 'requirements';
     const sourceIntake = this.deps.sourceIntakeFactory(input.projectRoot);
-    const taskStore = this.deps.taskStoreFactory(input.projectRoot);
     const source = await sourceIntake.snapshot({
       kind: detectSourceKind(input.source),
       sourceId,
@@ -92,6 +95,21 @@ export class TaskInitializer {
       return [stage, skill] as const;
     }));
     return Object.fromEntries(resolved) as Record<(typeof executableStages)[number], InstalledSkill>;
+  }
+
+  private async rejectDuplicateTask(taskStore: TaskStore, input: { projectRoot: string; source: string; sourceSection?: string }): Promise<void> {
+    const sourceKind = detectSourceKind(input.source);
+    const sourceOrigin = normalizeSourceOrigin(input.projectRoot, input.source, sourceKind);
+    const sourceSection = normalizeSection(input.sourceSection);
+    const duplicates = (await taskStore.list()).filter((task) => isUnfinished(task)
+      && task.sources.requirements?.kind === sourceKind
+      && normalizeSourceOrigin(input.projectRoot, task.sources.requirements.origin, sourceKind) === sourceOrigin
+      && normalizeSection(task.sources.requirements.section) === sourceSection);
+    if (duplicates.length === 0) {
+      return;
+    }
+    const ids = duplicates.map((task) => task.id).join('、');
+    throw new Error(`已存在相同需求的未完成任务：${ids}。请先执行 aiw task status <task-id> 查看并继续；确需重新创建时使用 --force-new。`);
   }
 }
 
@@ -157,6 +175,29 @@ function detectSourceKind(source: string): SourceKind {
     // The source is handled as a local file below.
   }
   return /^https?:\/\//.test(source) ? 'public-url' : 'local-file';
+}
+
+function normalizeSourceOrigin(projectRoot: string, source: string, kind: SourceKind): string {
+  if (kind === 'local-file') {
+    return relative(resolve(projectRoot), resolve(projectRoot, source)).replaceAll('\\', '/');
+  }
+  const url = new URL(source);
+  url.search = '';
+  url.hash = '';
+  if (url.pathname.length > 1) {
+    url.pathname = url.pathname.replace(/\/+$/, '');
+  }
+  return url.toString();
+}
+
+function normalizeSection(section: string | undefined): string | undefined {
+  return section?.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
+function isUnfinished(task: Task): boolean {
+  return task.status !== 'completed'
+    && task.status !== 'cancelled'
+    && Object.values(task.nodes).some((node) => node.status !== 'completed' && node.status !== 'cancelled');
 }
 
 function isLarkHost(hostname: string, suffix: string): boolean {
