@@ -2,13 +2,21 @@ import { Command } from 'commander';
 
 import type { DefaultWorkflowBootstrapper } from '../services/default-workflow-bootstrapper.js';
 import { writeCommandResult } from './output.js';
+import { TerminalProgressReporter, withProgress, type ProgressReporter } from './progress-reporter.js';
 
-export function createInitCommand(deps: { bootstrapper: DefaultWorkflowBootstrapper; stdout: NodeJS.WriteStream }): Command {
+export function createInitCommand(deps: { bootstrapper: DefaultWorkflowBootstrapper; progress?: ProgressReporter; stdout: NodeJS.WriteStream }): Command {
   return new Command('init')
     .description('初始化本机 AI Workflow 配置模板')
     .option('--lark-server <name>', '多个 Lark MCP 候选时，指定要使用的 Codex MCP Server 名称')
     .action(async (options: { larkServer?: string }, command: Command) => {
-      const result = await deps.bootstrapper.init(options.larkServer === undefined ? {} : { larkServer: options.larkServer });
+      const result = await withProgress({
+        reporter: deps.progress ?? new TerminalProgressReporter({ stderr: process.stderr }),
+        command,
+        start: '正在准备本机环境、默认工作流与 Lark 连接',
+        success: '本机环境已就绪',
+        failure: '本机初始化失败',
+        operation: () => deps.bootstrapper.init(options.larkServer === undefined ? {} : { larkServer: options.larkServer }),
+      });
       if (command.optsWithGlobals().json) {
         writeCommandResult(result, command, deps.stdout);
         return;

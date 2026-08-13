@@ -2,8 +2,9 @@ import { Command } from 'commander';
 
 import type { TaskInitializer } from '../services/task-initializer.js';
 import { writeCommandResult } from './output.js';
+import { TerminalProgressReporter, withProgress, type ProgressReporter } from './progress-reporter.js';
 
-export function createTaskInitCommand(deps: { initializer: TaskInitializer; defaultSkillProfile: () => Promise<string>; stdout: NodeJS.WriteStream }): Command {
+export function createTaskInitCommand(deps: { initializer: TaskInitializer; defaultSkillProfile: () => Promise<string>; progress?: ProgressReporter; stdout: NodeJS.WriteStream }): Command {
   return new Command('init')
     .description('使用工作流模板初始化研发任务')
     .requiredOption('--project <path>', '业务仓库根目录')
@@ -13,12 +14,19 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
     .option('--force-new', '即使存在相同未完成需求任务，仍创建新任务')
     .action(async (options: { project: string; source: string; sourceSection?: string; skillProfile?: string; forceNew?: boolean }, command: Command) => {
       const skillProfile = options.skillProfile ?? await deps.defaultSkillProfile();
-      const task = await deps.initializer.init({
-        projectRoot: options.project,
-        source: options.source,
-        ...(options.sourceSection === undefined ? {} : { sourceSection: options.sourceSection }),
-        ...(options.forceNew === true ? { forceNew: true } : {}),
-        skillProfile,
+      const task = await withProgress({
+        reporter: deps.progress ?? new TerminalProgressReporter({ stderr: process.stderr }),
+        command,
+        start: '正在检查业务仓库并读取需求来源',
+        success: '需求已固化，任务已创建',
+        failure: '任务初始化失败',
+        operation: () => deps.initializer.init({
+          projectRoot: options.project,
+          source: options.source,
+          ...(options.sourceSection === undefined ? {} : { sourceSection: options.sourceSection }),
+          ...(options.forceNew === true ? { forceNew: true } : {}),
+          skillProfile,
+        }),
       });
       writeCommandResult({ taskId: task.id, skillProfile: `${task.skillProfile.name}@${task.skillProfile.version}`, status: task.status }, command, deps.stdout);
     });
