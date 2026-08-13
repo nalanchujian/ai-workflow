@@ -175,7 +175,7 @@ function addEvent(
   task.events.push({ type, nodeId, at: new Date().toISOString(), ...detail });
 }
 
-function deriveTaskStatus(task: Task): Task {
+export function deriveTaskStatus(task: Task): Task {
   const statuses = Object.values(task.nodes).map((node) => node.status);
   if (statuses.every((status) => status === 'completed')) {
     task.status = 'completed';

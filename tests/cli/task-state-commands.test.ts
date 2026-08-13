@@ -78,6 +78,24 @@ describe('TaskStateCommands', () => {
     await expect(commands.rebindSkill('refund-123', 'plan', { skill: 'clarify-only@1.0.0', note: '错误映射' }))
       .rejects.toThrow('技能与节点阶段不兼容');
   });
+
+  it('adds an implementation subtask with explicit dependency, approval and verify merge edge', async () => {
+    const { store } = await createApprovalTask('plan');
+    const task = await store.load('refund-123');
+    task.nodes.plan.status = 'completed';
+    task.nodes.implement.status = 'pending';
+    task.nodes.verify.status = 'pending';
+    await store.update(task);
+    const commands = new TaskStateCommands({ taskStore: store, taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; } } }) });
+
+    const updated = await commands.addSubtask('refund-123', 'implement-export', {
+      title: '实现导出文件名', dependsOn: ['plan'], before: ['verify'], requiresApproval: true,
+    });
+
+    expect(updated.nodes['implement-export']).toMatchObject({ phase: 'implement', dependsOn: ['plan'], status: 'ready', requiresApproval: true, outputs: ['artifacts/subtasks/implement-export.md'] });
+    expect(updated.nodes.verify.dependsOn).toEqual(['implement', 'implement-export']);
+    expect(updated.events.at(-1)).toMatchObject({ type: 'add_subtask', nodeId: 'implement-export' });
+  });
 });
 
 async function createApprovalTask(nodeId: 'clarify' | 'plan'): Promise<{ store: TaskStore; directory: string }> {

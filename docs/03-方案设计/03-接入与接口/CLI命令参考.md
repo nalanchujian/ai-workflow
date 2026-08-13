@@ -111,7 +111,7 @@ aiw skills list --json
 aiw skills update --ref v2.1.0
 ```
 
-命令读取 `~/.aiw/config.yaml` 中的默认技能仓库地址，先安装和校验指定 ref；成功后将默认 ref 与该技能包中同名工作流模板的新版本一并更新。若新包缺少当前默认模板名，配置保持不变。命令不改写已有任务的锁定事实，但当前本机 Registry 不保留同一来源的多个版本，升级会替换旧任务运行所需的本机技能副本，导致进行中的旧任务可能无法继续运行。应在旧任务完成后再升级；如已升级，可切回旧 tag，或基于新版重新创建任务。
+命令读取 `~/.aiw/config.yaml` 中的默认技能仓库地址，先安装和校验指定 ref；成功后将默认 ref 与该技能包中同名工作流模板的新版本一并更新。若新包缺少当前默认模板名，配置保持不变。命令不改写已有任务的锁定事实；Registry 按 Git revision 保留同一来源的多个副本，进行中的旧任务仍解析其锁定版本。
 
 ### `aiw skills profiles list`
 
@@ -199,6 +199,19 @@ aiw task skill rebind refund-123 plan --skill implementation-planning@1.1.0 --no
 ```
 
 仅允许 `pending`、`ready`、`failed` 或 `invalidated` 节点重新绑定；`running`、`awaiting_approval`、`completed` 节点必须先结束或修订。命令记录前后锁定及原因，并使所有已开始下游节点失效。重新绑定后的 `task.yaml` 必须提交后才能运行。
+
+### `aiw task subtask add <task-id> <node-id>`
+
+为复杂需求增加一个实施阶段子节点。`--depends-on <node-id>` 可重复，默认依赖 `plan`；`--before <node-id>` 可重复，默认让 `verify` 等待该子任务，形成明确汇合边；`--requires-approval` 使该子任务独立进入审批。子节点沿用当前任务锁定的实施技能，产物写入 `artifacts/subtasks/<node-id>.md`。只能修改尚未开始的汇合节点。所有 `task` 子命令均可加 `--project <业务仓库>`，无需先 `cd` 到业务仓库。
+
+```bash
+aiw task subtask add task-20260813-111606-115 implement-export \
+  --project /path/to/business-repository \
+  --title "实现导出文件名" \
+  --depends-on plan \
+  --before verify \
+  --requires-approval
+```
 
 ### `aiw task run <task-id> <node-id> [--dry-run] [--include <relative-path>]`
 

@@ -4,10 +4,10 @@ import { Command } from 'commander';
 import { stringify } from 'yaml';
 import { z } from 'zod';
 
-import type { SkillLock, Task } from '../domain/task.js';
+import { TaskSchema, type SkillLock, type Task, type TaskNode } from '../domain/task.js';
 import type { SkillRegistry } from '../services/skill-registry.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
-import { transitionNode } from '../services/task-state-machine.js';
+import { deriveTaskStatus, transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
 import { writeCommandResult } from './output.js';
 
@@ -78,6 +78,36 @@ export class TaskStateCommands {
     return next;
   }
 
+  async addSubtask(taskId: string, nodeId: string, options: { title: string; dependsOn: string[]; before: string[]; requiresApproval: boolean }): Promise<Task> {
+    if (!/^[a-z][a-z0-9-]{1,63}$/.test(nodeId)) throw new Error('子任务节点 ID 格式无效');
+    const task = await this.deps.taskStore.load(taskId);
+    if (task.nodes[nodeId] !== undefined) throw new Error(`子任务节点已存在：${nodeId}`);
+    const dependencies = [...new Set(options.dependsOn.length === 0 ? ['plan'] : options.dependsOn)];
+    const mergeTargets = [...new Set(options.before.length === 0 ? ['verify'] : options.before)];
+    for (const dependency of dependencies) if (task.nodes[dependency] === undefined) throw new Error(`未知依赖节点：${dependency}`);
+    for (const target of mergeTargets) {
+      const node = task.nodes[target];
+      if (node === undefined) throw new Error(`未知汇合节点：${target}`);
+      if (node.status !== 'pending') throw new Error(`只能在未开始的节点前汇合：${target}`);
+    }
+    const template = task.nodes.implement;
+    if (template?.skill === undefined) throw new Error('任务未锁定实施技能，无法创建子任务');
+    const title = options.title.trim();
+    if (title.length === 0) throw new Error('子任务标题不能为空');
+    const subtask: TaskNode = {
+      title, phase: 'implement', dependsOn: dependencies, skill: template.skill,
+      requiresApproval: options.requiresApproval,
+      status: dependencies.every((dependency) => task.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
+      revision: 0, outputs: [`artifacts/subtasks/${nodeId}.md`],
+    };
+    task.nodes[nodeId] = subtask;
+    for (const target of mergeTargets) task.nodes[target]!.dependsOn = [...new Set([...task.nodes[target]!.dependsOn, nodeId])];
+    task.events.push({ type: 'add_subtask', nodeId, at: new Date().toISOString(), note: `依赖：${dependencies.join('、')}；汇合：${mergeTargets.join('、')}` });
+    const next = TaskSchema.parse(deriveTaskStatus(task));
+    await this.deps.taskStore.update(next);
+    return next;
+  }
+
   private async decide(
     taskId: string,
     nodeId: string,
@@ -143,7 +173,21 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   command.addCommand(new Command('skill').addCommand(new Command('rebind').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--skill <name@version>').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { skill: string; note: string }, current: Command) => {
     writeCommandResult(await deps.commands.rebindSkill(taskId, nodeId, options), current, deps.stdout);
   })));
+  command.addCommand(new Command('subtask').description('为复杂实施任务添加可并行子节点')
+    .addCommand(new Command('add').argument('<task-id>').argument('<node-id>')
+      .option('--project <path>', '业务仓库根目录；默认当前目录')
+      .requiredOption('--title <title>', '子任务标题')
+      .option('--depends-on <node-id>', '依赖节点；可重复，默认 plan', collect, [])
+      .option('--before <node-id>', '完成后必须汇合的未开始节点；可重复，默认 verify', collect, [])
+      .option('--requires-approval', '子任务完成后等待人工审批')
+      .action(async (taskId: string, nodeId: string, options: { title: string; dependsOn: string[]; before: string[]; requiresApproval?: boolean }, current: Command) => {
+        writeCommandResult(await deps.commands.addSubtask(taskId, nodeId, { ...options, requiresApproval: options.requiresApproval ?? false }), current, deps.stdout);
+      })));
   return command;
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
 
 async function outputHashes(task: Task, taskStore: TaskStore, nodeId: string): Promise<Record<string, string>> {
