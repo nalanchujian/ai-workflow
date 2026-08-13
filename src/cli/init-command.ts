@@ -22,16 +22,15 @@ function renderInitResult(result: Awaited<ReturnType<DefaultWorkflowBootstrapper
     ? '已创建本机配置模板。'
     : result.status === 'updated'
       ? '已补充本机默认工作流配置。'
-      : '本机配置已存在。';
+      : '已使用现有本机配置。';
   return [
     'AI Workflow 本机环境已就绪',
     '',
     configMessage,
     `位置：${result.configPath}`,
     `默认工作流：${result.workflow.profile}`,
-    `技能包来源：${repositoryName(result.workflow.source.url)}（Git 标签：${result.workflow.source.ref}）`,
-    `技能状态：${result.workflow.status === 'installed' ? '已安装' : '已复用'}`,
-    ...(result.lark === undefined ? [] : [`Lark MCP：${renderLarkStatus(result.lark)}`]),
+    `技能包：已就绪（${result.workflow.status === 'installed' ? '本次已安装' : '使用本机已安装版本'}）`,
+    ...(result.lark === undefined ? [] : [`Lark 文档支持：${renderLarkStatus(result.lark)}`]),
     '',
     '下一步：',
     'aiw task init --project <业务仓库> --source <需求来源>',
@@ -40,24 +39,19 @@ function renderInitResult(result: Awaited<ReturnType<DefaultWorkflowBootstrapper
 
 function renderLarkStatus(result: NonNullable<Awaited<ReturnType<DefaultWorkflowBootstrapper['init']>>['lark']>): string {
   if (result.status === 'configured') {
-    return `已自动连接（${result.server}）`;
+    return `已就绪（已识别 ${result.server}）`;
   }
   if (result.status === 'already-configured') {
-    return '已配置';
+    return '已就绪（使用现有配置）';
   }
   if (result.status === 'not-found') {
-    return '未发现已配置的 Lark Server';
+    return '未就绪（未发现已配置的 Lark Server）';
   }
   if (result.status === 'ambiguous') {
-    return `发现多个候选 Server（${result.servers.join('、')}），未自动选择`;
+    return `未就绪（多个候选：${result.servers.join('、')}）`;
   }
   if (result.status === 'unsupported') {
-    return '未发现支持的 Lark 文档读取工具';
+    return '未就绪（未发现支持的文档读取工具）';
   }
-  return '暂时无法自动检测';
-}
-
-function repositoryName(url: string): string {
-  const name = url.split('/').at(-1)?.replace(/\.git$/, '');
-  return name === undefined || name.length === 0 ? url : name;
+  return '未就绪（暂时无法自动检测）';
 }
