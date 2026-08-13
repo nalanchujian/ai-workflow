@@ -82,4 +82,17 @@ describe('SkillInstaller', () => {
     expect(installed.profiles).toHaveLength(1);
     expect(await registry.list()).toHaveLength(6);
   });
+
+  it('rejects a source that contains neither skills nor workflow profiles', async () => {
+    const directory = await createTempDirectory('aiw-skill-installer-');
+    directories.push(directory);
+    const repository = join(directory, 'empty-repository');
+    await mkdir(repository, { recursive: true });
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, methodSources: {} as MethodSourceResolver, registry });
+
+    await expect(installer.install({ url: 'https://example.test/empty.git' })).rejects.toThrow('未包含有效技能或工作流模板');
+    await expect(registry.list()).resolves.toEqual([]);
+    await expect(registry.listProfiles()).resolves.toEqual([]);
+  });
 });

@@ -31,4 +31,15 @@ describe('LarkSourceConnector', () => {
       markdown: '# Refund requirements',
     });
   });
+
+  it('maps an unavailable MCP server without exposing its error details', async () => {
+    const connector = new LarkSourceConnector({
+      client: { async callTool() { throw new Error('token=secret'); } },
+      config: { configPath: '/local/config.toml', server: 'lark-openapi', tool: 'docx_v1_document_rawContent', useUAT: false },
+      resolver: { async resolve() { return { args: [], command: 'lark-mcp', env: {}, transport: 'stdio' }; } },
+    });
+
+    await expect(connector.fetch('https://example.larksuite.com/docx/doccn123'))
+      .rejects.toMatchObject({ code: 'LARK_MCP_UNAVAILABLE', message: 'Lark MCP 不可用' });
+  });
 });

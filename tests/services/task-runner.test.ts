@@ -54,6 +54,14 @@ describe('TaskRunner', () => {
     await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: true, includes: [] }))
       .rejects.toMatchObject({ code: 'CONTEXT_BUDGET_EXCEEDED' });
   });
+
+  it('rejects a blocked downstream node before invoking Codex', async () => {
+    const fixture = await createRunnerFixture({});
+
+    await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'solution', dryRun: false, includes: [] }))
+      .rejects.toMatchObject({ code: 'NODE_NOT_RUNNABLE' });
+    expect(fixture.processCalls).toHaveLength(0);
+  });
 });
 
 async function createRunnerFixture(options: {

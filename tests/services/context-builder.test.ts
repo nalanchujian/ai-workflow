@@ -65,6 +65,41 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'revision-request', path: 'revisions/plan/r2.md' }));
   });
+
+  it('rejects an additional file outside the project root', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+
+    await expect(new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'clarify', includes: ['../secret.md'] }))
+      .rejects.toMatchObject({ code: 'CONTEXT_INVALID' });
+  });
+
+  it('records the exact Lark snapshot revision in the clarify manifest', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+    await mkdir(join(directory, 'sources', 'requirements', 'r2'), { recursive: true });
+    await writeFile(join(directory, 'sources', 'requirements', 'r2', 'snapshot.md'), '# Lark requirements\n', 'utf8');
+    task.sources.requirements = {
+      kind: 'lark-document',
+      origin: 'https://example.larksuite.com/docx/doccn123',
+      externalId: 'doccn123',
+      revision: 2,
+      snapshotPath: 'sources/requirements/r2/snapshot.md',
+      metaPath: 'sources/requirements/r2/meta.json',
+      contentSha256: 'a'.repeat(64),
+    };
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'clarify', includes: [] });
+
+    expect(manifest.files).toContainEqual(expect.objectContaining({
+      role: 'source',
+      path: 'sources/requirements/r2/snapshot.md',
+      sourceId: 'requirements',
+      sourceRevision: 2,
+    }));
+  });
 });
 
 async function taskDirectory(): Promise<string> {

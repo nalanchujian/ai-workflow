@@ -78,7 +78,7 @@ tests/                               # 与 src 对应的单元和集成测试
 - 提供 `createProgram(deps: CliDependencies): Command`。
 - 提供 `writeResult(value: unknown, options: { json: boolean; stdout: NodeJS.WriteStream }): void`。
 
-- [ ] **步骤 1：编写失败的 CLI 测试**
+- [x] **步骤 1：编写失败的 CLI 测试**
 
 ```ts
 it('prints the command list for --help', async () => {
@@ -95,12 +95,12 @@ it('prints one JSON document when --json is selected', () => {
 });
 ```
 
-- [ ] **步骤 2：确认测试在实现前失败**
+- [x] **步骤 2：确认测试在实现前失败**
 
 运行：`pnpm vitest run tests/cli/help.test.ts tests/cli/output.test.ts`
 预期：因脚本和 `runCli` 尚不存在而失败。
 
-- [ ] **步骤 3：实现最小 CLI 程序**
+- [x] **步骤 3：实现最小 CLI 程序**
 
 ```ts
 export function createProgram(deps: CliDependencies): Command {
@@ -115,12 +115,12 @@ export function createProgram(deps: CliDependencies): Command {
 
 在 `package.json` 定义 `build`、`test`、`lint`、`typecheck` 和 `dev` 脚本。`src/cli.ts` 调用 `createProgram`，捕获异常后写入 stderr 并以状态码 `1` 退出。`tests/helpers/run-cli.ts` 使用伪依赖创建程序、捕获 stdout/stderr/退出码。
 
-- [ ] **步骤 4：运行基础验证**
+- [x] **步骤 4：运行基础验证**
 
 运行：`pnpm lint && pnpm typecheck && pnpm test`
 预期：全部命令以 `0` 退出。
 
-- [ ] **步骤 5：提交 CLI 基础**
+- [x] **步骤 5：提交 CLI 基础**
 
 ```bash
 git add package.json pnpm-lock.yaml tsconfig.json eslint.config.js .npmrc src/cli.ts src/cli tests/cli tests/helpers README.md
@@ -140,7 +140,7 @@ git commit -m "feat: initialize aiw CLI foundation"
 - 提供 `transitionNode(task: Task, nodeId: string, event: NodeEvent): Task`。
 - 提供 `invalidateDependents(task: Task, upstreamNodeId: string, reason: string): Task`。
 
-- [ ] **步骤 1：编写状态迁移失败测试**
+- [x] **步骤 1：编写状态迁移失败测试**
 
 ```ts
 it('only makes a node ready after every dependency completes', () => {
@@ -162,12 +162,12 @@ it('rebinds an initialized profile skill only by an explicit exception event and
 });
 ```
 
-- [ ] **步骤 2：运行测试并确认失败**
+- [x] **步骤 2：运行测试并确认失败**
 
 运行：`pnpm vitest run tests/domain/task.test.ts tests/services/task-state-machine.test.ts`
 预期：因 schema 和状态机尚不存在而失败。
 
-- [ ] **步骤 3：实现不可变 schema 和合法迁移**
+- [x] **步骤 3：实现不可变 schema 和合法迁移**
 
 ```ts
 export type NodeEvent =
@@ -190,12 +190,12 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
 
 对未知节点和非法事件抛出 `TaskTransitionError`。审批事件与 `NodeStatus` 分离；解析或创建任务时执行 DFS 环检测。
 
-- [ ] **步骤 4：验证状态模型**
+- [x] **步骤 4：验证状态模型**
 
 运行：`pnpm vitest run tests/domain/task.test.ts tests/services/task-state-machine.test.ts && pnpm lint && pnpm typecheck`
 预期：全部通过。
 
-- [ ] **步骤 5：提交状态机**
+- [x] **步骤 5：提交状态机**
 
 ```bash
 git add src/domain/task.ts src/services/task-state-machine.ts tests/domain/task.test.ts tests/services/task-state-machine.test.ts
@@ -218,7 +218,7 @@ git commit -m "feat: add task DAG state machine"
 - 提供 `LarkSourceConnector.fetch(url: string): Promise<ConnectorSource>`，使用可注入的 MCP 配置解析器与客户端。
 - 提供 `SourceRefresher.refresh(input: { taskId: string; sourceId: string }): Promise<RefreshResult>`。
 
-- [ ] **步骤 1：编写任务事实、来源和 URL 安全失败测试**
+- [x] **步骤 1：编写任务事实、来源和 URL 安全失败测试**
 
 ```ts
 it('stores a task fact and hashes a local Markdown snapshot', async () => {
@@ -242,21 +242,21 @@ it('creates a new revision and invalidates downstream nodes when Lark content ch
 });
 ```
 
-- [ ] **步骤 2：运行测试并确认失败**
+- [x] **步骤 2：运行测试并确认失败**
 
 运行：`pnpm vitest run tests/adapters/stdio-mcp-client.test.ts tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-source-refresh-command.test.ts`
 预期：因存储和接入服务尚不存在而失败。
 
-- [ ] **步骤 3：实现原子存储与安全接入**
+- [x] **步骤 3：实现原子存储与安全接入**
 
 按[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)、[任务模型规范](../03-方案设计/02-核心规范/任务模型规范.md)、[安全规范](../03-方案设计/02-核心规范/安全规范.md)和[Lark来源连接器规范](../03-方案设计/03-接入与接口/Lark来源连接器规范.md)实现 `TaskStore`、`SourceIntake`、`LarkSourceConnector` 与 `SourceRefresher`。先完成原子持久化与本地来源，再接入公开 URL，最后接入 Lark MCP 与来源刷新；任务初始化在下一任务获得工作流模板 Registry 后实现。每一步只通过可注入端口访问文件、网络、Git 和 MCP。
 
-- [ ] **步骤 4：验证任务事实与来源接入**
+- [x] **步骤 4：验证任务事实与来源接入**
 
 运行：`pnpm vitest run tests/adapters/stdio-mcp-client.test.ts tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-source-refresh-command.test.ts && pnpm lint && pnpm typecheck`
 预期：全部通过。
 
-- [ ] **步骤 5：提交来源接入**
+- [x] **步骤 5：提交来源接入**
 
 ```bash
 git add src/ports/network-client.ts src/ports/mcp-client.ts src/ports/mcp-server-config-resolver.ts src/adapters/stdio-mcp-client.ts src/services/task-store.ts src/services/source-intake.ts src/services/lark-source-connector.ts src/services/source-refresher.ts src/cli/task-source-refresh-command.ts tests/adapters/stdio-mcp-client.test.ts tests/services/task-store.test.ts tests/services/source-intake.test.ts tests/services/lark-source-connector.test.ts tests/services/source-refresher.test.ts tests/cli/task-source-refresh-command.test.ts
@@ -279,7 +279,7 @@ git commit -m "feat: add task source intake and refresh"
 - 提供 `SkillRegistry.list(): Promise<InstalledSkill[]>`、`listProfiles(): Promise<InstalledWorkflowProfile[]>`、`find(name: string, version?: string): Promise<InstalledSkill>` 与 `findProfile(name: string, version?: string): Promise<InstalledWorkflowProfile>`。
 - 提供 `TaskInitializer.init(input: { id: string; projectRoot: string; source: string; skillProfile: string }): Promise<Task>`。
 
-- [ ] **步骤 1：编写技能安装失败测试**
+- [x] **步骤 1：编写技能安装失败测试**
 
 ```ts
 it('records valid skills, a workflow profile, locked Git revisions, and resolved Superpowers methods', async () => {
@@ -304,21 +304,21 @@ it('does not mutate the registry when a method source is not configured', async 
 });
 ```
 
-- [ ] **步骤 2：运行测试并确认失败**
+- [x] **步骤 2：运行测试并确认失败**
 
 运行：`pnpm vitest run tests/services/local-config.test.ts tests/services/method-source-resolver.test.ts tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/services/task-initializer.test.ts tests/cli/skills-commands.test.ts tests/cli/task-init-command.test.ts`
 预期：因 Registry 和安装器尚不存在而失败。
 
-- [ ] **步骤 3：实现 Registry 和技能校验**
+- [x] **步骤 3：实现 Registry 和技能校验**
 
 按[技能包规范](../03-方案设计/02-核心规范/技能包规范.md)实现 `GitClient`、`LocalConfig`、`MethodSourceResolver`、`SkillRegistry`、`SkillInstaller` 与 `TaskInitializer`；实现顺序为 Git 来源锁定、`SKILL.md`/`PROFILE.yaml` 解析与校验、显式本机 Profile 解析、上游方法论入口的 `realpath`/版本/revision/哈希校验、Registry 原子写入、工作流模板解析并锁定六阶段技能、`task init` 与模板列表命令接入。必须覆盖模板缺失、阶段映射不完整、引用技能不兼容、方法 Profile 缺失、版本不匹配、入口越界和运行时哈希变化时拒绝；不得实现 Codex 缓存扫描、网络下载或“最接近版本”回退。所有外部 Git 与文件操作均经可替换端口完成。
 
-- [ ] **步骤 4：验证技能功能**
+- [x] **步骤 4：验证技能功能**
 
 运行：`pnpm vitest run tests/services/local-config.test.ts tests/services/method-source-resolver.test.ts tests/services/skill-installer.test.ts tests/services/skill-registry.test.ts tests/services/task-initializer.test.ts tests/cli/skills-commands.test.ts tests/cli/task-init-command.test.ts && pnpm lint && pnpm typecheck`
 预期：全部通过。
 
-- [ ] **步骤 5：提交技能支持**
+- [x] **步骤 5：提交技能支持**
 
 ```bash
 git add src/domain/skill.ts src/domain/workflow-profile.ts src/domain/method-source.ts src/ports/git-client.ts src/ports/method-source-resolver.ts src/services/local-config.ts src/services/method-source-resolver.ts src/services/skill-registry.ts src/services/skill-installer.ts src/services/task-initializer.ts src/cli/skills-commands.ts src/cli/task-init-command.ts tests/services/skill-installer.test.ts tests/services/local-config.test.ts tests/services/method-source-resolver.test.ts tests/services/skill-registry.test.ts tests/services/task-initializer.test.ts tests/cli/skills-commands.test.ts tests/cli/task-init-command.test.ts
@@ -340,7 +340,7 @@ git commit -m "feat: initialize tasks with locked workflow profiles"
 - 提供 `TaskFactGuard.assertCommitted(input: { task: Task; paths: string[] }): Promise<void>`。
 - 在 `src/domain/context.ts` 提供 schemaVersion 为 `aiw.context/v1` 的 `ContextManifestSchema`。
 
-- [ ] **步骤 1：编写审批、失效和预算失败测试**
+- [x] **步骤 1：编写审批、失效和预算失败测试**
 
 ```ts
 it('approves the committed clarify revision and unlocks solution after its fact is committed', async () => {
@@ -372,21 +372,21 @@ it('fails above the context budget without truncating any file', async () => {
 });
 ```
 
-- [ ] **步骤 2：运行测试并确认失败**
+- [x] **步骤 2：运行测试并确认失败**
 
 运行：`pnpm vitest run tests/services/context-builder.test.ts tests/cli/task-state-commands.test.ts`
 预期：因审批命令和 Context Builder 尚不存在而失败。
 
-- [ ] **步骤 3：实现 manifest 构建和任务状态命令**
+- [x] **步骤 3：实现 manifest 构建和任务状态命令**
 
 按[任务模型规范](../03-方案设计/02-核心规范/任务模型规范.md)、[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)和[CLI命令参考](../03-方案设计/03-接入与接口/CLI命令参考.md)实现单节点技能重新绑定、批准、要求修改、主动修订、状态查询、Git 事实校验与 Context Manifest。实施顺序为状态命令、任务模板/技能锁定提交校验、已提交事实校验、默认阶段上下文选择、修改说明注入、Manifest 生成及预算校验。
 
-- [ ] **步骤 4：验证审批和上下文功能**
+- [x] **步骤 4：验证审批和上下文功能**
 
 运行：`pnpm vitest run tests/services/context-builder.test.ts tests/cli/task-state-commands.test.ts && pnpm lint && pnpm typecheck`
 预期：全部通过。
 
-- [ ] **步骤 5：提交上下文逻辑**
+- [x] **步骤 5：提交上下文逻辑**
 
 ```bash
 git add src/domain/context.ts src/ports/repository-status.ts src/services/context-builder.ts src/services/task-fact-guard.ts src/services/task-store.ts src/cli/task-state-commands.ts tests/services/context-builder.test.ts tests/services/task-fact-guard.test.ts tests/cli/task-state-commands.test.ts
@@ -482,7 +482,7 @@ it('initializes seven phases and dry-runs clarify with a committed locked Superp
 运行：`pnpm lint && pnpm typecheck && pnpm test && pnpm build`
 预期：全部以 `0` 退出；端到端测试遵守[安全规范](../03-方案设计/02-核心规范/安全规范.md)规定的外部依赖隔离边界。
 
-- [ ] **步骤 5：提交已验证的 MVP**
+- [x] **步骤 5：提交已验证的 MVP**
 
 ```bash
 git add README.md docs/02-需求定义/MVP需求与验收规范.md tests/e2e tests/fakes src
