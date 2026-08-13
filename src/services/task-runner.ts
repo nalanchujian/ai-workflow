@@ -62,7 +62,16 @@ export class TaskRunner {
       throw new TaskRunnerError('SKILL_LOCK_INVALID', '已锁定技能与当前节点阶段不兼容');
     }
     const methods = await Promise.all(node.skill.methodSources.map((source) => this.deps.methodSourceResolver.readLocked(source)));
-    const manifest = await this.deps.contextBuilder.build({ task, nodeId: input.nodeId, includes: input.includes });
+    const manifest = await this.deps.contextBuilder.build({
+      task,
+      nodeId: input.nodeId,
+      includes: input.includes,
+      budgetInputs: [
+        { label: '节点指令', content: node.title },
+        { label: `技能：${skill.name}@${skill.version}`, content: skill.body },
+        ...methods.map((method) => ({ label: `方法论：${method.source.id}`, content: method.content })),
+      ],
+    });
     await this.deps.taskFactGuard.assertCommitted({ task, paths: committedPaths(task, this.deps.taskStore, manifest) });
 
     const runId = this.deps.runIdFactory?.() ?? randomUUID();

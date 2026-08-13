@@ -21,7 +21,7 @@ export class ContextBuilder {
     maxTokens?: number;
   }) {}
 
-  async build(input: { task: Task; nodeId: string; includes: string[] }): Promise<ContextManifest> {
+  async build(input: { task: Task; nodeId: string; includes: string[]; budgetInputs?: ContextBudgetInput[] }): Promise<ContextManifest> {
     const node = input.task.nodes[input.nodeId];
     if (node === undefined || node.phase === 'intake' || node.skill === undefined) {
       throw new ContextBuilderError('CONTEXT_INVALID', '当前节点不能创建上下文');
@@ -40,10 +40,14 @@ export class ContextBuilder {
       ...(file.sourceId === undefined ? {} : { sourceId: file.sourceId }),
       ...(file.sourceRevision === undefined ? {} : { sourceRevision: file.sourceRevision }),
     }));
-    const estimatedTokens = deduplicated.reduce((total, file) => total + estimateTokens(file.content), 0);
+    const budgetInputs = [
+      ...deduplicated.map((file) => ({ label: file.path, content: file.content })),
+      ...(input.budgetInputs ?? []),
+    ];
+    const estimatedTokens = budgetInputs.reduce((total, entry) => total + estimateTokens(entry.content), 0);
     const maxTokens = this.deps.maxTokens ?? DEFAULT_TOKEN_BUDGET;
     if (estimatedTokens > maxTokens) {
-      throw new ContextBuilderError('CONTEXT_BUDGET_EXCEEDED', '上下文超过预算，未截断任何文件', contextFiles.map((file) => file.path));
+      throw new ContextBuilderError('CONTEXT_BUDGET_EXCEEDED', '上下文超过预算，未截断任何内容', budgetInputs.map((entry) => entry.label));
     }
     return ContextManifestSchema.parse({
       schemaVersion: 'aiw.context/v1',
@@ -99,6 +103,11 @@ export class ContextBuilder {
 
 interface ContextFileWithContent extends ContextFile {
   absolutePath: string;
+  content: string;
+}
+
+interface ContextBudgetInput {
+  label: string;
   content: string;
 }
 

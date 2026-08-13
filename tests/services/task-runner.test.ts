@@ -25,7 +25,7 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('succeeded');
     expect(fixture.processCalls).toHaveLength(0);
-    expect(await readFile(join(result.runDirectory, 'context.md'), 'utf8')).toContain('<method-source id="superpowers:brainstorming">');
+    expect(await readFile(join(result.runDirectory, 'context.md'), 'utf8')).toContain('<method-source id="superpowers:brainstorming" trust="lower-priority-guidance">');
     expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('ready');
   });
 
@@ -47,11 +47,19 @@ describe('TaskRunner', () => {
       .rejects.toMatchObject({ code: 'TASK_BUSY' });
     expect(fixture.processCalls).toHaveLength(0);
   });
+
+  it('counts the locked skill and method content in the run budget', async () => {
+    const fixture = await createRunnerFixture({ maxTokens: 10 });
+
+    await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: true, includes: [] }))
+      .rejects.toMatchObject({ code: 'CONTEXT_BUDGET_EXCEEDED' });
+  });
 });
 
 async function createRunnerFixture(options: {
   exitCode?: number;
   missingExecutable?: boolean;
+  maxTokens?: number;
   runLock?: { acquire(input: { taskId: string }): Promise<undefined> };
 }) {
   const projectRoot = await temporaryDirectory();
@@ -100,7 +108,7 @@ async function createRunnerFixture(options: {
       async assertLocked() {},
       async readLocked(source) { return { source, content: '先理解问题。' }; },
     },
-    contextBuilder: new ContextBuilder({ taskDirectory: (input) => taskStore.taskDirectory(input.id), projectRoot: (input) => input.repository }),
+    contextBuilder: new ContextBuilder({ taskDirectory: (input) => taskStore.taskDirectory(input.id), projectRoot: (input) => input.repository, maxTokens: options.maxTokens }),
     taskFactGuard: { async assertCommitted() {}, async actor() { return 'tester'; } } as never,
     adapter,
     runtimeRoot: join(projectRoot, '.aiw-runtime'),

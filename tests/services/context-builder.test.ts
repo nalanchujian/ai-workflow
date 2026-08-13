@@ -39,6 +39,20 @@ describe('ContextBuilder', () => {
     await expect(readFile(artifactPath, 'utf8')).resolves.toBe(original);
   });
 
+  it('includes runtime instruction blocks in the context budget', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+
+    await expect(new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory, maxTokens: 10 })
+      .build({
+        task,
+        nodeId: 'clarify',
+        includes: [],
+        budgetInputs: [{ label: '节点指令', content: 'x'.repeat(100) }],
+      }))
+      .rejects.toMatchObject({ code: 'CONTEXT_BUDGET_EXCEEDED', paths: expect.arrayContaining(['节点指令']) });
+  });
+
   it('includes the next revision instruction only for the node being rerun', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();

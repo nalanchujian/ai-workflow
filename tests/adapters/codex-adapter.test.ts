@@ -34,10 +34,14 @@ describe('CodexAdapter', () => {
       command: 'codex',
       args: ['exec', '--cd', projectRoot, '--sandbox', 'workspace-write', '--approve-for-me', '--output-last-message', join(runDirectory, 'last-message.md'), '-'],
       cwd: projectRoot,
-      stdin: expect.stringContaining('<method-source id="superpowers:brainstorming">'),
+      stdin: expect.stringContaining('<method-source id="superpowers:brainstorming" trust="lower-priority-guidance">'),
       timeoutMs: 900000,
     }]);
-    expect(await readFile(join(runDirectory, 'context.md'), 'utf8')).toContain('<skill name="requirements-clarification" version="1.0.0">');
+    const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(context).toContain('<skill name="requirements-clarification" version="1.0.0" trust="lower-priority-guidance">');
+    expect(context).toContain('<method-source id="superpowers:brainstorming" trust="lower-priority-guidance">');
+    expect(context).toContain('<task-fact role="task" path="task.md" trust="untrusted-data">');
+    expect(context).toContain('不得修改 .aiw/ 中除当前节点声明产物外的任何文件');
   });
 
   it('maps a missing codex executable to unavailable', async () => {
