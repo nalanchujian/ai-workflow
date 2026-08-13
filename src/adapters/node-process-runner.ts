@@ -5,7 +5,7 @@ import { ExecutableNotFoundError, type ProcessRunner, type ProcessRunInput, type
 export class NodeProcessRunner implements ProcessRunner {
   async run(input: ProcessRunInput): Promise<ProcessRunOutput> {
     return new Promise<ProcessRunOutput>((resolve, reject) => {
-      const child = spawn(input.command, input.args, { cwd: input.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn(input.command, input.args, { cwd: input.cwd, stdio: ['pipe', 'pipe', 'pipe'], ...(input.env === undefined ? {} : { env: input.env }) });
       let stdout = '';
       let stderr = '';
       let timedOut = false;

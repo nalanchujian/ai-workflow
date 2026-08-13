@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { RunRequestSchema, RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import { ExecutableNotFoundError, type ProcessRunner } from '../ports/process-runner.js';
+import { minimalChildEnvironment } from './child-process-environment.js';
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 15 * 60 * 1_000;
 
@@ -34,6 +35,7 @@ export class CodexAdapter {
         cwd: request.task.projectRoot,
         stdin: context,
         timeoutMs: this.deps.executionTimeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS,
+        env: minimalChildEnvironment(),
       });
       await writeFile(join(request.runDirectory, 'stdout.log'), execution.stdout, 'utf8');
       await writeFile(join(request.runDirectory, 'stderr.log'), execution.stderr, 'utf8');

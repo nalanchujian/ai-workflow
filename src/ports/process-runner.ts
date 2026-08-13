@@ -4,6 +4,8 @@ export interface ProcessRunInput {
   cwd: string;
   stdin: string;
   timeoutMs: number;
+  /** Explicit child environment. Omit only for trusted local diagnostic commands. */
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface ProcessRunOutput {

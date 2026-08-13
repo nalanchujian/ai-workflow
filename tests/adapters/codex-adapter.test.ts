@@ -17,7 +17,7 @@ describe('CodexAdapter', () => {
   it('writes the ephemeral context and invokes codex exec with bounded permissions', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.aiw-runtime', 'run-1');
-    const calls: Array<{ command: string; args: string[]; cwd: string; stdin: string }> = [];
+    const calls: Array<{ command: string; args: string[]; cwd: string; stdin: string; env?: NodeJS.ProcessEnv }> = [];
     const adapter = new CodexAdapter({
       processRunner: {
         async run(input) {
@@ -36,6 +36,7 @@ describe('CodexAdapter', () => {
       cwd: projectRoot,
       stdin: expect.stringContaining('<method-source id="superpowers:brainstorming" trust="lower-priority-guidance">'),
       timeoutMs: 900000,
+      env: expect.objectContaining({ PATH: expect.any(String) }),
     }]);
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('<skill name="requirements-clarification" version="1.0.0" trust="lower-priority-guidance">');

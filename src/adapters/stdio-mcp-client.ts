@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 
 import type { McpClient } from '../ports/mcp-client.js';
 import type { McpServerDescriptor } from '../ports/mcp-server-config-resolver.js';
+import { minimalChildEnvironment } from './child-process-environment.js';
 
 export class StdioMcpClient implements McpClient {
   async callTool(input: { server: McpServerDescriptor; tool: string; arguments: unknown }): Promise<unknown> {
@@ -21,7 +22,7 @@ export class StdioMcpClient implements McpClient {
   private async request(server: McpServerDescriptor, method: string, params: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const child = spawn(server.command, server.args, {
-        env: { ...process.env, ...server.env },
+        env: minimalChildEnvironment(server.env),
         stdio: ['pipe', 'pipe', 'ignore'],
       });
       const timeout = setTimeout(() => {
