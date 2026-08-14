@@ -9,6 +9,7 @@ import type { SkillRegistry } from '../services/skill-registry.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { deriveTaskStatus, transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
+import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
 import { writeCommandResult } from './output.js';
 
 const ApprovalFactSchema = z.object({
@@ -126,8 +127,8 @@ export class TaskStateCommands {
     if (decision === 'changes_requested' && (note === undefined || note.length === 0)) {
       throw new Error('变更说明不能为空');
     }
-    const outputPaths = node.outputs;
-    await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...outputPaths] });
+    const completionBundle = await loadRunCompletionBundle(task, this.deps.taskStore, nodeId);
+    await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...completionBundle.paths] });
     const actor = await this.deps.taskFactGuard.actor(options.actor);
     const artifactHashes = await outputHashes(task, this.deps.taskStore, nodeId);
     const approvalPath = `approvals/${nodeId}/r${node.revision}.yaml`;

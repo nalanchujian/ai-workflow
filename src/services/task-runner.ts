@@ -14,9 +14,10 @@ import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
 import { transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
+import { loadRunCompletionBundle } from './run-completion-bundle.js';
 
 export class TaskRunnerError extends Error {
-  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'WORKTREE_DIRTY' | 'CHANGE_SCOPE_MISSING' | 'RUN_RECOVERED', message: string) {
+  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'ARTIFACT_STALE' | 'WORKTREE_DIRTY' | 'CHANGE_SCOPE_MISSING' | 'RUN_RECOVERED', message: string) {
     super(message);
     this.name = 'TaskRunnerError';
   }
@@ -79,7 +80,7 @@ export class TaskRunner {
         ...methods.map((method) => ({ label: `方法论：${method.source.id}`, content: method.content })),
       ],
     });
-    await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: committedPaths(this.deps.taskStore.projectDirectory(), task, this.deps.taskStore, manifest) });
+    await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: await committedPaths(this.deps.taskStore.projectDirectory(), task, this.deps.taskStore, input.nodeId, manifest) });
     if (!input.dryRun) {
       await this.assertWorkingTreeClean();
     }
@@ -89,9 +90,14 @@ export class TaskRunner {
     const scope = input.dryRun ? undefined : await this.changeScope(task, input.nodeId, runId);
     const contextManifestFactPath = `runs/${runId}/context-manifest.json`;
     await this.deps.taskStore.createFact(task.id, contextManifestFactPath, JSON.stringify(manifest, null, 2) + '\n');
+    const baseline: ChangeBaseline = {
+      path: `runs/${runId}/change-baseline.json`,
+      changedPaths: [],
+      outputs: input.dryRun ? [] : await outputBaseline(task, this.deps.taskStore, input.nodeId),
+    };
     if (!input.dryRun) {
-      await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-baseline.json`, JSON.stringify({
-        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: [],
+      await this.deps.taskStore.createFact(task.id, baseline.path, JSON.stringify({
+        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: baseline.changedPaths, outputs: baseline.outputs,
       }, null, 2) + '\n');
     }
     const request: RunRequest = {
@@ -123,16 +129,16 @@ export class TaskRunner {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少变更范围');
     }
     await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
-    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope)), contextManifest: manifest });
+    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline)), contextManifest: manifest });
     await this.writeResult(task.id, runId, result);
     const next = result.status === 'succeeded'
-      ? transitionNode(startedTask, input.nodeId, { type: 'succeed', outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
+      ? transitionNode(startedTask, input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
       : transitionNode(startedTask, input.nodeId, { type: 'fail', message: result.error?.message ?? `运行未完成：${result.status}` });
     await this.deps.taskStore.update(next);
     return result;
   }
 
-  private async execute(request: RunRequest, task: Task, nodeId: string, scope: ChangeScope): Promise<RunResult> {
+  private async execute(request: RunRequest, task: Task, nodeId: string, scope: ChangeScope, baseline: ChangeBaseline): Promise<RunResult> {
     let result: RunResult;
     try {
       result = await this.deps.adapter.run(request);
@@ -140,21 +146,29 @@ export class TaskRunner {
       result = failedResult(request, 'CODEX_EXECUTION_ERROR', error instanceof Error ? error.message : 'Codex 调用失败');
     }
     if (result.status !== 'succeeded') {
-      await this.persistChangeEvidence(task, await this.recordChangeEvidence(task, request, scope, result));
+      await this.persistChangeEvidence(task, {
+        ...(await this.recordChangeEvidence(task, request, scope, result, baseline)),
+        failure: failureEvidence('adapter', result.error?.code ?? 'CODEX_EXECUTION_ERROR', result.error?.message ?? `运行未完成：${result.status}`),
+      });
       return result;
     }
+    let evidence: ChangeEvidence | undefined;
     try {
-      const evidence = await this.recordChangeEvidence(task, request, scope, result);
+      evidence = await this.recordChangeEvidence(task, request, scope, result, baseline);
       if (evidence.violations.length > 0) {
-        await this.persistChangeEvidence(task, evidence);
-        return failedResult(request, 'CHANGE_SCOPE_VIOLATION', `检测到超出允许范围的变更：${evidence.violations.join(', ')}`);
+        const message = `检测到超出允许范围的变更：${evidence.violations.join(', ')}`;
+        await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('scope', 'CHANGE_SCOPE_VIOLATION', message) });
+        return failedResult(request, 'CHANGE_SCOPE_VIOLATION', message);
       }
-      const artifacts = await outputRecords(task, this.deps.taskStore, nodeId);
+      const artifacts = await outputRecords(task, this.deps.taskStore, nodeId, baseline.outputs);
       await this.persistChangeEvidence(task, { ...evidence, artifacts });
       return RunResultSchema.parse({ ...result, artifacts });
     } catch (error) {
       const message = error instanceof Error ? error.message : '节点产物校验失败';
-      return failedResult(request, error instanceof TaskRunnerError ? error.code : 'ARTIFACT_INVALID', message);
+      const code = error instanceof TaskRunnerError ? error.code : 'ARTIFACT_INVALID';
+      const captured = evidence ?? await this.recordChangeEvidence(task, request, scope, result, baseline);
+      await this.persistChangeEvidence(task, { ...captured, failure: failureEvidence('artifact', code, message) });
+      return failedResult(request, code, message);
     }
   }
 
@@ -183,14 +197,14 @@ export class TaskRunner {
     return { schemaVersion: 'aiw.change-scope/v1', taskId: task.id, nodeId, runId, allowedPaths };
   }
 
-  private async recordChangeEvidence(task: Task, request: RunRequest, scope: ChangeScope, result: RunResult, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
+  private async recordChangeEvidence(task: Task, request: RunRequest, scope: ChangeScope, result: RunResult, baseline: ChangeBaseline, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
     const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot: this.deps.taskStore.projectDirectory() });
     const violations = changedPaths.filter((path) => !scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
     const rawDiff = await this.deps.changeInspector.diff({ projectRoot: this.deps.taskStore.projectDirectory() });
     const changedFiles = await Promise.all(changedPaths.map(async (path) => ({ path, ...(await fileHash(this.deps.taskStore.projectDirectory(), path)) })));
     const evidence: ChangeEvidence = {
       schemaVersion: 'aiw.change-evidence/v1', taskId: task.id, nodeId: scope.nodeId, runId: request.runId,
-      baseline: { path: `runs/${request.runId}/change-baseline.json`, changedPaths: [] },
+      baseline,
       changedPaths, violations, changedFiles,
       diff: { sha256: createHash('sha256').update(rawDiff).digest('hex'), lineCount: rawDiff === '' ? 0 : rawDiff.split(/\r?\n/).length - 1 },
       ...(result.process === undefined ? {} : { process: result.process }),
@@ -240,13 +254,20 @@ interface ChangeEvidence {
   taskId: string;
   nodeId: string;
   runId: string;
-  baseline: { path: string; changedPaths: string[] };
+  baseline: ChangeBaseline;
   changedPaths: string[];
   violations: string[];
   changedFiles: Array<{ path: string; sha256?: string; deleted?: true }>;
   diff: { sha256: string; lineCount: number };
   process?: unknown;
   artifacts?: OutputRecord[];
+  failure?: { stage: 'adapter' | 'scope' | 'artifact'; code: string; message: string };
+}
+
+interface ChangeBaseline {
+  path: string;
+  changedPaths: string[];
+  outputs: Array<{ path: string; sha256?: string }>;
 }
 
 async function implementationAllowedPaths(task: Task, taskStore: TaskStore): Promise<string[]> {
@@ -283,7 +304,7 @@ async function loadContextFiles(task: Task, taskStore: TaskStore, manifest: Cont
   }));
 }
 
-async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string): Promise<OutputRecord[]> {
+async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string, baseline: ChangeBaseline['outputs']): Promise<OutputRecord[]> {
   const node = task.nodes[nodeId];
   if (node === undefined) {
     throw new TaskRunnerError('ARTIFACT_MISSING', `未知节点：${nodeId}`);
@@ -296,7 +317,22 @@ async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string): 
       throw new TaskRunnerError('ARTIFACT_MISSING', `节点未生成声明产物：${path}`);
     }
     validateArtifactContent(node, path, content.toString('utf8'));
-    return { path, sha256: createHash('sha256').update(content).digest('hex') };
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    if (baseline.find((entry) => entry.path === path)?.sha256 === sha256) {
+      throw new TaskRunnerError('ARTIFACT_STALE', `节点产物未在本次运行中更新：${path}`);
+    }
+    return { path, sha256 };
+  }));
+}
+
+async function outputBaseline(task: Task, taskStore: TaskStore, nodeId: string): Promise<ChangeBaseline['outputs']> {
+  const node = task.nodes[nodeId];
+  if (node === undefined) {
+    throw new TaskRunnerError('ARTIFACT_MISSING', `未知节点：${nodeId}`);
+  }
+  return Promise.all(node.outputs.map(async (path) => {
+    const hash = await fileHash(taskStore.taskDirectory(task.id), path);
+    return { path, ...(hash.sha256 === undefined ? {} : { sha256: hash.sha256 }) };
   }));
 }
 
@@ -324,17 +360,38 @@ async function fileHash(projectRoot: string, path: string): Promise<{ sha256?: s
   }
 }
 
-function committedPaths(projectRoot: string, task: Task, taskStore: TaskStore, manifest: ContextManifest): string[] {
+async function committedPaths(projectRoot: string, task: Task, taskStore: TaskStore, nodeId: string, manifest: ContextManifest): Promise<string[]> {
   const taskRoot = relative(projectRoot, taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
   if (taskRoot.startsWith('../') || taskRoot === '') {
     throw new TaskRunnerError('NODE_NOT_RUNNABLE', '任务目录必须位于业务仓库内');
   }
   const taskFactPath = (path: string): string => `${taskRoot}/${path}`;
+  const completedDependencies = dependencyClosure(task, nodeId)
+    .filter((dependency) => task.nodes[dependency]?.phase !== 'intake');
+  const bundles = await Promise.all(completedDependencies.map((dependency) => loadRunCompletionBundle(task, taskStore, dependency)));
   return [
     taskFactPath('task.yaml'),
     ...task.approvalRefs.map(taskFactPath),
+    ...bundles.flatMap((bundle) => bundle.paths.map(taskFactPath)),
     ...manifest.files.map((file) => file.role === 'additional' ? file.path : taskFactPath(file.path)),
   ];
+}
+
+function dependencyClosure(task: Task, nodeId: string): string[] {
+  const node = task.nodes[nodeId];
+  if (node === undefined) return [];
+  const dependencies = new Set<string>();
+  const visit = (candidate: string): void => {
+    if (dependencies.has(candidate)) return;
+    dependencies.add(candidate);
+    for (const dependency of task.nodes[candidate]?.dependsOn ?? []) visit(dependency);
+  };
+  for (const dependency of node.dependsOn) visit(dependency);
+  return [...dependencies];
+}
+
+function failureEvidence(stage: NonNullable<ChangeEvidence['failure']>['stage'], code: string, message: string): NonNullable<ChangeEvidence['failure']> {
+  return { stage, code, message };
 }
 
 function sameSkillLock(skill: { registrySource: SkillLock['registrySource']; sha256: string; methodSources: SkillLock['methodSources'] }, lock: SkillLock): boolean {

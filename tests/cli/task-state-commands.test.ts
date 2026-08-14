@@ -31,6 +31,17 @@ describe('TaskStateCommands', () => {
     expect((await store.load('refund-123')).nodes.solution.status).toBe('ready');
   });
 
+  it('rejects approval when the node has no complete run evidence package', async () => {
+    const { store } = await createApprovalTask('clarify', { completionBundle: false });
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    await expect(commands.approve('refund-123', 'clarify', { note: '验收标准完整' }))
+      .rejects.toThrow('缺少可提交的完成运行包');
+  });
+
   it('records changes requested with a next revision instruction', async () => {
     const { store, directory } = await createApprovalTask('plan');
     const commands = new TaskStateCommands({
@@ -98,7 +109,7 @@ describe('TaskStateCommands', () => {
   });
 });
 
-async function createApprovalTask(nodeId: 'clarify' | 'plan'): Promise<{ store: TaskStore; directory: string }> {
+async function createApprovalTask(nodeId: 'clarify' | 'plan', options: { completionBundle?: boolean } = {}): Promise<{ store: TaskStore; directory: string }> {
   const directory = await createTempDirectory('aiw-task-state-');
   directories.push(directory);
   const store = new TaskStore(directory);
@@ -114,6 +125,18 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan'): Promise<{ store: 
   await mkdir(join(taskDirectory, 'artifacts'), { recursive: true });
   for (const output of task.nodes[nodeId].outputs) {
     await writeFile(join(taskDirectory, output), `# ${output}\n`, 'utf8');
+  }
+  if (options.completionBundle !== false) {
+    const runId = `${nodeId}-run-1`;
+    task.events.push({
+      type: 'succeed', nodeId, at: '2026-08-14T00:00:00.000Z', runId,
+      outputs: task.nodes[nodeId].outputs.map((path) => ({ path, sha256: createHash('sha256').update(`# ${path}\n`).digest('hex') })),
+      evidencePath: `runs/${runId}/change-evidence.json`,
+    });
+    await store.update(task);
+    for (const path of ['context-manifest.json', 'change-baseline.json', 'change-scope.json', 'change-evidence.json', 'change-diff.json', 'result.json']) {
+      await store.createFact('refund-123', `runs/${runId}/${path}`, '{}\n');
+    }
   }
   return { store, directory: taskDirectory };
 }

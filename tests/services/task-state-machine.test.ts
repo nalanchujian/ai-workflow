@@ -12,7 +12,7 @@ describe('task state machine', () => {
     task.nodes.test.status = 'running';
     task.nodes.test.requiresApproval = false;
 
-    const next = transitionNode(task, 'test', { type: 'succeed', outputs: [] });
+    const next = transitionNode(task, 'test', { type: 'succeed', runId: 'test-run-1', outputs: [], evidencePath: 'runs/test-run-1/change-evidence.json' });
 
     expect(next.status).toBe('completed');
   });
@@ -70,7 +70,7 @@ describe('task state machine', () => {
 
     const running = transitionNode(task, 'clarify', { type: 'start', runId: 'run-01' });
     const next = transitionNode(running, 'clarify', {
-      type: 'succeed',
+      type: 'succeed', runId: 'clarify-run-1', evidencePath: 'runs/clarify-run-1/change-evidence.json',
       outputs: [{ path: 'artifacts/brief.md', sha256: 'd'.repeat(64) }],
     });
 

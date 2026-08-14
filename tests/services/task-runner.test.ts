@@ -107,8 +107,8 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('succeeded');
     const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
-    expect(evidence).toMatchObject({ baseline: { changedPaths: [] }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/brief.md' }], artifacts: [{ path: 'artifacts/brief.md', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }], diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
-    expect((await fixture.taskStore.load('refund-123')).events.at(-1)).toMatchObject({ type: 'succeed', evidencePath: 'runs/run-1/change-evidence.json' });
+    expect(evidence).toMatchObject({ baseline: { changedPaths: [], outputs: [{ path: 'artifacts/brief.md' }] }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/brief.md' }], artifacts: [{ path: 'artifacts/brief.md', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }], diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect((await fixture.taskStore.load('refund-123')).events.at(-1)).toMatchObject({ type: 'succeed', runId: 'run-1', evidencePath: 'runs/run-1/change-evidence.json' });
   });
 
   it('rejects an empty or structurally invalid declared artifact', async () => {
@@ -117,6 +117,20 @@ describe('TaskRunner', () => {
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
 
     expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_INVALID' } });
+    const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
+    expect(evidence).toMatchObject({ failure: { stage: 'artifact', code: 'ARTIFACT_INVALID' } });
+  });
+
+  it('rejects a valid-looking artifact left over from a previous run', async () => {
+    const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']] });
+    await mkdir(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts'), { recursive: true });
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'brief.md'), '# 需求澄清\n\n## 结论\n\n这是上一次运行遗留的产物。\n', 'utf8');
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_STALE' } });
+    const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
+    expect(evidence).toMatchObject({ failure: { stage: 'artifact', code: 'ARTIFACT_STALE' } });
   });
 });
 
