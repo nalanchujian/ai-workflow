@@ -63,6 +63,15 @@ allowedPaths:
 
 其他节点只允许写入其声明的 `.aiw` 产物；Adapter 传递给 Codex 的产物地址必须是相对于业务仓库根目录的完整路径，例如 `.aiw/tasks/<task-id>/artifacts/brief.md`，不得仅传递 `artifacts/brief.md`。任何范围外路径都会失败。
 
+`plan` 节点还必须在 `implementation-plan.md` 中声明至少一个机器可读的后续实施范围：
+
+```yaml
+allowedPaths:
+  - src/example/**
+```
+
+路径必须相对于业务仓库根目录，且不得使用占位路径、`.aiw/`、绝对路径或 `..`。Adapter 将这项要求放在最高优先级运行约束中；缺失时 Runner 拒绝该计划，避免实施节点在没有明确范围的情况下执行。
+
 `dry-run` 只执行第 1、2 步并输出将要执行的 Codex 调用，绝不启动 Codex。
 
 ## Codex CLI 调用（MVP）

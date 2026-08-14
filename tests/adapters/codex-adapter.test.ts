@@ -63,6 +63,27 @@ describe('CodexAdapter', () => {
     expect(context).toContain('- .aiw/tasks/refund-123/artifacts/brief.md');
   });
 
+  it('requires a plan to declare machine-readable implementation paths', async () => {
+    const projectRoot = await temporaryDirectory();
+    const runDirectory = join(projectRoot, '.aiw-runtime', 'run-plan');
+    const adapter = new CodexAdapter({
+      processRunner: {
+        async run() {
+          return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false };
+        },
+      },
+    });
+    const request = runRequest({ projectRoot, runDirectory });
+    request.task.nodeId = 'plan';
+    request.artifacts = ['artifacts/implementation-plan.md'];
+
+    await adapter.run(request);
+
+    const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(context).toContain('实施计划产物必须包含以下 YAML 代码块');
+    expect(context).toContain('allowedPaths:');
+  });
+
   it('maps a missing codex executable to unavailable', async () => {
     const projectRoot = await temporaryDirectory();
     const adapter = new CodexAdapter({
