@@ -84,6 +84,23 @@ describe('CodexAdapter', () => {
     expect(context).toContain('allowedPaths:');
   });
 
+  it('requires task artifacts to use Simplified Chinese by default', async () => {
+    const projectRoot = await temporaryDirectory();
+    const runDirectory = join(projectRoot, '.aiw-runtime', 'run-language');
+    const adapter = new CodexAdapter({
+      processRunner: {
+        async run() {
+          return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false };
+        },
+      },
+    });
+
+    await adapter.run(runRequest({ projectRoot, runDirectory }));
+
+    const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(context).toContain('所有任务产物必须使用简体中文撰写');
+  });
+
   it('maps a missing codex executable to unavailable', async () => {
     const projectRoot = await temporaryDirectory();
     const adapter = new CodexAdapter({
