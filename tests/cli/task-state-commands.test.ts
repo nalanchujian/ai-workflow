@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
 
-import { TaskStateCommands } from '../../src/cli/task-state-commands.js';
+import { createTaskStateCommand, TaskStateCommands } from '../../src/cli/task-state-commands.js';
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
@@ -106,6 +106,23 @@ describe('TaskStateCommands', () => {
     expect(updated.nodes['implement-export']).toMatchObject({ phase: 'implement', dependsOn: ['plan'], status: 'ready', requiresApproval: true, outputs: ['artifacts/subtasks/implement-export.md'] });
     expect(updated.nodes.verify.dependsOn).toEqual(['implement', 'implement-export']);
     expect(updated.events.at(-1)).toMatchObject({ type: 'add_subtask', nodeId: 'implement-export' });
+  });
+
+  it('tells users to commit a requested change before rerunning the ready node', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+    task.nodes.plan.status = 'ready';
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: { async requestChanges() { return task; } } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'request-changes', 'refund-123', 'plan', '--note', '补充范围']);
+
+    expect(output).toContain('1. git add .aiw && git commit -m "chore(aiw): record plan changes"');
+    expect(output).toContain('2. aiw task run refund-123 plan');
   });
 });
 

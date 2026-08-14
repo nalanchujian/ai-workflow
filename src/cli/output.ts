@@ -31,7 +31,7 @@ export function renderHumanOutput(output: HumanOutput): string {
     output.headline,
     ...(output.details === undefined || output.details.length === 0 ? [] : ['', ...output.details.map((detail) => `${detail.label}：${detail.value}`)]),
     ...(output.sections === undefined || output.sections.length === 0 ? [] : output.sections.flatMap((section) => ['', `${section.title}：`, ...section.lines.map((line) => `- ${line}`)])),
-    ...(output.nextSteps === undefined || output.nextSteps.length === 0 ? [] : ['', '下一步：', ...output.nextSteps]),
+    ...(output.nextSteps === undefined || output.nextSteps.length === 0 ? [] : ['', '下一步：', ...output.nextSteps.map((step, index) => `${index + 1}. ${step}`)]),
   ].join('\n');
 }
 
