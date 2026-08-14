@@ -28,6 +28,18 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
           skillProfile,
         }),
       });
-      writeCommandResult({ taskId: task.id, skillProfile: `${task.skillProfile.name}@${task.skillProfile.version}`, status: task.status }, command, deps.stdout);
+      const profile = `${task.skillProfile.name}@${task.skillProfile.version}`;
+      writeCommandResult({ taskId: task.id, skillProfile: profile, status: task.status }, command, deps.stdout, {
+        headline: '任务已创建',
+        details: [
+          { label: '任务 ID', value: task.id },
+          { label: '工作流', value: profile },
+          { label: '状态', value: task.status === 'active' ? '进行中' : task.status },
+        ],
+        nextSteps: [
+          'git add .aiw && git commit -m "chore(aiw): initialize task"',
+          `aiw task run ${task.id} clarify`,
+        ],
+      });
     });
 }

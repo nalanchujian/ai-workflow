@@ -21,6 +21,8 @@ describe('run history command', () => {
       ['show', { projectRoot: '/repo', taskId: 'refund-123', runId: 'run-1' }],
       ['prune', { olderThanDays: 30, apply: true }],
     ]);
-    expect(output).toContain('"schemaVersion": "aiw.run-history/v1"');
+    expect(output).toContain('运行记录：已完成');
+    expect(output).toContain('运行 ID：run-1');
+    expect(output).not.toContain('"schemaVersion"');
   });
 });

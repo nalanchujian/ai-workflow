@@ -19,6 +19,9 @@ describe('task run command', () => {
     await command.parseAsync(['node', 'run', 'refund-123', 'clarify', '--dry-run', '--include', 'src/refund.ts']);
 
     expect(received).toEqual({ taskId: 'refund-123', nodeId: 'clarify', dryRun: true, includes: ['src/refund.ts'] });
-    expect(output).toContain('"runId": "run-1"');
+    expect(output).toContain('「clarify」节点已完成');
+    expect(output).toContain('运行 ID：run-1');
+    expect(output).toContain('下一步：');
+    expect(output).not.toContain('"runId"');
   });
 });

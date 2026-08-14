@@ -10,7 +10,7 @@ import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { deriveTaskStatus, transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
 import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
-import { writeCommandResult } from './output.js';
+import { type HumanOutput, writeCommandResult } from './output.js';
 
 const ApprovalFactSchema = z.object({
   nodeId: z.string().min(1),
@@ -157,22 +157,28 @@ export class TaskStateCommands {
 export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdout: NodeJS.WriteStream }): Command {
   const command = new Command('task').description('查询任务状态并处理审批');
   command.addCommand(new Command('status').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
-    writeCommandResult(await deps.commands.status(taskId), current, deps.stdout);
+    const task = await deps.commands.status(taskId);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '任务状态'));
   }));
   command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }, current: Command) => {
-    writeCommandResult(await deps.commands.approve(taskId, nodeId, options), current, deps.stdout);
+    const task = await deps.commands.approve(taskId, nodeId, options);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已批准`));
   }));
   command.addCommand(new Command('request-changes').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
-    writeCommandResult(await deps.commands.requestChanges(taskId, nodeId, options), current, deps.stdout);
+    const task = await deps.commands.requestChanges(taskId, nodeId, options);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已退回修改`));
   }));
   command.addCommand(new Command('fail').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
-    writeCommandResult(await deps.commands.fail(taskId, nodeId, options), current, deps.stdout);
+    const task = await deps.commands.fail(taskId, nodeId, options);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已标记失败`));
   }));
   command.addCommand(new Command('revise').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
-    writeCommandResult(await deps.commands.revise(taskId, nodeId, options), current, deps.stdout);
+    const task = await deps.commands.revise(taskId, nodeId, options);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已进入修订`));
   }));
   command.addCommand(new Command('skill').addCommand(new Command('rebind').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--skill <name@version>').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { skill: string; note: string }, current: Command) => {
-    writeCommandResult(await deps.commands.rebindSkill(taskId, nodeId, options), current, deps.stdout);
+    const task = await deps.commands.rebindSkill(taskId, nodeId, options);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点技能已更新`));
   })));
   command.addCommand(new Command('subtask').description('为复杂实施任务添加可并行子节点')
     .addCommand(new Command('add').argument('<task-id>').argument('<node-id>')
@@ -182,9 +188,36 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
       .option('--before <node-id>', '完成后必须汇合的未开始节点；可重复，默认 verify', collect, [])
       .option('--requires-approval', '子任务完成后等待人工审批')
       .action(async (taskId: string, nodeId: string, options: { title: string; dependsOn: string[]; before: string[]; requiresApproval?: boolean }, current: Command) => {
-        writeCommandResult(await deps.commands.addSubtask(taskId, nodeId, { ...options, requiresApproval: options.requiresApproval ?? false }), current, deps.stdout);
+        const task = await deps.commands.addSubtask(taskId, nodeId, { ...options, requiresApproval: options.requiresApproval ?? false });
+        writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `子任务「${nodeId}」已创建`));
       })));
   return command;
+}
+
+function renderTaskOutput(task: Task, headline: string): HumanOutput {
+  const ready = Object.entries(task.nodes).find(([, node]) => node.status === 'ready');
+  const waiting = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');
+  return {
+    headline,
+    details: [
+      { label: '任务 ID', value: task.id },
+      { label: '任务名称', value: task.title },
+      { label: '整体状态', value: taskStatusLabel(task.status) },
+    ],
+    sections: [{ title: '节点', lines: Object.entries(task.nodes).map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) }],
+    nextSteps: ready === undefined && waiting === undefined ? undefined : [
+      ...(waiting === undefined ? [] : [`aiw task approve ${task.id} ${waiting[0]} --note "<审批说明>"`]),
+      ...(ready === undefined ? [] : [`aiw task run ${task.id} ${ready[0]}`]),
+    ],
+  };
+}
+
+function taskStatusLabel(status: Task['status']): string {
+  return ({ active: '进行中', blocked: '需处理', completed: '已完成', cancelled: '已取消' })[status];
+}
+
+function nodeStatusLabel(status: TaskNode['status']): string {
+  return ({ pending: '待开始', ready: '可执行', running: '运行中', awaiting_approval: '待审批', completed: '已完成', failed: '失败', invalidated: '已失效', cancelled: '已取消' })[status];
 }
 
 function collect(value: string, previous: string[]): string[] {

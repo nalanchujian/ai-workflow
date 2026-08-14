@@ -29,8 +29,26 @@ export function createTaskRunCommand(deps: { runner: TaskRunner; progress?: Prog
       } else {
         progress.fail(`「${nodeId}」节点未完成`);
       }
-      writeCommandResult(result, command, deps.stdout);
+      writeCommandResult(result, command, deps.stdout, {
+        headline: result.status === 'succeeded'
+          ? `「${nodeId}」节点已完成`
+          : `「${nodeId}」节点未完成`,
+        details: [
+          { label: '任务 ID', value: taskId },
+          { label: '运行 ID', value: result.runId },
+          { label: '状态', value: runStatusLabel(result.status) },
+          ...(result.artifacts === undefined || result.artifacts.length === 0 ? [] : [{ label: '产物', value: result.artifacts.map((artifact) => artifact.path).join('、') }]),
+          ...(result.error === undefined ? [] : [{ label: '原因', value: result.error.message }]),
+        ],
+        nextSteps: result.status === 'succeeded'
+          ? [`git add .aiw && git commit -m "chore(aiw): record ${nodeId} result"`, `aiw task status ${taskId}`]
+          : [`aiw task status ${taskId}`, `aiw task revise ${taskId} ${nodeId} --note "<修改说明>"`],
+      });
     });
+}
+
+function runStatusLabel(status: string): string {
+  return ({ succeeded: '已完成', failed: '失败', unavailable: '无法执行', cancelled: '已取消' } as Record<string, string>)[status] ?? status;
 }
 
 function collect(value: string, previous: string[]): string[] {

@@ -12,7 +12,8 @@ describe('task source refresh command', () => {
 
     await command.parseAsync(['node', 'refresh', 'refund-123', 'requirements']);
 
-    expect(output).toContain('"changed": true');
-    expect(output).toContain('"revision": 2');
+    expect(output).toContain('需求已更新，相关下游节点已失效');
+    expect(output).toContain('需求版本：r2');
+    expect(output).not.toContain('"changed"');
   });
 });

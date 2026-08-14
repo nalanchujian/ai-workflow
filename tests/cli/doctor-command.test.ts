@@ -19,7 +19,7 @@ describe('doctor command', () => {
     await command.parseAsync(['node', 'doctor', '--project', '/repo', '--lark-url', 'https://acme.larksuite.com/docx/doccn123']);
 
     expect(received).toEqual({ projectRoot: '/repo', larkUrl: 'https://acme.larksuite.com/docx/doccn123' });
-    expect(output).toContain('"ok": true');
+    expect(output).toContain('本机环境检查通过');
     expect(output).not.toContain('requirements');
   });
 });

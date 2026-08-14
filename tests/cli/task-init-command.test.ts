@@ -15,7 +15,12 @@ describe('task init command', () => {
     await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--skill-profile', 'standard-web-feature@1.0.0']);
 
     expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', skillProfile: 'standard-web-feature@1.0.0' });
-    expect(output).toContain('task-20260813-120000-000');
+    expect(output).toContain('任务已创建');
+    expect(output).toContain('任务 ID：task-20260813-120000-000');
+    expect(output).toContain('工作流：standard-web-feature@1.0.0');
+    expect(output).toContain('下一步：');
+    expect(output).toContain('git add .aiw && git commit -m "chore(aiw): initialize task"');
+    expect(output).not.toContain('"taskId"');
   });
 
   it('rejects a manually supplied task ID', async () => {
