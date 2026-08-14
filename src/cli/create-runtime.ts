@@ -25,6 +25,7 @@ import { TaskInitializer } from '../services/task-initializer.js';
 import { TaskRunner } from '../services/task-runner.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { HandoffMigrator } from '../services/handoff-migrator.js';
+import { TaskDecisionService } from '../services/task-decision-service.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
 import type { GitClient } from '../ports/git-client.js';
@@ -111,7 +112,7 @@ export function createCliRuntime(input: {
     adapter: codexAdapter,
     runtimeRoot: join(input.homeDirectory, 'runtime'),
   });
-  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry, cancellation: taskCancellation, handoffMigrator });
+  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry, cancellation: taskCancellation, handoffMigrator, decisionService: new TaskDecisionService({ taskStore }) });
   const taskRunner = new TaskRunner({
     taskStore,
     skillRegistry: registry,

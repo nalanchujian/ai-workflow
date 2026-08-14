@@ -21,6 +21,7 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('solution', 0),
+      'task.yaml',
     ]);
     expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', revision: 'd'.repeat(40) }));
   });
@@ -42,24 +43,17 @@ describe('ContextBuilder', () => {
 
     const builder = new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory });
 
-    await expect(builder.build({ task, nodeId: 'solution', includes: [] })).resolves.toMatchObject({
-      files: [{ role: 'handoff', path: handoffPath('clarify', 0) }],
-    });
-    await expect(builder.build({ task, nodeId: 'plan', includes: [] })).resolves.toMatchObject({
-      files: [{ role: 'handoff', path: handoffPath('solution', 0) }],
-    });
-    await expect(builder.build({ task, nodeId: 'implement', includes: [] })).resolves.toMatchObject({
-      files: [{ role: 'handoff', path: handoffPath('plan', 0) }],
-    });
-    await expect(builder.build({ task, nodeId: 'verify', includes: [] })).resolves.toMatchObject({
-      files: [
-        { role: 'handoff', path: handoffPath('implement', 0) },
-        { role: 'handoff', path: handoffPath('implement-details', 0) },
-      ],
-    });
-    await expect(builder.build({ task, nodeId: 'test', includes: [] })).resolves.toMatchObject({
-      files: [{ role: 'handoff', path: handoffPath('verify', 0) }],
-    });
+    expect((await builder.build({ task, nodeId: 'solution', includes: [] })).files)
+      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('clarify', 0) }));
+    expect((await builder.build({ task, nodeId: 'plan', includes: [] })).files)
+      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('solution', 0) }));
+    expect((await builder.build({ task, nodeId: 'implement', includes: [] })).files)
+      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('plan', 0) }));
+    const verifyManifest = await builder.build({ task, nodeId: 'verify', includes: [] });
+    expect(verifyManifest.files).toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('implement', 0) }));
+    expect(verifyManifest.files).toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('implement-details', 0) }));
+    expect((await builder.build({ task, nodeId: 'test', includes: [] })).files)
+      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('verify', 0) }));
   });
 
   it('injects only the approved plan handoff for implementation', async () => {
@@ -72,7 +66,21 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('plan', 0),
+      'task.yaml',
     ]);
+  });
+
+  it('passes the decision register to solution and plan without injecting broad Markdown history', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+    await writeHandoff(directory, task, 'solution');
+    await writeFile(join(directory, 'artifacts', 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'plan', includes: [] });
+
+    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'artifacts/decision-register.yaml' }));
+    expect(manifest.files.some((file) => file.path === 'artifacts/solution.md')).toBe(false);
   });
 
   it('uses the plan handoff instead of the current implementation work unit Markdown', async () => {
@@ -93,6 +101,7 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('plan', 0),
+      'task.yaml',
     ]);
   });
 
@@ -116,6 +125,7 @@ describe('ContextBuilder', () => {
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('implement', 0),
       handoffPath('implement-details', 0),
+      'task.yaml',
     ]);
   });
 
@@ -136,6 +146,7 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('verify', 0),
+      'task.yaml',
     ]);
   });
 
@@ -222,6 +233,7 @@ async function taskDirectory(): Promise<string> {
   directories.push(directory);
   await mkdir(join(directory, 'artifacts'), { recursive: true });
   await writeFile(join(directory, 'task.md'), '# Refund\n', 'utf8');
+  await writeFile(join(directory, 'task.yaml'), 'schemaVersion: aiw.task/v2\n', 'utf8');
   for (const name of ['brief.md', 'questions.md', 'acceptance.md', 'solution.md', 'implementation-plan.md', 'implementation-context.md', 'implementation.md', 'verification.md']) {
     await writeFile(join(directory, 'artifacts', name), `# ${name}\n`, 'utf8');
   }

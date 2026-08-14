@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { TaskTransitionError, invalidateDependents, transitionNode } from '../../src/services/task-state-machine.js';
+import { TaskTransitionError, invalidateDependents, reconcileDecisionBlocks, transitionNode } from '../../src/services/task-state-machine.js';
 import { createSevenPhaseTask, createSkillLock } from '../helpers/task-fixtures.js';
 
 describe('task state machine', () => {
@@ -47,6 +47,24 @@ describe('task state machine', () => {
     const next = transitionNode(task, 'solution', { type: 'evaluate' });
 
     expect(next.nodes.solution.status).toBe('pending');
+  });
+
+  it('unlocks only the work unit whose blocking decision has been resolved', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.plan.status = 'completed';
+    task.nodes.implement.status = 'blocked';
+    task.nodes.implement.blockedByDecisionIds = ['DEC-API-01'];
+    task.nodes.verify.status = 'pending';
+    task.decisions = [{
+      id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api', actor: 'backend-lead',
+      at: '2026-08-14T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r2.yaml',
+    }];
+
+    const next = reconcileDecisionBlocks(task, 'DEC-API-01');
+
+    expect(next.nodes.implement.status).toBe('ready');
+    expect(next.nodes.verify.status).toBe('pending');
+    expect(next.status).toBe('active');
   });
 
   it('invalidates every started descendant while retaining untouched pending descendants', () => {

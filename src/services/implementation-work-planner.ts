@@ -7,6 +7,7 @@ import { z } from 'zod';
 
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
 import { TaskStore } from './task-store.js';
+import { deriveTaskStatus } from './task-state-machine.js';
 
 const unitIdPattern = /^[a-z][a-z0-9-]{0,40}$/;
 const allowedPathPattern = /^(?![./])(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
@@ -19,6 +20,7 @@ const WorkUnitSchema = z.object({
   acceptanceRefs: z.array(z.string().min(1)).min(1),
   steps: z.array(z.string().min(1)).min(1),
   verification: z.array(z.string().min(1)).min(1),
+  blockedBy: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   dependsOn: z.array(z.string().regex(unitIdPattern, '依赖工作单元 ID 格式无效')).default([]),
   requiresApproval: z.boolean().default(false),
 });
@@ -100,21 +102,27 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       ? 'artifacts/implementation-context.md'
       : `artifacts/work-units/r${planRevision}/${nodeId}.md`;
     const dependencies = ['plan', ...unit.dependsOn.map((dependency) => nodeIds.get(dependency)!)];
+    const deferred = unit.blockedBy.some((decisionId) => next.decisions.find((decision) => decision.id === decisionId)?.status === 'deferred');
+    const blockedByDecisionIds = unit.blockedBy.filter((decisionId) => {
+      const resolution = next.decisions.find((decision) => decision.id === decisionId);
+      return resolution === undefined || resolution.status === 'waiting_external';
+    });
     const node: TaskNode = {
       title: unit.title,
       phase: 'implement',
       dependsOn: [...new Set(dependencies)],
       skill: implementation.skill,
       requiresApproval: unit.requiresApproval,
-      status: dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
+      status: deferred ? 'superseded' : blockedByDecisionIds.length > 0 ? 'blocked' : dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
       revision: nodeId === 'implement' ? implementation.revision : 0,
       outputs: nodeId === 'implement' ? ['artifacts/implementation.md'] : [`artifacts/subtasks/${nodeId}.md`],
       allowedPaths: [...new Set(unit.allowedPaths)],
       contextPath,
       generatedFromPlanRevision: planRevision,
+      ...(blockedByDecisionIds.length === 0 || deferred ? {} : { blockedByDecisionIds }),
     };
     next.nodes[nodeId] = node;
-    if (nodeId !== 'implement') {
+    if (nodeId !== 'implement' && node.status !== 'superseded') {
       verify.dependsOn = [...new Set([...verify.dependsOn, nodeId])];
     }
     if (breakdown.units.length > 1) {
@@ -122,7 +130,7 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
     }
     next.events.push({ type: 'materialize_implementation', nodeId, at: new Date().toISOString(), note: `计划 r${planRevision}；工作单元：${unit.id}` });
   }
-  return { task: TaskSchema.parse(next), facts };
+  return { task: TaskSchema.parse(deriveTaskStatus(next)), facts };
 }
 
 export function validateWorkBreakdown(content: string): void {

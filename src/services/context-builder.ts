@@ -77,6 +77,10 @@ export class ContextBuilder {
         content,
       };
     }));
+    if (phase === 'solution' || phase === 'plan') {
+      const decisionRegister = await this.optionalTaskFact(taskDirectory, 'artifacts/decision-register.yaml');
+      if (decisionRegister !== undefined) files.push(decisionRegister);
+    }
     const revisionPath = `revisions/${nodeId}/r${task.nodes[nodeId]?.revision + 1}.md`;
     const absoluteRevisionPath = join(taskDirectory, revisionPath);
     try {
@@ -90,6 +94,17 @@ export class ContextBuilder {
       }
     }
     return files;
+  }
+
+  private async optionalTaskFact(taskDirectory: string, path: string): Promise<ContextFileWithContent | undefined> {
+    try {
+      const absolutePath = await resolveInside(taskDirectory, path);
+      const content = await readFile(absolutePath, 'utf8');
+      return { role: 'artifact', path, sha256: sha256(content), absolutePath, content };
+    } catch (error) {
+      if (error instanceof ContextBuilderError && error.message === `上下文文件不存在：${path}`) return undefined;
+      throw error;
+    }
   }
 
   private async additionalFile(path: string, projectRoot: string): Promise<ContextFileWithContent> {
@@ -114,7 +129,7 @@ interface ContextBudgetInput {
 
 function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>): Array<Omit<ContextFile, 'sha256'>> {
   if (phase !== 'clarify') {
-    return handoffInputs(task, nodeId);
+    return [...handoffInputs(task, nodeId), { role: 'task', path: 'task.yaml' }];
   }
   const defaults: Record<Exclude<Task['nodes'][string]['phase'], 'intake'>, string[]> = {
     clarify: ['task.md'],
@@ -124,7 +139,10 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
     verify: [],
     test: [],
   };
-  const files: Array<Omit<ContextFile, 'sha256'>> = defaults[phase].map((path) => ({ role: path === 'task.md' ? 'task' : 'artifact', path }));
+  const files: Array<Omit<ContextFile, 'sha256'>> = [
+    ...defaults[phase].map((path) => ({ role: path === 'task.md' ? 'task' as const : 'artifact' as const, path })),
+    { role: 'task', path: 'task.yaml' },
+  ];
   if (phase === 'clarify') {
     for (const [sourceId, source] of Object.entries(task.sources)) {
       files.push({ role: 'source', path: source.snapshotPath, sourceId, sourceRevision: source.revision });

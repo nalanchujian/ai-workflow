@@ -42,9 +42,49 @@ describe('ImplementationWorkPlanner', () => {
     });
     expect(second.task.nodes.verify.dependsOn).toEqual(['implement', 'implement-export-r2']);
   });
+
+  it('keeps a work unit visible but blocked when its decision is waiting for an external condition', async () => {
+    const projectRoot = await createTempDirectory('aiw-work-planner-');
+    directories.push(projectRoot);
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    task.nodes.plan.status = 'completed';
+    task.nodes.plan.revision = 1;
+    task.decisions = [{
+      id: 'DEC-API-01', revision: 1, status: 'waiting_external', optionId: 'wait-api', actor: 'tech-lead',
+      at: '2026-08-14T00:00:00.000Z', owner: 'backend', unblockCondition: '接口契约与联调样例已确认', factPath: 'decisions/DEC-API-01/r1.yaml',
+    }];
+    await store.create(task);
+    await writePlanFacts(store, task.id, 'first', true);
+
+    const materialized = await materializeImplementationWork(await store.load(task.id), store);
+
+    expect(materialized.task.nodes['implement-export']).toMatchObject({ status: 'blocked', blockedByDecisionIds: ['DEC-API-01'] });
+    expect(materialized.task.status).toBe('partially_blocked');
+  });
+
+  it('removes a deferred work unit from the verify merge so unrelated work can continue', async () => {
+    const projectRoot = await createTempDirectory('aiw-work-planner-');
+    directories.push(projectRoot);
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    task.nodes.plan.status = 'completed';
+    task.nodes.plan.revision = 1;
+    task.decisions = [{
+      id: 'DEC-API-01', revision: 1, status: 'deferred', optionId: 'wait-api', actor: 'tech-lead',
+      at: '2026-08-14T00:00:00.000Z', note: '接口另行排期', factPath: 'decisions/DEC-API-01/r1.yaml',
+    }];
+    await store.create(task);
+    await writePlanFacts(store, task.id, 'first', true);
+
+    const materialized = await materializeImplementationWork(await store.load(task.id), store);
+
+    expect(materialized.task.nodes['implement-export'].status).toBe('superseded');
+    expect(materialized.task.nodes.verify.dependsOn).toEqual(['implement']);
+  });
 });
 
-async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first' | 'second'): Promise<void> {
+async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first' | 'second', blockExport = false): Promise<void> {
   const directory = store.taskDirectory(taskId);
   await mkdir(join(directory, 'artifacts'), { recursive: true });
   await writeFile(join(directory, 'artifacts', 'implementation-plan.md'), '# 实施计划\n\n```yaml\nallowedPaths:\n  - src/**\n```\n', 'utf8');
@@ -67,5 +107,6 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    acceptanceRefs: [AC-02]',
     '    steps: [实现导出]',
     '    verification: [pnpm test -- export]',
+    ...(blockExport ? ['    blockedBy: [DEC-API-01]'] : []),
   ].join('\n') + '\n', 'utf8');
 }

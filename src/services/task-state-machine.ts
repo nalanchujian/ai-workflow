@@ -125,6 +125,40 @@ export function invalidateDependents(task: Task, upstreamNodeId: string, reason:
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
+/** Re-evaluate only nodes that explicitly declared the resolved decision as a blocker. */
+export function reconcileDecisionBlocks(task: Task, decisionId: string): Task {
+  const next = TaskSchema.parse(task);
+  const resolution = next.decisions.find((decision) => decision.id === decisionId);
+  if (resolution?.status === 'deferred') {
+    for (const [nodeId, node] of Object.entries(next.nodes)) {
+      if (!node.blockedByDecisionIds?.includes(decisionId) || !['blocked', 'pending', 'ready'].includes(node.status)) continue;
+      node.status = 'superseded';
+      node.blockedByDecisionIds = undefined;
+      for (const dependent of Object.values(next.nodes)) {
+        dependent.dependsOn = dependent.dependsOn.filter((dependency) => dependency !== nodeId);
+      }
+      addEvent(next, 'supersede', nodeId, { reason: `决策 ${decisionId} 已拆期` });
+    }
+    return TaskSchema.parse(deriveTaskStatus(next));
+  }
+  if (resolution?.status !== 'resolved' && resolution?.status !== 'waived') {
+    return TaskSchema.parse(deriveTaskStatus(next));
+  }
+  for (const [nodeId, node] of Object.entries(next.nodes)) {
+    if (node.status !== 'blocked' || !node.blockedByDecisionIds?.includes(decisionId)) continue;
+    const unresolved = node.blockedByDecisionIds.some((blockedId) => {
+      const current = next.decisions.find((decision) => decision.id === blockedId);
+      return current === undefined || current.status === 'waiting_external';
+    });
+    if (!unresolved) {
+      node.status = dependenciesCompleted(next, node) ? 'ready' : 'pending';
+      node.blockedByDecisionIds = undefined;
+      addEvent(next, 'evaluate', nodeId, { reason: `决策 ${decisionId} 已解除` });
+    }
+  }
+  return TaskSchema.parse(deriveTaskStatus(next));
+}
+
 function getNode(task: Task, nodeId: string): TaskNode {
   const node = task.nodes[nodeId];
   if (node === undefined) {
@@ -186,7 +220,7 @@ export function deriveTaskStatus(task: Task): Task {
     return task;
   }
   const canProgress = statuses.some((status) => ['ready', 'running', 'awaiting_approval'].includes(status));
-  const hasBlockedWork = statuses.some((status) => ['failed', 'invalidated'].includes(status));
-  task.status = hasBlockedWork && !canProgress ? 'blocked' : 'active';
+  const hasBlockedWork = statuses.some((status) => ['blocked', 'failed', 'invalidated'].includes(status));
+  task.status = hasBlockedWork ? (canProgress ? 'partially_blocked' : 'blocked') : 'active';
   return task;
 }

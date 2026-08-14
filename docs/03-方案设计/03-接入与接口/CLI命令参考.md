@@ -149,7 +149,7 @@ aiw task init --project . --source ./requirements.md --force-new
 
 命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark docx 由本机已配置的 Lark MCP Server 读取；Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--source-section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
-`--project` 也可用于后续的 `task status`、`task run`、`task approve`、`task revise`、`task request-changes`、`task fail`、`task cancel`、`task source refresh` 与 `task skill rebind`。AIW 会在该目录执行命令；因此任务事实不保存本机绝对路径，其他成员在自己的仓库目录或显式传入 `--project` 均可继续同一任务。
+`--project` 也可用于后续的 `task status`、`task run`、`task approve`、`task revise`、`task request-changes`、`task fail`、`task cancel`、`task source refresh`、`task skill rebind`、`task decision` 与 `task close-with-risk`。AIW 会在该目录执行命令；因此任务事实不保存本机绝对路径，其他成员在自己的仓库目录或显式传入 `--project` 均可继续同一任务。
 
 ```text
 intake → clarify → solution → plan → implement → verify → test
@@ -180,7 +180,7 @@ aiw task source refresh refund-123 requirements
 
 ### `aiw task status <task-id>`
 
-显示任务状态、节点依赖、revision、审批记录和失效原因。
+显示流程状态、交付状态、节点依赖、revision、审批记录和失效原因。流程已闭环不等于可发布；交付状态为 `可发布`、`不可发布` 或 `风险已接受`。
 
 ```bash
 aiw task status refund-123
@@ -188,6 +188,23 @@ aiw task status refund-123 --json
 ```
 
 任务不存在时失败；该命令不修改任务状态。
+
+### `aiw task decision <list|choose|wait|defer|resolve>`
+
+查看或处理 `clarify` 产出的 AI 决策建议。用户只需选择方案、指定外部责任人，或明确拆期；AIW 将选择写入不可变事实，并只重新评估关联工作单元。
+
+```bash
+aiw task decision list refund-123
+aiw task decision choose refund-123 DEC-API-01 --option mock-only --note "先完成 UI 验证"
+aiw task decision wait refund-123 DEC-API-01 --option wait-api --owner backend --unblock-condition "接口契约与联调样例已确认"
+aiw task decision defer refund-123 DEC-API-01 --option defer-scope --note "接口能力拆至下一版本"
+aiw task decision waive refund-123 DEC-API-01 --option mock-only --note "本版本接受只覆盖 UI 验证的风险"
+aiw task decision resolve refund-123 DEC-API-01 --note "后端接口已发布并完成联调"
+```
+
+- `list` 显示 AI 推荐、可选方案、取舍、影响的验收项/工作单元和当前选择。
+- `choose` 记录已选择方案；`wait` 还必须记录责任人和解除条件；`defer`、`waive` 必须记录原因；`resolve` 只能解除已处于外部等待的事项。
+- 命令成功后必须提交 `.aiw`。`proposed` 或 `waiting_external` 的决策使对应 `blockedBy` 工作单元等待；`resolve` 或豁免只解锁相关单元；`defer` 将相关单元从当前验证汇合中移除。
 
 ### `aiw task migrate-handoffs <task-id>`
 
@@ -275,7 +292,20 @@ aiw task approve refund-123 clarify --actor jeffrey --note "验收标准完整"
 | `--actor <name>` | 可选。审批人的声明性身份；未提供时读取当前仓库的 `git config user.name`，读取失败则拒绝审批。 |
 | `--note <text>` | 可选。审批备注。 |
 
-仅当节点处于 `awaiting_approval`，且待审产物**及该等待审批状态**均已提交时可执行。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入不可变审批事实（含产物哈希），并将节点置为 `completed`；批准 `plan` 时还会校验 `work-breakdown.yaml`、生成每个工作单元的摘要与自动实施节点。调用者必须提交审批文件、自动生成的任务事实与状态变化后，下游节点才可运行。`actor` 仅用于记录，不替代受保护分支、CODEOWNERS、签名提交或 Git 平台 PR 审批。否则失败且不改变状态。
+仅当节点处于 `awaiting_approval`，且待审产物**及该等待审批状态**均已提交时可执行。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入不可变审批事实（含产物哈希），并将节点置为 `completed`；批准 `plan` 时还会校验 `work-breakdown.yaml`、生成每个工作单元的摘要与自动实施节点。测试节点会额外读取 `acceptance-results.yaml`：只要存在 `failed` 或 `blocked`，普通审批就失败。调用者必须提交审批文件、自动生成的任务事实与状态变化后，下游节点才可运行。`actor` 仅用于记录，不替代受保护分支、CODEOWNERS、签名提交或 Git 平台 PR 审批。否则失败且不改变状态。
+
+### `aiw task close-with-risk <task-id> --owner <name> --reason <text> --expires-at <datetime>`
+
+在测试报告明确有未通过或阻塞验收项、但业务负责人决定接受风险时关闭测试节点。
+
+```bash
+aiw task close-with-risk refund-123 \
+  --owner product-owner \
+  --reason "后端接口尚未交付，先按已知风险发布" \
+  --expires-at 2026-09-01T00:00:00.000Z
+```
+
+该命令不能替代普通审批：它会写入 `risk-acceptances/test/r<revision>.yaml`，记录责任人、原因、到期时间和操作者，并把交付状态设为 `风险已接受`。命令成功后同样必须提交 `.aiw`；未记录风险时不得通过普通 `task approve ... test` 绕过失败验收。
 
 ### `aiw task revise <task-id> <node-id> --note <text>`
 
@@ -327,6 +357,8 @@ git add .aiw && git commit -m "chore(aiw): request plan changes"
 | `task run` | `ready → running → completed`，或在需要审批时进入 `awaiting_approval`。 |
 | `task fail` | `running → failed`，保留失败原因和运行记录。 |
 | `task approve` | `awaiting_approval → completed`。 |
+| `task close-with-risk` | 关闭测试节点并写入风险接受事实；交付状态为 `risk_accepted`。 |
+| `task decision` | 写入决策事实；只解锁、阻塞或拆期关联工作单元。 |
 | `task request-changes` | 写入审批退回事实与修改说明；当前节点按依赖状态变为 `ready` 或 `pending`，下游已开始节点变为 `invalidated`。 |
 | `task revise` | 非审批场景下写入修改说明；当前节点按依赖状态变为 `ready` 或 `pending`，下游已开始节点变为 `invalidated`。 |
 

@@ -23,11 +23,12 @@ export function createSkillLock(name: string): SkillLock {
 
 export function createSevenPhaseTask(): Task {
   return {
-    schemaVersion: 'aiw.task/v1',
+    schemaVersion: 'aiw.task/v2',
     id: 'refund-123',
     title: '实现退款功能',
     repository: '.',
     status: 'active',
+    deliveryStatus: 'not_assessed',
     skillProfile: {
       name: 'standard-web-feature',
       version: '1.0.0',
@@ -45,9 +46,10 @@ export function createSevenPhaseTask(): Task {
       plan: node('制定实施计划', 'plan', ['solution'], 'pending', true, ['artifacts/implementation-plan.md', 'artifacts/implementation-context.md', 'artifacts/work-breakdown.yaml'], createSkillLock('implementation-planning')),
       implement: { ...node('完成实现', 'implement', ['plan'], 'pending', false, ['artifacts/implementation.md'], createSkillLock('typescript-web-implementation')), contextPath: 'artifacts/implementation-context.md', allowedPaths: [] },
       verify: node('工程验证', 'verify', ['implement'], 'pending', false, ['artifacts/verification.md'], createSkillLock('web-verification')),
-      test: node('测试验证', 'test', ['verify'], 'pending', true, ['artifacts/test-report.md'], createSkillLock('acceptance-testing')),
+      test: node('测试验证', 'test', ['verify'], 'pending', true, ['artifacts/test-report.md', 'artifacts/acceptance-results.yaml'], createSkillLock('acceptance-testing')),
     },
     approvalRefs: [],
+    decisions: [],
     events: [],
   };
 }

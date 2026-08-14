@@ -8,6 +8,9 @@ import type { ContextManifest } from '../domain/context.js';
 import type { OutputRecord, SkillLock, Task } from '../domain/task.js';
 import { handoffPath, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
 import { hasTestExecutionEvidence } from '../domain/test-report.js';
+import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
+import { DecisionRegisterSchema } from '../domain/decision-register.js';
+import { parse } from 'yaml';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
@@ -377,6 +380,22 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       return;
     } catch (error) {
       throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof ImplementationWorkPlannerError ? error.message : '实施工作单元声明无效');
+    }
+  }
+  if (path === 'artifacts/decision-register.yaml') {
+    try {
+      DecisionRegisterSchema.parse(parse(content));
+      return;
+    } catch {
+      throw new TaskRunnerError('ARTIFACT_INVALID', '决策登记必须是有效的 aiw.decision-register/v1 YAML');
+    }
+  }
+  if (path === 'artifacts/acceptance-results.yaml') {
+    try {
+      AcceptanceResultsSchema.parse(parse(content));
+      return;
+    } catch {
+      throw new TaskRunnerError('ARTIFACT_INVALID', '验收结果必须是有效的 aiw.acceptance-results/v1 YAML');
     }
   }
   if (path === 'artifacts/implementation-context.md' && Buffer.byteLength(content, 'utf8') > 16_000) {

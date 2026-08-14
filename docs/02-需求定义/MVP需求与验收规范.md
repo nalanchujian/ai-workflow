@@ -2,7 +2,7 @@
 
 ## 目标
 
-交付可在开发者本机运行、以 Git 共享任务事实的 `aiw` CLI。它能安装并锁定声明式团队技能及其上游方法论引用、建立包含来源快照的七阶段任务，并通过可验证的 Codex Adapter 预演或执行节点运行。
+交付可在开发者本机运行、以 Git 共享任务事实的 `aiw` CLI。它能安装并锁定声明式团队技能及其上游方法论引用、建立包含来源快照与决策登记的七阶段任务，并通过可验证的 Codex Adapter 预演或执行节点运行。
 
 本规范定义“必须实现什么、如何验收”；需求范围的来源、已确认取舍和待验证假设见[需求来源与关键决策记录](需求来源与关键决策记录.md)。
 
@@ -60,6 +60,9 @@
 - 执行模式必须在 Codex 启动前拒绝业务工作树中的未提交变更，并记录 Git 提交与分支基线；执行后采集 Git 变更路径、允许范围内未跟踪文件补丁及 Git 状态。超范围变更或 Git 历史/分支变化必须写入运行证据、将当前节点标记失败且不得解锁下游节点。实施节点缺少结构化 `allowedPaths` 范围时必须拒绝执行。
 - 需要审批的 `clarify`、`plan`、`test` 节点，在运行成功后进入 `awaiting_approval`；`solution` 可由高风险任务模板额外设置审批。
 - `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]` 仅可批准当前 revision 的 `awaiting_approval` 节点；待审产物和当前状态均已提交时，写入绑定全部输出哈希的审批文件并将节点置为 `completed`。未提供 `--actor` 时必须读取 Git 用户名，否则失败。
+- `clarify` 必须生成 `artifacts/decision-register.yaml`：每个无法由现有事实确定、且影响验收或实施范围的事项必须含至少两个选项、取舍和 AI 推荐；`aiw task decision list|choose|wait|defer|waive|resolve` 将人工选择或外部等待写入不可变事实，并只重新评估关联工作单元。
+- `work-breakdown.yaml` 的工作单元可使用 `blockedBy: [DEC-...]`。未决或外部等待决策仅阻塞关联单元；解决或豁免后解锁；拆期后从当前验证汇合移除。
+- 测试节点必须输出 `artifacts/acceptance-results.yaml`。普通 `task approve <task-id> test` 只接受全部验收项为 `passed`、`deferred` 或 `waived` 的结果；存在 `failed` 或 `blocked` 时必须拒绝。`task close-with-risk <task-id> --owner --reason --expires-at` 是唯一风险关闭入口，必须写入风险接受事实并将交付状态标为 `risk_accepted`。
 - `aiw task revise <task-id> <node-id> --note <text>` 写入修改说明并递归将所有已开始下游节点置为 `invalidated`；当前节点随后重新评估，全部依赖已完成时置为 `ready`，否则保持 `pending`。
 - `aiw task request-changes <task-id> <node-id> --note <text> [--actor <name>]` 仅用于 `awaiting_approval` 节点。它写入 `decision: changes_requested` 的审批事实、下一 revision 的修改说明并使已开始下游节点失效；当前节点随后按依赖状态重新评估为 `ready` 或 `pending`，不得用 `task revise` 代替该审批决定。
 - `aiw task status <task-id>` 显示全部节点状态、依赖、revision、审批与失效原因。
@@ -80,7 +83,7 @@
 - `aiw task run <task-id> <node-id>` 使用 `CodexAdapter` 构建请求并启动已配置的 Codex CLI。
 - 缺少 Codex 可执行文件时返回 `unavailable`；非零退出码返回 `failed`；取消信号返回 `cancelled`；执行超过默认 15 分钟时必须终止子进程并返回 `failed` / `CODEX_TIMEOUT`。
 - 一次运行必须在共享任务事实中保留可审阅的去敏结果，并将完整请求、上下文和原始日志仅保留在本机。
-- 只有进程退出码为 0、节点声明的产物存在且通过结构化质量校验（非空、Markdown 标题、实施计划范围、测试命令与结果等）时，节点才能进入后续状态。
+- 只有进程退出码为 0、节点声明的产物存在且通过结构化质量校验（非空、Markdown 标题、决策登记、实施计划范围、测试命令/结果和验收结果等）时，节点才能进入后续状态。
 
 ## 非功能需求
 
@@ -121,6 +124,8 @@
 | AC-24 | 以工作流模板创建并运行任务 | `task init` 使用显式模板或本机默认模板，原子写入模板及六阶段精确技能/方法来源锁定；提交前 `task run` 和 dry-run 均拒绝，提交后按节点锁定运行且不再传入技能。 |
 | AC-25 | 审批人要求修改当前计划 revision | `task request-changes` 写入含产物哈希的 `changes_requested` 审批记录和下一版修改说明；当前节点按依赖状态重新评估为 `ready` 或 `pending`，已开始下游节点失效，旧产物与审批记录保留。 |
 | AC-26 | 以 Lark 文档章节创建并刷新任务 | 快照只包含唯一指定标题及子标题内容，并记录标题；文档其他章节变化不创建 revision，指定章节变化才触发后续失效。 |
+| AC-27 | AI 提出决策并由人工处理 | 澄清产出包含选项、取舍和推荐的决策登记；选择、外部等待、拆期或豁免均形成不可变事实，且只改变关联工作单元状态。 |
+| AC-28 | 测试存在阻塞验收项 | 普通测试审批拒绝；只有明确记录责任人、原因和到期时间的风险关闭才能完成流程，交付状态为 `risk_accepted`。 |
 
 ## 完成定义
 

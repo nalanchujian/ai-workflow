@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Command } from 'commander';
-import { stringify } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
 import { TaskSchema, type SkillLock, type Task, type TaskNode } from '../domain/task.js';
@@ -14,6 +15,8 @@ import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { materializeImplementationWork } from '../services/implementation-work-planner.js';
 import { HandoffMigrator, type HandoffMigrationResult } from '../services/handoff-migrator.js';
+import { TaskDecisionService } from '../services/task-decision-service.js';
+import { AcceptanceResultsSchema, deliveryStatusFromAcceptanceResults } from '../domain/acceptance-results.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
 import { TerminalProgressReporter, withProgress, type ProgressReporter } from './progress-reporter.js';
 
@@ -28,7 +31,7 @@ const ApprovalFactSchema = z.object({
 });
 
 export class TaskStateCommands {
-  constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; skillRegistry?: SkillRegistry; cancellation?: TaskCancellationService; handoffMigrator?: HandoffMigrator }) {}
+  constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; skillRegistry?: SkillRegistry; cancellation?: TaskCancellationService; handoffMigrator?: HandoffMigrator; decisionService?: TaskDecisionService }) {}
 
   async status(taskId: string): Promise<Task> {
     return this.deps.taskStore.load(taskId);
@@ -40,12 +43,54 @@ export class TaskStateCommands {
     return { task: await this.deps.taskStore.load(taskId), migration };
   }
 
+  async listDecisions(taskId: string) {
+    if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
+    return this.deps.decisionService.list(taskId);
+  }
+
+  async chooseDecision(taskId: string, decisionId: string, options: { option: string; actor?: string; note?: string }): Promise<Task> {
+    if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
+    await this.assertDecisionRegisterCommitted(taskId);
+    return this.deps.decisionService.choose({ taskId, decisionId, optionId: options.option, actor: await this.deps.taskFactGuard.actor(options.actor), status: 'resolved', ...(options.note === undefined ? {} : { note: options.note }) });
+  }
+
+  async waitDecision(taskId: string, decisionId: string, options: { option: string; owner: string; unblockCondition: string; actor?: string; note?: string }): Promise<Task> {
+    if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
+    await this.assertDecisionRegisterCommitted(taskId);
+    return this.deps.decisionService.choose({ taskId, decisionId, optionId: options.option, actor: await this.deps.taskFactGuard.actor(options.actor), status: 'waiting_external', owner: options.owner, unblockCondition: options.unblockCondition, ...(options.note === undefined ? {} : { note: options.note }) });
+  }
+
+  async deferDecision(taskId: string, decisionId: string, options: { option: string; note: string; actor?: string }): Promise<Task> {
+    if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
+    await this.assertDecisionRegisterCommitted(taskId);
+    return this.deps.decisionService.choose({ taskId, decisionId, optionId: options.option, actor: await this.deps.taskFactGuard.actor(options.actor), status: 'deferred', note: options.note });
+  }
+
+  async waiveDecision(taskId: string, decisionId: string, options: { option: string; note: string; actor?: string }): Promise<Task> {
+    if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
+    await this.assertDecisionRegisterCommitted(taskId);
+    return this.deps.decisionService.choose({ taskId, decisionId, optionId: options.option, actor: await this.deps.taskFactGuard.actor(options.actor), status: 'waived', note: options.note });
+  }
+
+  async resolveDecision(taskId: string, decisionId: string, options: { note: string; actor?: string }): Promise<Task> {
+    if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
+    await this.assertDecisionRegisterCommitted(taskId);
+    return this.deps.decisionService.resolve({ taskId, decisionId, actor: await this.deps.taskFactGuard.actor(options.actor), note: options.note });
+  }
+
   async approve(taskId: string, nodeId: string, options: { actor?: string; note?: string }): Promise<Task> {
     return this.decide(taskId, nodeId, 'approved', options);
   }
 
   async requestChanges(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
     return this.decide(taskId, nodeId, 'changes_requested', options);
+  }
+
+  async closeWithRisk(taskId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }): Promise<Task> {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(options.expiresAt) || Number.isNaN(Date.parse(options.expiresAt))) {
+      throw new Error('风险到期时间必须为 ISO 8601 时间');
+    }
+    return this.decide(taskId, 'test', 'approved', { actor: options.actor, note: options.reason, riskAcceptance: { owner: options.owner, reason: options.reason, expiresAt: options.expiresAt } });
   }
 
   async fail(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
@@ -133,7 +178,7 @@ export class TaskStateCommands {
     taskId: string,
     nodeId: string,
     decision: 'approved' | 'changes_requested',
-    options: { actor?: string; note?: string },
+    options: { actor?: string; note?: string; riskAcceptance?: { owner: string; reason: string; expiresAt: string } },
   ): Promise<Task> {
     const task = await this.deps.taskStore.load(taskId);
     const node = task.nodes[nodeId];
@@ -150,6 +195,12 @@ export class TaskStateCommands {
     const completionBundle = await loadRunCompletionBundle(task, this.deps.taskStore, nodeId);
     await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...completionBundle.paths] });
     const actor = await this.deps.taskFactGuard.actor(options.actor);
+    const deliveryStatus = nodeId === 'test' && decision === 'approved'
+      ? await readDeliveryStatus(task, this.deps.taskStore)
+      : undefined;
+    if (nodeId === 'test' && decision === 'approved' && deliveryStatus !== 'ready' && options.riskAcceptance === undefined) {
+      throw new Error('验收结果包含未通过或阻塞项；请先处理，或使用 task close-with-risk 明确记录风险接受。');
+    }
     const artifactHashes = await outputHashes(task, this.deps.taskStore, nodeId);
     const approvalPath = `approvals/${nodeId}/r${node.revision}.yaml`;
     const approval = ApprovalFactSchema.parse({
@@ -165,6 +216,10 @@ export class TaskStateCommands {
     if (decision === 'changes_requested') {
       await this.deps.taskStore.createFact(taskId, `revisions/${nodeId}/r${node.revision + 1}.md`, `${note}\n`);
     }
+    if (options.riskAcceptance !== undefined) {
+      const riskPath = `risk-acceptances/test/r${node.revision}.yaml`;
+      await this.deps.taskStore.createFact(taskId, riskPath, stringify({ schemaVersion: 'aiw.risk-acceptance/v1', nodeId: 'test', nodeRevision: node.revision, actor, ...options.riskAcceptance, at: new Date().toISOString() }));
+    }
     let next = transitionNode(task, nodeId, decision === 'approved'
       ? { type: 'approve', actor, ...(note === undefined ? {} : { note }) }
       : { type: 'request_changes', actor, note: note ?? '' });
@@ -174,12 +229,25 @@ export class TaskStateCommands {
       next = materialized.task;
       generatedFacts.push(...materialized.facts);
     }
+    if (nodeId === 'test' && decision === 'approved') {
+      next.deliveryStatus = options.riskAcceptance === undefined ? 'ready' : 'risk_accepted';
+      if (options.riskAcceptance !== undefined) next.events.push({ type: 'close_with_risk', at: new Date().toISOString(), actor, note: options.riskAcceptance.reason });
+    }
     next.approvalRefs.push(approvalPath);
     for (const fact of generatedFacts) {
       await this.deps.taskStore.createFact(taskId, fact.path, fact.content);
     }
     await this.deps.taskStore.update(next);
     return next;
+  }
+
+  private async assertDecisionRegisterCommitted(taskId: string): Promise<void> {
+    const task = await this.deps.taskStore.load(taskId);
+    await this.deps.taskFactGuard.assertCommitted({
+      task,
+      projectRoot: this.deps.taskStore.projectDirectory(),
+      paths: ['task.yaml', 'artifacts/decision-register.yaml'],
+    });
   }
 }
 
@@ -213,9 +281,49 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
       ],
     });
   }));
+  command.addCommand(new Command('decision').description('查看并处理 AI 提出的决策项')
+    .addCommand(new Command('list').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
+      const decisions = await deps.commands.listDecisions(taskId);
+      writeCommandResult(decisions, current, deps.stdout, {
+        headline: '待决策事项',
+        sections: decisions.map(({ item, resolution }) => ({
+          title: `${item.id}：${item.title}`, lines: [
+            `影响验收项：${item.affects.acceptanceRefs.join('、')}`,
+            `影响工作单元：${item.affects.workUnits.join('、')}`,
+            `AI 推荐：${item.recommendation.optionId}（${item.recommendation.rationale}）`,
+            `当前选择：${resolution === undefined ? '待选择' : `${resolution.optionId}（${resolution.status}）`}`,
+            ...item.options.map((option) => `- ${option.id}：${option.title}；${option.tradeoffs}`),
+          ],
+        })),
+      });
+    }))
+    .addCommand(new Command('choose').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--option <id>').option('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { option: string; note?: string; actor?: string }, current: Command) => {
+      const task = await deps.commands.chooseDecision(taskId, decisionId, options);
+      writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `决策「${decisionId}」已选择`, `chore(aiw): choose ${decisionId}`));
+    }))
+    .addCommand(new Command('wait').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--option <id>').requiredOption('--owner <name>').requiredOption('--unblock-condition <text>').option('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { option: string; owner: string; unblockCondition: string; note?: string; actor?: string }, current: Command) => {
+      const task = await deps.commands.waitDecision(taskId, decisionId, options);
+      writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `决策「${decisionId}」等待外部条件`, `chore(aiw): wait ${decisionId}`));
+    }))
+    .addCommand(new Command('defer').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--option <id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { option: string; note: string; actor?: string }, current: Command) => {
+      const task = await deps.commands.deferDecision(taskId, decisionId, options);
+      writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `决策「${decisionId}」已拆期`, `chore(aiw): defer ${decisionId}`));
+    }))
+    .addCommand(new Command('waive').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--option <id>').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { option: string; note: string; actor?: string }, current: Command) => {
+      const task = await deps.commands.waiveDecision(taskId, decisionId, options);
+      writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `决策「${decisionId}」已按风险豁免`, `chore(aiw): waive ${decisionId}`));
+    }))
+    .addCommand(new Command('resolve').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { note: string; actor?: string }, current: Command) => {
+      const task = await deps.commands.resolveDecision(taskId, decisionId, options);
+      writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `决策「${decisionId}」已解除阻塞`, `chore(aiw): resolve ${decisionId}`));
+    })));
   command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }, current: Command) => {
     const task = await deps.commands.approve(taskId, nodeId, options);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已批准`, `chore(aiw): approve ${nodeId}`));
+  }));
+  command.addCommand(new Command('close-with-risk').description('明确接受未通过验收项的风险并关闭测试节点').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--owner <name>').requiredOption('--reason <text>').requiredOption('--expires-at <datetime>').option('--actor <name>').action(async (taskId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }, current: Command) => {
+    const task = await deps.commands.closeWithRisk(taskId, options);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '测试节点已按风险接受关闭', 'chore(aiw): close test with risk'));
   }));
   command.addCommand(new Command('request-changes').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     const task = await deps.commands.requestChanges(taskId, nodeId, options);
@@ -259,28 +367,35 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
 function renderTaskOutput(task: Task, headline: string, commitMessage?: string): HumanOutput {
   const ready = Object.entries(task.nodes).find(([, node]) => node.status === 'ready');
   const waiting = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');
+  const blocked = Object.entries(task.nodes).filter(([, node]) => node.status === 'blocked');
   return {
     headline,
     details: [
       { label: '任务 ID', value: task.id },
       { label: '任务名称', value: task.title },
       { label: '整体状态', value: taskStatusLabel(task.status) },
+      { label: '交付状态', value: deliveryStatusLabel(task.deliveryStatus) },
     ],
     sections: [{ title: '节点', lines: Object.entries(task.nodes).map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) }],
-    nextSteps: ready === undefined && waiting === undefined ? undefined : [
+    nextSteps: ready === undefined && waiting === undefined && blocked.length === 0 ? undefined : [
       ...(commitMessage === undefined ? [] : [`git add .aiw && git commit -m "${commitMessage}"`]),
       ...(waiting === undefined ? [] : [`aiw task approve ${task.id} ${waiting[0]} --note "<审批说明>"`]),
       ...(ready === undefined ? [] : [`aiw task run ${task.id} ${ready[0]}`]),
+      ...(blocked.length === 0 ? [] : [`aiw task decision list ${task.id}`]),
     ],
   };
 }
 
 function taskStatusLabel(status: Task['status']): string {
-  return ({ active: '进行中', blocked: '需处理', completed: '已完成', cancelled: '已取消' })[status];
+  return ({ active: '进行中', partially_blocked: '部分可执行', blocked: '等待处理', completed: '流程已闭环', cancelled: '已取消' })[status];
+}
+
+function deliveryStatusLabel(status: Task['deliveryStatus']): string {
+  return ({ not_assessed: '尚未评估', ready: '可发布', not_ready: '不可发布', risk_accepted: '风险已接受' })[status];
 }
 
 function nodeStatusLabel(status: TaskNode['status']): string {
-  return ({ pending: '待开始', ready: '可执行', running: '运行中', awaiting_approval: '待审批', completed: '已完成', failed: '失败', invalidated: '已失效', cancelled: '已取消', superseded: '已被新版计划替代' })[status];
+  return ({ pending: '待开始', blocked: '等待决策', ready: '可执行', running: '运行中', awaiting_approval: '待审批', completed: '已完成', failed: '失败', invalidated: '已失效', cancelled: '已取消', superseded: '已被新版计划替代' })[status];
 }
 
 function collect(value: string, previous: string[]): string[] {
@@ -297,6 +412,15 @@ async function outputHashes(task: Task, taskStore: TaskStore, nodeId: string): P
     return [path, `sha256:${createHash('sha256').update(content).digest('hex')}`] as const;
   }));
   return Object.fromEntries(hashes);
+}
+
+async function readDeliveryStatus(task: Task, taskStore: TaskStore): Promise<Task['deliveryStatus']> {
+  try {
+    const results = AcceptanceResultsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance-results.yaml'), 'utf8')));
+    return deliveryStatusFromAcceptanceResults(results);
+  } catch {
+    throw new Error('测试节点缺少有效的 artifacts/acceptance-results.yaml');
+  }
 }
 
 function parseReference(reference: string): [string, string] {

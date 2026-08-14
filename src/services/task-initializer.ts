@@ -59,11 +59,12 @@ export class TaskInitializer {
       const sourceReference = await sourceIntake.writeSnapshot({ snapshot: source, taskDirectory: stagingDirectory });
       await writeFile(join(stagingDirectory, 'task.md'), `# ${id}\n\n需求来源：${sourceReference.origin}\n`, 'utf8');
       const task: Task = {
-        schemaVersion: 'aiw.task/v1',
+        schemaVersion: 'aiw.task/v2',
         id,
         title: `任务 ${id}`,
         repository: '.',
         status: 'active',
+        deliveryStatus: 'not_assessed',
         skillProfile: {
           name: profile.name,
           version: profile.version,
@@ -73,6 +74,7 @@ export class TaskInitializer {
         sources: { [sourceId]: sourceReference },
         nodes: createNodes(skills),
         approvalRefs: [],
+        decisions: [],
         events: [],
       };
       const intakeHandoffPath = handoffPath('intake', task.nodes.intake.revision);
@@ -238,12 +240,12 @@ function isLarkHost(hostname: string, suffix: string): boolean {
 
 function createNodes(skills: Record<(typeof executableStages)[number], InstalledSkill>): Record<string, TaskNode> {
   const stageDefinitions: Array<{ id: (typeof executableStages)[number]; title: string; outputs: string[]; requiresApproval: boolean }> = [
-    { id: 'clarify', title: '澄清需求', outputs: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md'], requiresApproval: true },
+    { id: 'clarify', title: '澄清需求', outputs: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/decision-register.yaml'], requiresApproval: true },
     { id: 'solution', title: '形成技术方案', outputs: ['artifacts/solution.md'], requiresApproval: false },
     { id: 'plan', title: '制定实施计划', outputs: ['artifacts/implementation-plan.md', 'artifacts/implementation-context.md', 'artifacts/work-breakdown.yaml'], requiresApproval: true },
     { id: 'implement', title: '完成实现', outputs: ['artifacts/implementation.md'], requiresApproval: false },
     { id: 'verify', title: '工程验证', outputs: ['artifacts/verification.md'], requiresApproval: false },
-    { id: 'test', title: '测试验证', outputs: ['artifacts/test-report.md'], requiresApproval: true },
+    { id: 'test', title: '测试验证', outputs: ['artifacts/test-report.md', 'artifacts/acceptance-results.yaml'], requiresApproval: true },
   ];
   const nodes: Record<string, TaskNode> = {
     intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', revision: 1, outputs: ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'] },

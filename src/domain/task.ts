@@ -16,6 +16,7 @@ export const PhaseSchema = z.enum([
 
 export const NodeStatusSchema = z.enum([
   'pending',
+  'blocked',
   'ready',
   'running',
   'awaiting_approval',
@@ -26,7 +27,21 @@ export const NodeStatusSchema = z.enum([
   'superseded',
 ]);
 
-export const TaskStatusSchema = z.enum(['active', 'blocked', 'completed', 'cancelled']);
+export const TaskStatusSchema = z.enum(['active', 'partially_blocked', 'blocked', 'completed', 'cancelled']);
+export const DeliveryStatusSchema = z.enum(['not_assessed', 'ready', 'not_ready', 'risk_accepted']);
+
+export const DecisionResolutionSchema = z.object({
+  id: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效'),
+  revision: z.number().int().positive(),
+  status: z.enum(['resolved', 'waiting_external', 'deferred', 'waived']),
+  optionId: z.string().min(1),
+  actor: z.string().min(1),
+  at: z.string().datetime(),
+  owner: z.string().min(1).optional(),
+  unblockCondition: z.string().min(8).optional(),
+  note: z.string().min(1).optional(),
+  factPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径'),
+}).strict();
 
 export const RegistrySourceSchema = z.object({
   url: z.string().min(1),
@@ -89,6 +104,7 @@ export const TaskNodeSchema = z.object({
   allowedPaths: z.array(z.string().regex(relativePathPattern, '必须是业务仓库内的相对路径')).optional(),
   contextPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
   generatedFromPlanRevision: z.number().int().positive().optional(),
+  blockedByDecisionIds: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).optional(),
 });
 
 export const TaskEventSchema = z.object({
@@ -107,8 +123,13 @@ export const TaskEventSchema = z.object({
     'materialize_implementation',
     'migrate_handoff',
     'supersede',
+    'choose_decision',
+    'defer_decision',
+    'resolve_decision',
+    'close_with_risk',
   ]),
-  nodeId: z.string().min(1),
+  nodeId: z.string().min(1).optional(),
+  decisionId: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效').optional(),
   at: z.string().datetime(),
   note: z.string().optional(),
   reason: z.string().optional(),
@@ -121,15 +142,17 @@ export const TaskEventSchema = z.object({
 });
 
 const TaskBaseSchema = z.object({
-  schemaVersion: z.literal('aiw.task/v1'),
+  schemaVersion: z.literal('aiw.task/v2'),
   id: z.string().regex(taskIdPattern),
   title: z.string().min(1),
   repository: z.string().min(1),
   status: TaskStatusSchema,
+  deliveryStatus: DeliveryStatusSchema,
   skillProfile: WorkflowProfileLockSchema,
   sources: z.record(z.string().min(1), SourceReferenceSchema),
   nodes: z.record(z.string().min(1), TaskNodeSchema),
   approvalRefs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
+  decisions: z.array(DecisionResolutionSchema),
   events: z.array(TaskEventSchema),
 });
 
@@ -182,6 +205,8 @@ export const TaskSchema = TaskBaseSchema.superRefine((task, context) => {
 export type Phase = z.infer<typeof PhaseSchema>;
 export type NodeStatus = z.infer<typeof NodeStatusSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+export type DeliveryStatus = z.infer<typeof DeliveryStatusSchema>;
+export type DecisionResolution = z.infer<typeof DecisionResolutionSchema>;
 export type SkillLock = z.infer<typeof SkillLockSchema>;
 export type OutputRecord = z.infer<typeof OutputRecordSchema>;
 export type SourceKind = z.infer<typeof SourceKindSchema>;

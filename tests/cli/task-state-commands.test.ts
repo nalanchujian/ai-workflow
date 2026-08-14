@@ -56,6 +56,46 @@ describe('TaskStateCommands', () => {
     expect((await store.load('refund-123')).nodes.plan.status).toBe('ready');
   });
 
+  it('does not approve a test report when acceptance results still contain blocked items', async () => {
+    const { store } = await createApprovalTask('test', { acceptanceStatus: 'blocked' });
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    await expect(commands.approve('refund-123', 'test', { note: '查看报告' }))
+      .rejects.toThrow('验收结果包含未通过或阻塞项');
+    expect((await store.load('refund-123')).nodes.test.status).toBe('awaiting_approval');
+  });
+
+  it('records an explicit risk acceptance before closing a blocked test report', async () => {
+    const { store, directory } = await createApprovalTask('test', { acceptanceStatus: 'blocked' });
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    const task = await commands.closeWithRisk('refund-123', {
+      owner: 'product-owner', reason: '后端接口未就绪，先以已知风险发布。', expiresAt: '2026-09-01T00:00:00.000Z',
+    });
+
+    expect(task).toMatchObject({ status: 'completed', deliveryStatus: 'risk_accepted' });
+    await expect(readFile(join(directory, 'risk-acceptances', 'test', 'r1.yaml'), 'utf8'))
+      .resolves.toContain('owner: product-owner');
+  });
+
+  it('requires a machine-readable risk expiry before closing a blocked test report', async () => {
+    const { store } = await createApprovalTask('test', { acceptanceStatus: 'blocked' });
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    await expect(commands.closeWithRisk('refund-123', {
+      owner: 'product-owner', reason: '后端接口未就绪，先以已知风险发布。', expiresAt: '下个版本',
+    })).rejects.toThrow('风险到期时间必须为 ISO 8601 时间');
+  });
+
   it('marks an interrupted running node as failed with an auditable reason', async () => {
     const { store } = await createApprovalTask('clarify');
     const task = await store.load('refund-123');
@@ -206,7 +246,7 @@ describe('TaskStateCommands', () => {
   });
 });
 
-async function createApprovalTask(nodeId: 'clarify' | 'plan', options: { completionBundle?: boolean } = {}): Promise<{ store: TaskStore; directory: string }> {
+async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: { completionBundle?: boolean; acceptanceStatus?: 'passed' | 'blocked' } = {}): Promise<{ store: TaskStore; directory: string }> {
   const directory = await createTempDirectory('aiw-task-state-');
   directories.push(directory);
   const store = new TaskStore(directory);
@@ -214,6 +254,9 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan', options: { complet
   if (nodeId === 'plan') {
     task.nodes.clarify.status = 'completed';
     task.nodes.solution.status = 'completed';
+  }
+  if (nodeId === 'test') {
+    for (const id of ['clarify', 'solution', 'plan', 'implement', 'verify']) task.nodes[id]!.status = 'completed';
   }
   task.nodes[nodeId].status = 'awaiting_approval';
   task.nodes[nodeId].revision = 1;
@@ -226,7 +269,11 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan', options: { complet
     await mkdir(join(taskDirectory, output, '..'), { recursive: true });
     const content = output === handoffPath(nodeId, node.revision)
       ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${node.outputs[0]}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
-      : `# ${output}\n`;
+      : nodeId === 'test' && output === 'artifacts/acceptance-results.yaml'
+        ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/test-report.md\n`
+        : nodeId === 'test' && output === 'artifacts/test-report.md'
+          ? '# 测试报告\n\n## 测试命令\n\n`pnpm test`\n\n## 测试结果\n\n已执行。\n'
+          : `# ${output}\n`;
     await writeFile(join(taskDirectory, output), content, 'utf8');
   }
   if (options.completionBundle !== false) {
