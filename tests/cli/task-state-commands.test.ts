@@ -134,7 +134,7 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan', options: { complet
       evidencePath: `runs/${runId}/change-evidence.json`,
     });
     await store.update(task);
-    for (const path of ['context-manifest.json', 'change-baseline.json', 'change-scope.json', 'change-evidence.json', 'change-diff.json', 'result.json']) {
+    for (const path of ['context-manifest.json', 'change-baseline.json', 'change-scope.json', 'change-evidence.json', 'change-diff.json', 'change.patch', 'result.json']) {
       await store.createFact('refund-123', `runs/${runId}/${path}`, '{}\n');
     }
   }

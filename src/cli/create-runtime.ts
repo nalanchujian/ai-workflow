@@ -23,6 +23,7 @@ import { SourceRefresher } from '../services/source-refresher.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { TaskInitializer } from '../services/task-initializer.js';
 import { TaskRunner } from '../services/task-runner.js';
+import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
 import type { GitClient } from '../ports/git-client.js';
@@ -41,6 +42,7 @@ export interface CliRuntime {
   sourceRefresher: SourceRefresher;
   stateCommands: TaskStateCommands;
   taskRunner: TaskRunner;
+  taskCancellation: TaskCancellationService;
   doctor: DoctorService;
   runHistory: RunHistoryService;
   localConfig: LocalConfig;
@@ -99,7 +101,8 @@ export function createCliRuntime(input: {
     }),
   });
   const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore });
-  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry });
+  const taskCancellation = new TaskCancellationService({ taskStore, runtimeRoot: join(input.homeDirectory, 'runtime') });
+  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry, cancellation: taskCancellation });
   const taskRunner = new TaskRunner({
     taskStore,
     skillRegistry: registry,
@@ -117,6 +120,7 @@ export function createCliRuntime(input: {
     sourceRefresher,
     stateCommands,
     taskRunner,
+    taskCancellation,
     doctor: new DoctorService({
       config,
       registry,

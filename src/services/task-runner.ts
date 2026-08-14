@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import type { CodexAdapter } from '../adapters/codex-adapter.js';
@@ -94,10 +94,11 @@ export class TaskRunner {
       path: `runs/${runId}/change-baseline.json`,
       changedPaths: [],
       outputs: input.dryRun ? [] : await outputBaseline(task, this.deps.taskStore, input.nodeId),
+      ...(input.dryRun ? {} : { git: await this.deps.changeInspector.revision({ projectRoot: this.deps.taskStore.projectDirectory() }) }),
     };
     if (!input.dryRun) {
       await this.deps.taskStore.createFact(task.id, baseline.path, JSON.stringify({
-        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: baseline.changedPaths, outputs: baseline.outputs,
+        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: baseline.changedPaths, outputs: baseline.outputs, ...(baseline.git === undefined ? {} : { git: baseline.git }),
       }, null, 2) + '\n');
     }
     const request: RunRequest = {
@@ -133,28 +134,45 @@ export class TaskRunner {
     await this.writeResult(task.id, runId, result);
     const next = result.status === 'succeeded'
       ? transitionNode(startedTask, input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
-      : transitionNode(startedTask, input.nodeId, { type: 'fail', message: result.error?.message ?? `运行未完成：${result.status}` });
+      : result.status === 'cancelled'
+        ? transitionNode(startedTask, input.nodeId, { type: 'cancel', note: result.error?.message ?? '已取消当前运行' })
+        : transitionNode(startedTask, input.nodeId, { type: 'fail', message: result.error?.message ?? `运行未完成：${result.status}` });
     await this.deps.taskStore.update(next);
     return result;
   }
 
   private async execute(request: RunRequest, task: Task, nodeId: string, scope: ChangeScope, baseline: ChangeBaseline): Promise<RunResult> {
+    if (await cancellationRequested(request.runDirectory)) {
+      return cancelledResult(request, '已收到取消请求，未启动 Codex');
+    }
     let result: RunResult;
     try {
-      result = await this.deps.adapter.run(request);
+      result = await this.deps.adapter.run(request, {
+        onProcessStarted: async (processId) => {
+          await writeFile(join(request.runDirectory, 'process.json'), JSON.stringify({ processId, startedAt: new Date().toISOString() }) + '\n', 'utf8');
+        },
+      });
     } catch (error) {
       result = failedResult(request, 'CODEX_EXECUTION_ERROR', error instanceof Error ? error.message : 'Codex 调用失败');
+    }
+    if (await cancellationRequested(request.runDirectory)) {
+      result = cancelledResult(request, '已取消当前 Codex 运行');
     }
     if (result.status !== 'succeeded') {
       await this.persistChangeEvidence(task, {
         ...(await this.recordChangeEvidence(task, request, scope, result, baseline)),
-        failure: failureEvidence('adapter', result.error?.code ?? 'CODEX_EXECUTION_ERROR', result.error?.message ?? `运行未完成：${result.status}`),
+        failure: failureEvidence(result.status === 'cancelled' ? 'cancelled' : 'adapter', result.error?.code ?? 'CODEX_EXECUTION_ERROR', result.error?.message ?? `运行未完成：${result.status}`),
       });
       return result;
     }
     let evidence: ChangeEvidence | undefined;
     try {
       evidence = await this.recordChangeEvidence(task, request, scope, result, baseline);
+      if (evidence.git.historyChanged) {
+        const message = '检测到 Codex 修改了 Git 提交或分支，当前运行已停止';
+        await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('git-history', 'GIT_HISTORY_MUTATION', message) });
+        return failedResult(request, 'GIT_HISTORY_MUTATION', message);
+      }
       if (evidence.violations.length > 0) {
         const message = `检测到超出允许范围的变更：${evidence.violations.join(', ')}`;
         await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('scope', 'CHANGE_SCOPE_VIOLATION', message) });
@@ -198,15 +216,23 @@ export class TaskRunner {
   }
 
   private async recordChangeEvidence(task: Task, request: RunRequest, scope: ChangeScope, result: RunResult, baseline: ChangeBaseline, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
-    const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot: this.deps.taskStore.projectDirectory() });
+    const projectRoot = this.deps.taskStore.projectDirectory();
+    const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot });
     const violations = changedPaths.filter((path) => !scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
-    const rawDiff = await this.deps.changeInspector.diff({ projectRoot: this.deps.taskStore.projectDirectory() });
-    const changedFiles = await Promise.all(changedPaths.map(async (path) => ({ path, ...(await fileHash(this.deps.taskStore.projectDirectory(), path)) })));
+    const rawDiff = await this.deps.changeInspector.diff({ projectRoot });
+    const untrackedPaths = await this.deps.changeInspector.untrackedPaths({ projectRoot });
+    const changedFiles = await Promise.all(changedPaths.map(async (path) => ({ path, ...(await fileHash(projectRoot, path)) })));
+    const after = await this.deps.changeInspector.revision({ projectRoot });
+    const allowedUntracked = untrackedPaths.filter((path) => scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
+    const patch = `${rawDiff}${await untrackedPatch(projectRoot, allowedUntracked)}`;
     const evidence: ChangeEvidence = {
       schemaVersion: 'aiw.change-evidence/v1', taskId: task.id, nodeId: scope.nodeId, runId: request.runId,
       baseline,
       changedPaths, violations, changedFiles,
-      diff: { sha256: createHash('sha256').update(rawDiff).digest('hex'), lineCount: rawDiff === '' ? 0 : rawDiff.split(/\r?\n/).length - 1 },
+      untrackedPaths,
+      git: { before: baseline.git ?? {}, after, historyChanged: !sameGitRevision(baseline.git, after) },
+      patch,
+      diff: { sha256: createHash('sha256').update(patch).digest('hex'), lineCount: patch === '' ? 0 : patch.split(/\r?\n/).length - 1 },
       ...(result.process === undefined ? {} : { process: result.process }),
       ...(artifacts === undefined ? {} : { artifacts }),
     };
@@ -214,8 +240,10 @@ export class TaskRunner {
   }
 
   private async persistChangeEvidence(task: Task, evidence: ChangeEvidence): Promise<void> {
-    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId: evidence.runId, changedPaths: evidence.changedPaths, violations: evidence.violations }, null, 2) + '\n');
-    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-evidence.json`, JSON.stringify(evidence, null, 2) + '\n');
+    const { patch, ...sharedEvidence } = evidence;
+    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change.patch`, patch);
+    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId: evidence.runId, changedPaths: evidence.changedPaths, untrackedPaths: evidence.untrackedPaths, violations: evidence.violations, patchSha256: evidence.diff.sha256 }, null, 2) + '\n');
+    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-evidence.json`, JSON.stringify(sharedEvidence, null, 2) + '\n');
   }
 
   private async loadLockedSkill(lock: SkillLock) {
@@ -258,16 +286,20 @@ interface ChangeEvidence {
   changedPaths: string[];
   violations: string[];
   changedFiles: Array<{ path: string; sha256?: string; deleted?: true }>;
+  untrackedPaths: string[];
+  git: { before: { head?: string; branch?: string }; after: { head?: string; branch?: string }; historyChanged: boolean };
+  patch: string;
   diff: { sha256: string; lineCount: number };
   process?: unknown;
   artifacts?: OutputRecord[];
-  failure?: { stage: 'adapter' | 'scope' | 'artifact'; code: string; message: string };
+  failure?: { stage: 'adapter' | 'scope' | 'artifact' | 'git-history' | 'cancelled'; code: string; message: string };
 }
 
 interface ChangeBaseline {
   path: string;
   changedPaths: string[];
   outputs: Array<{ path: string; sha256?: string }>;
+  git?: { head?: string; branch?: string };
 }
 
 async function implementationAllowedPaths(task: Task, taskStore: TaskStore): Promise<string[]> {
@@ -394,6 +426,35 @@ function failureEvidence(stage: NonNullable<ChangeEvidence['failure']>['stage'],
   return { stage, code, message };
 }
 
+function sameGitRevision(left: ChangeBaseline['git'], right: { head?: string; branch?: string }): boolean {
+  return left?.head === right.head && left?.branch === right.branch;
+}
+
+async function untrackedPatch(projectRoot: string, paths: string[]): Promise<string> {
+  const patches = await Promise.all(paths.map(async (path) => {
+    try {
+      const content = await readFile(join(projectRoot, path));
+      if (content.byteLength > 1024 * 1024 || content.includes(0)) {
+        return `# 未记录内容：${path}（文件为二进制或超过 1 MiB）\n`;
+      }
+      const body = content.toString('utf8').split(/\r?\n/).map((line) => `+${line}`).join('\n');
+      return `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1 @@\n${body}\n`;
+    } catch {
+      return `# 无法读取未跟踪文件：${path}\n`;
+    }
+  }));
+  return patches.join('');
+}
+
+async function cancellationRequested(runDirectory: string): Promise<boolean> {
+  try {
+    await stat(join(runDirectory, 'cancel-request.json'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function sameSkillLock(skill: { registrySource: SkillLock['registrySource']; sha256: string; methodSources: SkillLock['methodSources'] }, lock: SkillLock): boolean {
   return skill.registrySource.url === lock.registrySource.url
     && skill.registrySource.revision === lock.registrySource.revision
@@ -411,5 +472,18 @@ function failedResult(request: RunRequest, code: string, message: string): RunRe
     finishedAt: new Date().toISOString(),
     artifacts: [],
     error: { code, message },
+  });
+}
+
+function cancelledResult(request: RunRequest, message: string): RunResult {
+  return RunResultSchema.parse({
+    schemaVersion: 'aiw.run-result/v1',
+    runId: request.runId,
+    status: 'cancelled',
+    runDirectory: request.runDirectory,
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    artifacts: [],
+    error: { code: 'AIW_CANCELLED', message },
   });
 }

@@ -4,6 +4,7 @@ export interface ProcessRunInput {
   cwd: string;
   stdin: string;
   timeoutMs: number;
+  onStarted?: (processId: number) => Promise<void> | void;
   /** Explicit child environment. Omit only for trusted local diagnostic commands. */
   env?: NodeJS.ProcessEnv;
 }

@@ -26,9 +26,7 @@ export class NodeProcessRunner implements ProcessRunner {
       child.stdout.on('data', (chunk: string) => { stdout += chunk; });
       child.stderr.on('data', (chunk: string) => { stderr += chunk; });
       child.stdin.on('error', (error) => {
-        if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
-          return;
-        }
+        if ((error as NodeJS.ErrnoException).code === 'EPIPE') return;
         clearTimers();
         reject(error);
       });
@@ -44,7 +42,17 @@ export class NodeProcessRunner implements ProcessRunner {
         clearTimers();
         resolve({ exitCode, signal, stdout, stderr, timedOut });
       });
-      child.stdin.end(input.stdin);
+      void (async () => {
+        try {
+          if (child.pid === undefined) throw new Error('无法获取 Codex 进程 ID');
+          await input.onStarted?.(child.pid);
+          child.stdin.end(input.stdin);
+        } catch (error) {
+          clearTimers();
+          child.kill('SIGTERM');
+          reject(error);
+        }
+      })();
     });
   }
 }

@@ -10,6 +10,7 @@ import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { deriveTaskStatus, transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
 import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
+import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
 
 const ApprovalFactSchema = z.object({
@@ -23,7 +24,7 @@ const ApprovalFactSchema = z.object({
 });
 
 export class TaskStateCommands {
-  constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; skillRegistry?: SkillRegistry }) {}
+  constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; skillRegistry?: SkillRegistry; cancellation?: TaskCancellationService }) {}
 
   async status(taskId: string): Promise<Task> {
     return this.deps.taskStore.load(taskId);
@@ -43,6 +44,11 @@ export class TaskStateCommands {
     const next = transitionNode(task, nodeId, { type: 'fail', message: options.note.trim(), actor });
     await this.deps.taskStore.update(next);
     return next;
+  }
+
+  async cancel(taskId: string, nodeId: string, options: { note: string }): Promise<{ taskId: string; nodeId: string; runId: string; status: 'requested' | 'signalled' }> {
+    if (this.deps.cancellation === undefined) throw new Error('当前环境不支持取消运行');
+    return this.deps.cancellation.request({ taskId, nodeId, note: options.note.trim() });
   }
 
   async revise(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
@@ -171,6 +177,14 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   command.addCommand(new Command('fail').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     const task = await deps.commands.fail(taskId, nodeId, options);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已标记失败`));
+  }));
+  command.addCommand(new Command('cancel').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { note: string }, current: Command) => {
+    const result = await deps.commands.cancel(taskId, nodeId, options);
+    writeCommandResult(result, current, deps.stdout, {
+      headline: result.status === 'signalled' ? `已向「${nodeId}」发送取消信号` : `已记录「${nodeId}」的取消请求`,
+      details: [{ label: '任务 ID', value: taskId }, { label: '运行 ID', value: result.runId }],
+      nextSteps: ['等待当前命令结束后，AIW 会保存证据并将节点标记为已取消。'],
+    });
   }));
   command.addCommand(new Command('revise').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     const task = await deps.commands.revise(taskId, nodeId, options);

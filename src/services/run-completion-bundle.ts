@@ -38,6 +38,7 @@ export async function loadRunCompletionBundle(task: Task, taskStore: TaskStore, 
     `runs/${event.runId}/change-baseline.json`,
     `runs/${event.runId}/change-scope.json`,
     `runs/${event.runId}/change-diff.json`,
+    `runs/${event.runId}/change.patch`,
     expectedEvidencePath,
     `runs/${event.runId}/result.json`,
   ];

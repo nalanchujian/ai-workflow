@@ -45,8 +45,16 @@ export class FakeRepositoryStatus implements RepositoryStatus, ProjectRepository
     return this.paths;
   }
 
+  async untrackedPaths(): Promise<string[]> {
+    return this.paths;
+  }
+
   async diff(): Promise<string> {
     return this.workingDiff;
+  }
+
+  async revision(): Promise<{ head?: string; branch?: string }> {
+    return { head: 'test-head', branch: 'test' };
   }
 
   async authorName(): Promise<string | undefined> {

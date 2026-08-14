@@ -46,9 +46,20 @@ export class GitRepositoryStatus implements RepositoryStatus, WorkingTreeStatus,
       .sort();
   }
 
+  async untrackedPaths(input: { projectRoot: string }): Promise<string[]> {
+    const { stdout } = await execFileAsync('git', ['-C', input.projectRoot, 'ls-files', '--others', '--exclude-standard', '-z']);
+    return stdout.split('\0').filter(Boolean).sort();
+  }
+
   async diff(input: { projectRoot: string }): Promise<string> {
     const { stdout } = await execFileAsync('git', ['-C', input.projectRoot, 'diff', '--no-ext-diff', '--binary', 'HEAD']);
     return stdout;
+  }
+
+  async revision(input: { projectRoot: string }): Promise<{ head?: string; branch?: string }> {
+    const head = await gitValue(input.projectRoot, ['rev-parse', '--verify', 'HEAD']);
+    const branch = await gitValue(input.projectRoot, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    return { ...(head === undefined ? {} : { head }), ...(branch === undefined ? {} : { branch }) };
   }
 
   async authorName(): Promise<string | undefined> {
@@ -58,6 +69,15 @@ export class GitRepositoryStatus implements RepositoryStatus, WorkingTreeStatus,
     } catch {
       return undefined;
     }
+  }
+}
+
+async function gitValue(projectRoot: string, args: string[]): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', projectRoot, ...args]);
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
   }
 }
 

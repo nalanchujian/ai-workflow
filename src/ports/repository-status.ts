@@ -5,5 +5,7 @@ export interface RepositoryStatus {
 
 export interface WorkingTreeStatus {
   changedPaths(input: { projectRoot: string }): Promise<string[]>;
+  untrackedPaths(input: { projectRoot: string }): Promise<string[]>;
   diff(input: { projectRoot: string }): Promise<string>;
+  revision(input: { projectRoot: string }): Promise<{ head?: string; branch?: string }>;
 }

@@ -111,6 +111,42 @@ describe('TaskRunner', () => {
     expect((await fixture.taskStore.load('refund-123')).events.at(-1)).toMatchObject({ type: 'succeed', runId: 'run-1', evidencePath: 'runs/run-1/change-evidence.json' });
   });
 
+  it('fails and preserves evidence when Codex changes the Git revision', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']],
+      gitRevisions: [{ head: 'base-commit', branch: 'main' }, { head: 'agent-commit', branch: 'main' }],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+    });
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'GIT_HISTORY_MUTATION' } });
+    const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
+    expect(evidence).toMatchObject({ git: { before: { head: 'base-commit' }, after: { head: 'agent-commit' }, historyChanged: true }, failure: { stage: 'git-history', code: 'GIT_HISTORY_MUTATION' } });
+  });
+
+  it('stores a patch for an allowed untracked artifact', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']],
+      untrackedPaths: ['.aiw/tasks/refund-123/artifacts/brief.md'],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+    });
+
+    await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change.patch'), 'utf8'))
+      .resolves.toContain('退款申请需要管理员审批');
+  });
+
+  it('records a cancelled run as a cancelled node', async () => {
+    const fixture = await createRunnerFixture({ signal: 'SIGTERM' });
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result.status).toBe('cancelled');
+    expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('cancelled');
+  });
+
   it('rejects an empty or structurally invalid declared artifact', async () => {
     const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']], writeArtifact: 'done\n' });
 
@@ -140,6 +176,9 @@ async function createRunnerFixture(options: {
   maxTokens?: number;
   runLock?: { acquire(input: { taskId: string }): Promise<undefined> };
   changeSnapshots?: string[][];
+  untrackedPaths?: string[];
+  gitRevisions?: Array<{ head?: string; branch?: string }>;
+  signal?: string | null;
   writeArtifact?: string;
 }) {
   const projectRoot = await temporaryDirectory();
@@ -180,7 +219,7 @@ async function createRunnerFixture(options: {
           await mkdir(join(taskStore.taskDirectory(task.id), 'artifacts'), { recursive: true });
           await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'brief.md'), options.writeArtifact, 'utf8');
         }
-        return { exitCode: options.exitCode ?? 0, signal: null, stdout: '', stderr: '', timedOut: false };
+        return { exitCode: options.exitCode ?? 0, signal: options.signal ?? null, stdout: '', stderr: '', timedOut: false };
       },
     },
   });
@@ -198,6 +237,8 @@ async function createRunnerFixture(options: {
     changeInspector: {
       async changedPaths() { return options.changeSnapshots?.shift() ?? []; },
       async diff() { return 'diff --git a/src/example.ts b/src/example.ts\n'; },
+      async untrackedPaths() { return options.untrackedPaths ?? []; },
+      async revision() { return options.gitRevisions?.shift() ?? { head: 'base-commit', branch: 'main' }; },
     },
     runtimeRoot: join(projectRoot, '.aiw-runtime'),
     runIdFactory: () => 'run-1',
