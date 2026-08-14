@@ -113,7 +113,7 @@ export function invalidateDependents(task: Task, upstreamNodeId: string, reason:
       }
 
       queue.push(nodeId);
-      if (node.status === 'pending' || node.status === 'invalidated') {
+      if (node.status === 'pending' || node.status === 'invalidated' || node.status === 'superseded') {
         continue;
       }
 
@@ -177,11 +177,11 @@ function addEvent(
 
 export function deriveTaskStatus(task: Task): Task {
   const statuses = Object.values(task.nodes).map((node) => node.status);
-  if (statuses.every((status) => status === 'completed')) {
+  if (statuses.every((status) => status === 'completed' || status === 'superseded')) {
     task.status = 'completed';
     return task;
   }
-  if (statuses.every((status) => status === 'completed' || status === 'cancelled') && statuses.includes('cancelled')) {
+  if (statuses.every((status) => status === 'completed' || status === 'cancelled' || status === 'superseded') && statuses.includes('cancelled')) {
     task.status = 'cancelled';
     return task;
   }

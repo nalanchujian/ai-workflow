@@ -26,6 +26,40 @@ describe('ContextBuilder', () => {
     expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', revision: 'd'.repeat(40) }));
   });
 
+  it('injects only the approved implementation context and acceptance criteria for implementation', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'implement', includes: [] });
+
+    expect(manifest.files.map((file) => file.path)).toEqual([
+      'artifacts/acceptance.md',
+      'artifacts/implementation-context.md',
+    ]);
+  });
+
+  it('uses the current implementation work unit context instead of the main unit context', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+    task.nodes['implement-export'] = {
+      ...task.nodes.implement,
+      title: '实现导出',
+      contextPath: 'artifacts/work-units/r1/implement-export.md',
+      outputs: ['artifacts/subtasks/implement-export.md'],
+    };
+    await mkdir(join(directory, 'artifacts', 'work-units', 'r1'), { recursive: true });
+    await writeFile(join(directory, 'artifacts', 'work-units', 'r1', 'implement-export.md'), '# 导出实施上下文\n', 'utf8');
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'implement-export', includes: [] });
+
+    expect(manifest.files.map((file) => file.path)).toEqual([
+      'artifacts/acceptance.md',
+      'artifacts/work-units/r1/implement-export.md',
+    ]);
+  });
+
   it('fails above the context budget without changing the approved artifact', async () => {
     const directory = await taskDirectory();
     const artifactPath = join(directory, 'artifacts', 'implementation-plan.md');
@@ -107,7 +141,7 @@ async function taskDirectory(): Promise<string> {
   directories.push(directory);
   await mkdir(join(directory, 'artifacts'), { recursive: true });
   await writeFile(join(directory, 'task.md'), '# Refund\n', 'utf8');
-  for (const name of ['brief.md', 'questions.md', 'acceptance.md', 'solution.md', 'implementation-plan.md', 'implementation.md', 'verification.md']) {
+  for (const name of ['brief.md', 'questions.md', 'acceptance.md', 'solution.md', 'implementation-plan.md', 'implementation-context.md', 'implementation.md', 'verification.md']) {
     await writeFile(join(directory, 'artifacts', name), `# ${name}\n`, 'utf8');
   }
   return directory;

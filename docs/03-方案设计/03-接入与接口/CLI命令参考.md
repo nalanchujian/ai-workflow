@@ -108,7 +108,7 @@ aiw skills list --json
 安装并切换本机默认团队技能版本。
 
 ```bash
-aiw skills update --ref v2.1.0
+aiw skills update --ref v3.0.0
 ```
 
 命令读取 `~/.aiw/config.yaml` 中的默认技能仓库地址，先安装和校验指定 ref；成功后将默认 ref 与该技能包中同名工作流模板的新版本一并更新。若新包缺少当前默认模板名，配置保持不变。命令不改写已有任务的锁定事实；Registry 按 Git revision 保留同一来源的多个副本，进行中的旧任务仍解析其锁定版本。
@@ -202,12 +202,13 @@ aiw task skill rebind refund-123 plan --skill implementation-planning@1.1.0 --no
 
 ### `aiw task subtask add <task-id> <node-id>`
 
-为复杂需求增加一个实施阶段子节点。`--depends-on <node-id>` 可重复，默认依赖 `plan`；`--before <node-id>` 可重复，默认让 `verify` 等待该子任务，形成明确汇合边；`--requires-approval` 使该子任务独立进入审批。子节点沿用当前任务锁定的实施技能，产物写入 `artifacts/subtasks/<node-id>.md`。只能修改尚未开始的汇合节点。所有 `task` 子命令均可加 `--project <业务仓库>`，无需先 `cd` 到业务仓库。
+计划获批后，AIW 会依据 `work-breakdown.yaml` 自动创建复杂需求的实施子节点；普通用户不需要调用本命令。`task subtask add` 仅用于补充计划之外、仍需显式治理的实施工作。`--allowed-path` 至少一个，定义该手工子任务允许修改的业务路径；`--depends-on <node-id>` 可重复，默认依赖 `plan`；`--before <node-id>` 可重复，默认让 `verify` 等待该子任务，形成明确汇合边；`--requires-approval` 使该子任务独立进入审批。子节点沿用当前任务锁定的实施技能，产物写入 `artifacts/subtasks/<node-id>.md`。只能修改尚未开始的汇合节点。所有 `task` 子命令均可加 `--project <业务仓库>`，无需先 `cd` 到业务仓库。
 
 ```bash
 aiw task subtask add task-20260813-111606-115 implement-export \
   --project /path/to/business-repository \
   --title "实现导出文件名" \
+  --allowed-path src/services/export.ts \
   --depends-on plan \
   --before verify \
   --requires-approval
@@ -257,7 +258,7 @@ aiw task approve refund-123 clarify --actor jeffrey --note "验收标准完整"
 | `--actor <name>` | 可选。审批人的声明性身份；未提供时读取当前仓库的 `git config user.name`，读取失败则拒绝审批。 |
 | `--note <text>` | 可选。审批备注。 |
 
-仅当节点处于 `awaiting_approval`，且待审产物**及该等待审批状态**均已提交时可执行。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入不可变审批事实（含产物哈希），并将节点置为 `completed`；调用者必须提交该审批文件与状态变化后，下游节点才可运行。`actor` 仅用于记录，不替代受保护分支、CODEOWNERS、签名提交或 Git 平台 PR 审批。否则失败且不改变状态。
+仅当节点处于 `awaiting_approval`，且待审产物**及该等待审批状态**均已提交时可执行。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入不可变审批事实（含产物哈希），并将节点置为 `completed`；批准 `plan` 时还会校验 `work-breakdown.yaml`、生成每个工作单元的摘要与自动实施节点。调用者必须提交审批文件、自动生成的任务事实与状态变化后，下游节点才可运行。`actor` 仅用于记录，不替代受保护分支、CODEOWNERS、签名提交或 Git 平台 PR 审批。否则失败且不改变状态。
 
 ### `aiw task revise <task-id> <node-id> --note <text>`
 

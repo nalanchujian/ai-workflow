@@ -62,7 +62,7 @@ export class ContextBuilder {
   }
 
   private async defaultFiles(task: Task, nodeId: string, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>, taskDirectory: string): Promise<ContextFileWithContent[]> {
-    const paths = defaultPaths(task, phase);
+    const paths = defaultPaths(task, nodeId, phase);
     const files = await Promise.all(paths.map(async (input) => {
       const absolutePath = await resolveInside(taskDirectory, input.path);
       const content = await readFile(absolutePath, 'utf8');
@@ -111,12 +111,12 @@ interface ContextBudgetInput {
   content: string;
 }
 
-function defaultPaths(task: Task, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>): Array<Omit<ContextFile, 'sha256'>> {
+function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>): Array<Omit<ContextFile, 'sha256'>> {
   const defaults: Record<Exclude<Task['nodes'][string]['phase'], 'intake'>, string[]> = {
     clarify: ['task.md'],
     solution: ['task.md', 'artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md'],
     plan: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/solution.md'],
-    implement: ['artifacts/brief.md', 'artifacts/acceptance.md', 'artifacts/solution.md', 'artifacts/implementation-plan.md'],
+    implement: ['artifacts/acceptance.md', task.nodes[nodeId]?.contextPath ?? 'artifacts/implementation-context.md'],
     verify: ['artifacts/brief.md', 'artifacts/acceptance.md', 'artifacts/solution.md', 'artifacts/implementation-plan.md', 'artifacts/implementation.md'],
     test: ['artifacts/brief.md', 'artifacts/acceptance.md', 'artifacts/solution.md', 'artifacts/implementation-plan.md', 'artifacts/implementation.md', 'artifacts/verification.md'],
   };

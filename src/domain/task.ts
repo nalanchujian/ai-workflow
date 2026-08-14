@@ -23,6 +23,7 @@ export const NodeStatusSchema = z.enum([
   'failed',
   'invalidated',
   'cancelled',
+  'superseded',
 ]);
 
 export const TaskStatusSchema = z.enum(['active', 'blocked', 'completed', 'cancelled']);
@@ -85,6 +86,9 @@ export const TaskNodeSchema = z.object({
   status: NodeStatusSchema,
   revision: z.number().int().nonnegative(),
   outputs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
+  allowedPaths: z.array(z.string().regex(relativePathPattern, '必须是业务仓库内的相对路径')).optional(),
+  contextPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
+  generatedFromPlanRevision: z.number().int().positive().optional(),
 });
 
 export const TaskEventSchema = z.object({
@@ -100,6 +104,8 @@ export const TaskEventSchema = z.object({
     'cancel',
     'invalidate',
     'add_subtask',
+    'materialize_implementation',
+    'supersede',
   ]),
   nodeId: z.string().min(1),
   at: z.string().datetime(),

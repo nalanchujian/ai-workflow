@@ -9,6 +9,7 @@ import type { OutputRecord, SkillLock, Task } from '../domain/task.js';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
+import { ImplementationWorkPlannerError, validateWorkBreakdown } from './implementation-work-planner.js';
 import { SkillRegistry } from './skill-registry.js';
 import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
@@ -207,7 +208,7 @@ export class TaskRunner {
       `${taskRoot}/task.yaml`,
       `${taskRoot}/runs/${runId}/**`,
       ...node.outputs.map((path) => `${taskRoot}/${path}`),
-      ...(node.phase === 'implement' ? await implementationAllowedPaths(task, this.deps.taskStore) : []),
+      ...(node.phase === 'implement' ? (node.allowedPaths ?? []) : []),
     ];
     if (node.phase === 'implement' && allowedPaths.length === 2 + node.outputs.length) {
       throw new TaskRunnerError('CHANGE_SCOPE_MISSING', '实施计划未声明允许变更范围');
@@ -302,22 +303,6 @@ interface ChangeBaseline {
   git?: { head?: string; branch?: string };
 }
 
-async function implementationAllowedPaths(task: Task, taskStore: TaskStore): Promise<string[]> {
-  const planPath = join(taskStore.taskDirectory(task.id), 'artifacts', 'implementation-plan.md');
-  const content = await readFile(planPath, 'utf8');
-  const match = /```ya?ml\s*\n([\s\S]*?)```/i.exec(content);
-  if (match === null) {
-    return [];
-  }
-  const allowed = Array.from(match[1].matchAll(/^\s*-\s*([^\s#]+)\s*$/gm), (entry) => entry[1])
-    .filter((path) => path !== 'allowedPaths:' && isAllowedBusinessPath(path));
-  return [...new Set(allowed)];
-}
-
-function isAllowedBusinessPath(path: string): boolean {
-  return !path.startsWith('.') && !path.startsWith('/') && !path.split('/').includes('..');
-}
-
 function matchesAllowedPath(path: string, allowed: string): boolean {
   return allowed.endsWith('/**') ? path.startsWith(allowed.slice(0, -2)) : path === allowed;
 }
@@ -369,10 +354,21 @@ async function outputBaseline(task: Task, taskStore: TaskStore, nodeId: string):
 }
 
 function validateArtifactContent(node: NonNullable<Task['nodes'][string]>, path: string, content: string): void {
+  if (path === 'artifacts/work-breakdown.yaml') {
+    try {
+      validateWorkBreakdown(content);
+      return;
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof ImplementationWorkPlannerError ? error.message : '实施工作单元声明无效');
+    }
+  }
+  if (path === 'artifacts/implementation-context.md' && Buffer.byteLength(content, 'utf8') > 16_000) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', '实施上下文摘要超过 4000 tokens 预算，必须压缩后重新生成计划');
+  }
   if (content.trim().length < 24 || !/^#\s+.+/m.test(content)) {
     throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物内容不足或缺少一级标题：${path}`);
   }
-  if (node.phase === 'plan' && !/```ya?ml\s*\n[\s\S]*?allowedPaths:\s*\n\s*-\s*[^\s#]+/i.test(content)) {
+  if (path === 'artifacts/implementation-plan.md' && !/```ya?ml\s*\n[\s\S]*?allowedPaths:\s*\n\s*-\s*[^\s#]+/i.test(content)) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '实施计划必须声明含至少一个路径的 allowedPaths YAML 代码块');
   }
   if (node.phase === 'test' && (!/测试命令|test command/i.test(content) || !/测试结果|结果|result/i.test(content))) {

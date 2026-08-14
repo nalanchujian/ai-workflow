@@ -11,6 +11,7 @@ import { deriveTaskStatus, transitionNode } from '../services/task-state-machine
 import { TaskStore } from '../services/task-store.js';
 import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
+import { materializeImplementationWork } from '../services/implementation-work-planner.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
 
 const ApprovalFactSchema = z.object({
@@ -85,7 +86,7 @@ export class TaskStateCommands {
     return next;
   }
 
-  async addSubtask(taskId: string, nodeId: string, options: { title: string; dependsOn: string[]; before: string[]; requiresApproval: boolean }): Promise<Task> {
+  async addSubtask(taskId: string, nodeId: string, options: { title: string; dependsOn: string[]; before: string[]; allowedPaths: string[]; requiresApproval: boolean }): Promise<Task> {
     if (!/^[a-z][a-z0-9-]{1,63}$/.test(nodeId)) throw new Error('子任务节点 ID 格式无效');
     const task = await this.deps.taskStore.load(taskId);
     if (task.nodes[nodeId] !== undefined) throw new Error(`子任务节点已存在：${nodeId}`);
@@ -101,11 +102,15 @@ export class TaskStateCommands {
     if (template?.skill === undefined) throw new Error('任务未锁定实施技能，无法创建子任务');
     const title = options.title.trim();
     if (title.length === 0) throw new Error('子任务标题不能为空');
+    const allowedPaths = [...new Set(options.allowedPaths.map((path) => path.trim()).filter(Boolean))];
+    if (allowedPaths.length === 0 || allowedPaths.some((path) => path.startsWith('.') || path.startsWith('/') || path.split('/').includes('..'))) {
+      throw new Error('子任务必须声明至少一个有效的业务变更路径');
+    }
     const subtask: TaskNode = {
       title, phase: 'implement', dependsOn: dependencies, skill: template.skill,
       requiresApproval: options.requiresApproval,
       status: dependencies.every((dependency) => task.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
-      revision: 0, outputs: [`artifacts/subtasks/${nodeId}.md`],
+      revision: 0, outputs: [`artifacts/subtasks/${nodeId}.md`], allowedPaths, contextPath: 'artifacts/implementation-context.md',
     };
     task.nodes[nodeId] = subtask;
     for (const target of mergeTargets) task.nodes[target]!.dependsOn = [...new Set([...task.nodes[target]!.dependsOn, nodeId])];
@@ -151,10 +156,19 @@ export class TaskStateCommands {
     if (decision === 'changes_requested') {
       await this.deps.taskStore.createFact(taskId, `revisions/${nodeId}/r${node.revision + 1}.md`, `${note}\n`);
     }
-    const next = transitionNode(task, nodeId, decision === 'approved'
+    let next = transitionNode(task, nodeId, decision === 'approved'
       ? { type: 'approve', actor, ...(note === undefined ? {} : { note }) }
       : { type: 'request_changes', actor, note: note ?? '' });
+    const generatedFacts: Array<{ path: string; content: string }> = [];
+    if (decision === 'approved' && nodeId === 'plan') {
+      const materialized = await materializeImplementationWork(next, this.deps.taskStore);
+      next = materialized.task;
+      generatedFacts.push(...materialized.facts);
+    }
     next.approvalRefs.push(approvalPath);
+    for (const fact of generatedFacts) {
+      await this.deps.taskStore.createFact(taskId, fact.path, fact.content);
+    }
     await this.deps.taskStore.update(next);
     return next;
   }
@@ -198,11 +212,12 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     .addCommand(new Command('add').argument('<task-id>').argument('<node-id>')
       .option('--project <path>', '业务仓库根目录；默认当前目录')
       .requiredOption('--title <title>', '子任务标题')
+      .option('--allowed-path <path>', '允许修改的业务路径；可重复', collect, [])
       .option('--depends-on <node-id>', '依赖节点；可重复，默认 plan', collect, [])
       .option('--before <node-id>', '完成后必须汇合的未开始节点；可重复，默认 verify', collect, [])
       .option('--requires-approval', '子任务完成后等待人工审批')
-      .action(async (taskId: string, nodeId: string, options: { title: string; dependsOn: string[]; before: string[]; requiresApproval?: boolean }, current: Command) => {
-        const task = await deps.commands.addSubtask(taskId, nodeId, { ...options, requiresApproval: options.requiresApproval ?? false });
+      .action(async (taskId: string, nodeId: string, options: { title: string; dependsOn: string[]; before: string[]; allowedPath: string[]; requiresApproval?: boolean }, current: Command) => {
+        const task = await deps.commands.addSubtask(taskId, nodeId, { ...options, allowedPaths: options.allowedPath, requiresApproval: options.requiresApproval ?? false });
         writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `子任务「${nodeId}」已创建`, `chore(aiw): add ${nodeId} subtask`));
       })));
   return command;
@@ -232,7 +247,7 @@ function taskStatusLabel(status: Task['status']): string {
 }
 
 function nodeStatusLabel(status: TaskNode['status']): string {
-  return ({ pending: '待开始', ready: '可执行', running: '运行中', awaiting_approval: '待审批', completed: '已完成', failed: '失败', invalidated: '已失效', cancelled: '已取消' })[status];
+  return ({ pending: '待开始', ready: '可执行', running: '运行中', awaiting_approval: '待审批', completed: '已完成', failed: '失败', invalidated: '已失效', cancelled: '已取消', superseded: '已被新版计划替代' })[status];
 }
 
 function collect(value: string, previous: string[]): string[] {

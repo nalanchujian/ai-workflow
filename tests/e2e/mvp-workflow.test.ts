@@ -59,6 +59,8 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
       expect(run.exitCode).toBe(0);
       fixture.repository.commitTaskFacts();
       if (['clarify', 'plan', 'test'].includes(nodeId)) {
+        const beforeApproval = await runCli(['task', 'status', taskId, '--json'], fixture.runtime);
+        expect(JSON.parse(beforeApproval.stdout).nodes[nodeId].status, `节点 ${nodeId} 应等待审批`).toBe('awaiting_approval');
         await expect(runCli(['task', 'approve', taskId, nodeId, '--actor', 'tech-lead'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
         fixture.repository.commitTaskFacts();
       }
