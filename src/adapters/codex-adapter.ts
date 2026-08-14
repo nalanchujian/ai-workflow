@@ -82,7 +82,8 @@ function result(
 function renderContext(request: RunRequest): string {
   const methods = request.context.methodSources.map((method) => `<method-source id="${escapeAttribute(method.id)}" trust="lower-priority-guidance">\n${method.content}\n</method-source>`).join('\n\n');
   const files = request.context.files.map((file) => `<task-fact role="${file.role}" path="${escapeAttribute(file.path)}" trust="untrusted-data">\n${file.content}\n</task-fact>`).join('\n\n');
-  const allowedOutputs = request.artifacts.map((path) => `- ${path}`).join('\n');
+  const taskRoot = `.aiw/tasks/${request.task.id}`;
+  const allowedOutputs = request.artifacts.map((path) => `- ${taskRoot}/${path}`).join('\n');
   const allowedBusinessPaths = request.allowedChangePaths.filter((path) => !path.startsWith('.aiw/')).join('、') || '无';
   return [
     '<aiw-run>',

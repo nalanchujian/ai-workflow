@@ -61,7 +61,7 @@ allowedPaths:
   - tests/refunds/**
 ```
 
-其他节点只允许写入其声明的 `.aiw` 产物；任何范围外路径都会失败。
+其他节点只允许写入其声明的 `.aiw` 产物；Adapter 传递给 Codex 的产物地址必须是相对于业务仓库根目录的完整路径，例如 `.aiw/tasks/<task-id>/artifacts/brief.md`，不得仅传递 `artifacts/brief.md`。任何范围外路径都会失败。
 
 `dry-run` 只执行第 1、2 步并输出将要执行的 Codex 调用，绝不启动 Codex。
 

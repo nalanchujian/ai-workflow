@@ -46,6 +46,23 @@ describe('CodexAdapter', () => {
     expect(context).toContain('允许修改的业务路径：src/refunds/**');
   });
 
+  it('directs declared task artifacts to the task-specific directory', async () => {
+    const projectRoot = await temporaryDirectory();
+    const runDirectory = join(projectRoot, '.aiw-runtime', 'run-artifacts');
+    const adapter = new CodexAdapter({
+      processRunner: {
+        async run() {
+          return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false };
+        },
+      },
+    });
+
+    await adapter.run(runRequest({ projectRoot, runDirectory }));
+
+    const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(context).toContain('- .aiw/tasks/refund-123/artifacts/brief.md');
+  });
+
   it('maps a missing codex executable to unavailable', async () => {
     const projectRoot = await temporaryDirectory();
     const adapter = new CodexAdapter({
