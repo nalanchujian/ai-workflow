@@ -60,6 +60,27 @@ describe('ContextBuilder', () => {
     ]);
   });
 
+  it('builds verification context from acceptance criteria and every implementation record', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+    task.nodes['implement-details'] = {
+      ...task.nodes.implement,
+      title: '实现详情页',
+      outputs: ['artifacts/subtasks/implement-details.md'],
+    };
+    await mkdir(join(directory, 'artifacts', 'subtasks'), { recursive: true });
+    await writeFile(join(directory, 'artifacts', 'subtasks', 'implement-details.md'), '# 详情页实施记录\n', 'utf8');
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'verify', includes: [] });
+
+    expect(manifest.files.map((file) => file.path)).toEqual([
+      'artifacts/acceptance.md',
+      'artifacts/implementation.md',
+      'artifacts/subtasks/implement-details.md',
+    ]);
+  });
+
   it('fails above the context budget without changing the approved artifact', async () => {
     const directory = await taskDirectory();
     const artifactPath = join(directory, 'artifacts', 'implementation-plan.md');

@@ -117,7 +117,7 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
     solution: ['task.md', 'artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md'],
     plan: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/solution.md'],
     implement: ['artifacts/acceptance.md', task.nodes[nodeId]?.contextPath ?? 'artifacts/implementation-context.md'],
-    verify: ['artifacts/brief.md', 'artifacts/acceptance.md', 'artifacts/solution.md', 'artifacts/implementation-plan.md', 'artifacts/implementation.md'],
+    verify: ['artifacts/acceptance.md', ...implementationEvidencePaths(task)],
     test: ['artifacts/brief.md', 'artifacts/acceptance.md', 'artifacts/solution.md', 'artifacts/implementation-plan.md', 'artifacts/implementation.md', 'artifacts/verification.md'],
   };
   const files: Array<Omit<ContextFile, 'sha256'>> = defaults[phase].map((path) => ({ role: path === 'task.md' ? 'task' : 'artifact', path }));
@@ -127,6 +127,15 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
     }
   }
   return files;
+}
+
+function implementationEvidencePaths(task: Task): string[] {
+  return [...new Set(
+    Object.entries(task.nodes)
+      .filter(([, node]) => node.phase === 'implement')
+      .sort(([left], [right]) => left.localeCompare(right))
+      .flatMap(([, node]) => node.outputs),
+  )];
 }
 
 async function resolveInside(root: string, path: string): Promise<string> {
