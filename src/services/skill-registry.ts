@@ -38,6 +38,20 @@ export class SkillRegistry {
     return oneOrUndefined(matches, `技能引用不唯一：${name}${version === undefined ? '' : `@${version}`}`);
   }
 
+  async findFromSource(
+    name: string,
+    version: string,
+    source: { url: string; revision: string },
+  ): Promise<InstalledSkill | undefined> {
+    const matches = (await this.list()).filter((skill) => (
+      skill.name === name
+      && skill.version === version
+      && skill.registrySource.url === source.url
+      && skill.registrySource.revision === source.revision
+    ));
+    return oneOrUndefined(matches, `工作流模板中的技能引用不唯一：${name}@${version}`);
+  }
+
   async findLocked(lock: Pick<InstalledSkill, 'name' | 'version' | 'registrySource' | 'sha256'>): Promise<InstalledSkill | undefined> {
     const matches = (await this.list()).filter((skill) => skill.name === lock.name
       && skill.version === lock.version

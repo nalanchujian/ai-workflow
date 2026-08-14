@@ -44,6 +44,41 @@ describe('TaskInitializer', () => {
     await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
   });
 
+  it('resolves same-version skills from the selected workflow profile revision', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    const selectedSource = { url: 'https://example.test/skills.git', revision: 'b'.repeat(40) };
+    const selectedSkills = allSkills().map((skill) => ({
+      ...skill,
+      registrySource: selectedSource,
+      sha256: hash(`selected-${skill.name}`),
+    }));
+    const selectedProfile = {
+      ...profile(),
+      version: '3.0.0',
+      registrySource: selectedSource,
+      sha256: hash('selected-profile'),
+    };
+    await registry.replace({ skills: [...allSkills(), ...selectedSkills], profiles: [profile(), selectedProfile] });
+    const store = new TaskStore(projectRoot);
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      sourceIntakeFactory: () => ({
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+      }) as never,
+      taskStoreFactory: () => store,
+      now: () => new Date('2026-08-13T12:00:00.000Z'),
+    });
+
+    const task = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@3.0.0' });
+
+    expect(task.nodes.implement.skill?.registrySource).toEqual(selectedSource);
+    expect(task.nodes.verify.skill?.sha256).toBe(hash('selected-web-verification'));
+  });
+
   it('rejects an unfinished task with the same normalized requirement before reading the source again', async () => {
     const projectRoot = await createTempDirectory('aiw-task-init-');
     directories.push(projectRoot);

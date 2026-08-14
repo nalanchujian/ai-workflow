@@ -40,7 +40,7 @@ export class TaskInitializer {
       throw new Error('工作流模板不存在');
     }
 
-    const skills = await this.resolveSkills(profile.skills);
+    const skills = await this.resolveSkills(profile.skills, profile.registrySource);
     const sourceId = 'requirements';
     const sourceIntake = this.deps.sourceIntakeFactory(input.projectRoot);
     const source = await sourceIntake.snapshot({
@@ -85,10 +85,13 @@ export class TaskInitializer {
     }
   }
 
-  private async resolveSkills(references: Record<(typeof executableStages)[number], string>): Promise<Record<(typeof executableStages)[number], InstalledSkill>> {
+  private async resolveSkills(
+    references: Record<(typeof executableStages)[number], string>,
+    profileSource: { url: string; revision: string },
+  ): Promise<Record<(typeof executableStages)[number], InstalledSkill>> {
     const resolved = await Promise.all(executableStages.map(async (stage) => {
       const [name, version] = parseReference(references[stage], `阶段 ${stage} 的技能`);
-      const skill = await this.deps.registry.find(name, version);
+      const skill = await this.deps.registry.findFromSource(name, version, profileSource);
       if (skill === undefined || !skill.phases.includes(stage)) {
         throw new Error(`工作流模板引用了不兼容技能：${stage}`);
       }
