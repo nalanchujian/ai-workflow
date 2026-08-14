@@ -118,7 +118,7 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
     plan: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/solution.md'],
     implement: ['artifacts/acceptance.md', task.nodes[nodeId]?.contextPath ?? 'artifacts/implementation-context.md'],
     verify: ['artifacts/acceptance.md', ...implementationEvidencePaths(task)],
-    test: ['artifacts/brief.md', 'artifacts/acceptance.md', 'artifacts/solution.md', 'artifacts/implementation-plan.md', 'artifacts/implementation.md', 'artifacts/verification.md'],
+    test: ['artifacts/acceptance.md', ...implementationEvidencePaths(task), 'artifacts/verification.md'],
   };
   const files: Array<Omit<ContextFile, 'sha256'>> = defaults[phase].map((path) => ({ role: path === 'task.md' ? 'task' : 'artifact', path }));
   if (phase === 'clarify') {
