@@ -79,6 +79,9 @@ describe('CodexAdapter', () => {
     expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/handoffs/clarify/r3.yaml');
     expect(context).toContain('phase: clarify');
     expect(context).toContain('revision: 3');
+    expect(context).toContain('status: covered');
+    expect(context).toContain('description: 未解决风险');
+    expect(context).toContain('不得增加 schema 未定义字段');
   });
 
   it('requires a plan to declare machine-readable implementation paths', async () => {

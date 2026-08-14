@@ -71,7 +71,10 @@ export function validateHandoff(content: string, expected: {
   try {
     handoff = HandoffSchema.parse(parse(content));
   } catch (error) {
-    throw new Error('交接包格式无效', { cause: error });
+    const details = error instanceof z.ZodError
+      ? error.issues.map((issue) => `${issue.path.join('.') || '根节点'}：${issue.message}`).join('；')
+      : 'YAML 解析失败';
+    throw new Error(`交接包格式无效：${details}`, { cause: error });
   }
   if (handoff.taskId !== expected.taskId || handoff.nodeId !== expected.nodeId || handoff.phase !== expected.phase || handoff.revision !== expected.revision) {
     throw new Error('交接包与当前节点身份或 revision 不一致');
