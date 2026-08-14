@@ -6,7 +6,7 @@ const sha256Pattern = /^[a-f0-9]{64}$/;
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
 export const ContextFileSchema = z.object({
-  role: z.enum(['task', 'source', 'artifact', 'revision-request', 'additional']),
+  role: z.enum(['task', 'source', 'artifact', 'handoff', 'revision-request', 'additional']),
   path: z.string().regex(relativePathPattern),
   sha256: z.string().regex(sha256Pattern),
   sourceId: z.string().min(1).optional(),

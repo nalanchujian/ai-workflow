@@ -2,6 +2,7 @@ import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Task } from '../domain/task.js';
+import { outputPathsForCompletedRun } from '../domain/handoff.js';
 import { TaskStore } from './task-store.js';
 
 export class RunCompletionBundleError extends Error {
@@ -29,11 +30,14 @@ export async function loadRunCompletionBundle(task: Task, taskStore: TaskStore, 
     throw new RunCompletionBundleError(`节点 ${nodeId} 缺少可提交的完成运行包`);
   }
   const expectedEvidencePath = `runs/${event.runId}/change-evidence.json`;
-  if (event.evidencePath !== expectedEvidencePath || !samePaths(event.outputs.map((output) => output.path), node.outputs)) {
+  const outputPaths = event.outputs.map((output) => output.path);
+  const expectedCurrentPaths = outputPathsForCompletedRun(nodeId, node);
+  const expectedLegacyPaths = node.outputs;
+  if (event.evidencePath !== expectedEvidencePath || (!samePaths(outputPaths, expectedCurrentPaths) && !samePaths(outputPaths, expectedLegacyPaths))) {
     throw new RunCompletionBundleError(`节点 ${nodeId} 的完成运行包与当前产物声明不一致`);
   }
   const paths = [
-    ...node.outputs,
+    ...outputPaths,
     `runs/${event.runId}/context-manifest.json`,
     `runs/${event.runId}/change-baseline.json`,
     `runs/${event.runId}/change-scope.json`,

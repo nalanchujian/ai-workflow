@@ -5,6 +5,7 @@ import { stringify } from 'yaml';
 import { z } from 'zod';
 
 import { TaskSchema, type SkillLock, type Task, type TaskNode } from '../domain/task.js';
+import { outputPathsForCompletedRun } from '../domain/handoff.js';
 import type { SkillRegistry } from '../services/skill-registry.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { deriveTaskStatus, transitionNode } from '../services/task-state-machine.js';
@@ -259,7 +260,7 @@ async function outputHashes(task: Task, taskStore: TaskStore, nodeId: string): P
   if (node === undefined) {
     throw new Error(`未知节点：${nodeId}`);
   }
-  const hashes = await Promise.all(node.outputs.map(async (path) => {
+  const hashes = await Promise.all(outputPathsForCompletedRun(nodeId, node).map(async (path) => {
     const content = await readFile(taskStore.taskDirectory(task.id) + `/${path}`);
     return [path, `sha256:${createHash('sha256').update(content).digest('hex')}`] as const;
   }));

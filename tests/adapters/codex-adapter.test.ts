@@ -63,6 +63,22 @@ describe('CodexAdapter', () => {
     expect(context).toContain('- .aiw/tasks/refund-123/artifacts/brief.md');
   });
 
+  it('requires the agent to generate a versioned structured handoff', async () => {
+    const projectRoot = await temporaryDirectory();
+    const runDirectory = join(projectRoot, '.aiw-runtime', 'run-handoff');
+    const adapter = new CodexAdapter({
+      processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
+    });
+    const request = runRequest({ projectRoot, runDirectory });
+    request.artifacts.push('handoffs/clarify/r1.yaml');
+
+    await adapter.run(request);
+
+    const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/handoffs/clarify/r1.yaml');
+    expect(context).toContain('phase: clarify');
+  });
+
   it('requires a plan to declare machine-readable implementation paths', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.aiw-runtime', 'run-plan');
@@ -137,7 +153,7 @@ function runRequest(input: { projectRoot: string; runDirectory: string }): RunRe
   return {
     schemaVersion: 'aiw.run/v1',
     runId: 'run-1',
-    task: { id: 'refund-123', nodeId: 'clarify', nodeRevision: 0, projectRoot: input.projectRoot },
+    task: { id: 'refund-123', nodeId: 'clarify', phase: 'clarify', nodeRevision: 0, projectRoot: input.projectRoot },
     instruction: '澄清退款需求。',
     contextManifestPath: '.aiw/tasks/refund-123/runs/run-1/context-manifest.json',
     runDirectory: input.runDirectory,

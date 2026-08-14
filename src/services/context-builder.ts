@@ -3,6 +3,7 @@ import { access, readFile, realpath } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 
 import { ContextManifestSchema, type ContextFile, type ContextManifest } from '../domain/context.js';
+import { handoffPath } from '../domain/handoff.js';
 import type { Task } from '../domain/task.js';
 
 const DEFAULT_TOKEN_BUDGET = 12_000;
@@ -112,13 +113,16 @@ interface ContextBudgetInput {
 }
 
 function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>): Array<Omit<ContextFile, 'sha256'>> {
+  if (phase !== 'clarify') {
+    return handoffInputs(task, nodeId);
+  }
   const defaults: Record<Exclude<Task['nodes'][string]['phase'], 'intake'>, string[]> = {
     clarify: ['task.md'],
-    solution: ['task.md', 'artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md'],
-    plan: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/solution.md'],
-    implement: ['artifacts/acceptance.md', task.nodes[nodeId]?.contextPath ?? 'artifacts/implementation-context.md'],
-    verify: ['artifacts/acceptance.md', ...implementationEvidencePaths(task)],
-    test: ['artifacts/acceptance.md', ...implementationEvidencePaths(task), 'artifacts/verification.md'],
+    solution: [],
+    plan: [],
+    implement: [],
+    verify: [],
+    test: [],
   };
   const files: Array<Omit<ContextFile, 'sha256'>> = defaults[phase].map((path) => ({ role: path === 'task.md' ? 'task' : 'artifact', path }));
   if (phase === 'clarify') {
@@ -129,13 +133,18 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
   return files;
 }
 
-function implementationEvidencePaths(task: Task): string[] {
-  return [...new Set(
-    Object.entries(task.nodes)
-      .filter(([, node]) => node.phase === 'implement')
-      .sort(([left], [right]) => left.localeCompare(right))
-      .flatMap(([, node]) => node.outputs),
-  )];
+function handoffInputs(task: Task, nodeId: string): Array<Omit<ContextFile, 'sha256'>> {
+  const node = task.nodes[nodeId];
+  if (node === undefined) return [];
+  return [...new Set(node.dependsOn)]
+    .sort((left, right) => left.localeCompare(right))
+    .map((dependency) => {
+      const upstream = task.nodes[dependency];
+      if (upstream === undefined) {
+        throw new ContextBuilderError('CONTEXT_INVALID', `节点依赖不存在：${dependency}`);
+      }
+      return { role: 'handoff' as const, path: handoffPath(dependency, upstream.revision) };
+    });
 }
 
 async function resolveInside(root: string, path: string): Promise<string> {

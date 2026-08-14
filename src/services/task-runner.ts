@@ -6,6 +6,7 @@ import type { CodexAdapter } from '../adapters/codex-adapter.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import type { ContextManifest } from '../domain/context.js';
 import type { OutputRecord, SkillLock, Task } from '../domain/task.js';
+import { handoffPath, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
@@ -71,6 +72,7 @@ export class TaskRunner {
       throw new TaskRunnerError('SKILL_LOCK_INVALID', '已锁定技能与当前节点阶段不兼容');
     }
     const methods = await Promise.all(node.skill.methodSources.map((source) => this.deps.methodSourceResolver.readLocked(source)));
+    const outputPaths = outputPathsForNextRun(input.nodeId, node);
     const manifest = await this.deps.contextBuilder.build({
       task,
       nodeId: input.nodeId,
@@ -94,7 +96,7 @@ export class TaskRunner {
     const baseline: ChangeBaseline = {
       path: `runs/${runId}/change-baseline.json`,
       changedPaths: [],
-      outputs: input.dryRun ? [] : await outputBaseline(task, this.deps.taskStore, input.nodeId),
+      outputs: input.dryRun ? [] : await outputBaseline(task, this.deps.taskStore, input.nodeId, outputPaths),
       ...(input.dryRun ? {} : { git: await this.deps.changeInspector.revision({ projectRoot: this.deps.taskStore.projectDirectory() }) }),
     };
     if (!input.dryRun) {
@@ -105,12 +107,12 @@ export class TaskRunner {
     const request: RunRequest = {
       schemaVersion: 'aiw.run/v1',
       runId,
-      task: { id: task.id, nodeId: input.nodeId, nodeRevision: node.revision, projectRoot: this.deps.taskStore.projectDirectory() },
+      task: { id: task.id, nodeId: input.nodeId, phase: node.phase, nodeRevision: node.revision, projectRoot: this.deps.taskStore.projectDirectory() },
       instruction: node.title,
       contextManifestPath: join(this.deps.taskStore.taskDirectory(task.id), contextManifestFactPath),
       runDirectory,
       mode: input.dryRun ? 'dry-run' : 'execute',
-      artifacts: node.outputs,
+      artifacts: outputPaths,
       allowedChangePaths: scope?.allowedPaths ?? [],
       context: {
         skill: { name: skill.name, version: skill.version, content: skill.body },
@@ -204,13 +206,14 @@ export class TaskRunner {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', `未知节点：${nodeId}`);
     }
     const taskRoot = relative(this.deps.taskStore.projectDirectory(), this.deps.taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
+    const outputPaths = outputPathsForNextRun(nodeId, node);
     const allowedPaths = [
       `${taskRoot}/task.yaml`,
       `${taskRoot}/runs/${runId}/**`,
-      ...node.outputs.map((path) => `${taskRoot}/${path}`),
+      ...outputPaths.map((path) => `${taskRoot}/${path}`),
       ...(node.phase === 'implement' ? (node.allowedPaths ?? []) : []),
     ];
-    if (node.phase === 'implement' && allowedPaths.length === 2 + node.outputs.length) {
+    if (node.phase === 'implement' && allowedPaths.length === 2 + outputPaths.length) {
       throw new TaskRunnerError('CHANGE_SCOPE_MISSING', '实施计划未声明允许变更范围');
     }
     return { schemaVersion: 'aiw.change-scope/v1', taskId: task.id, nodeId, runId, allowedPaths };
@@ -326,14 +329,16 @@ async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string, b
   if (node === undefined) {
     throw new TaskRunnerError('ARTIFACT_MISSING', `未知节点：${nodeId}`);
   }
-  return Promise.all(node.outputs.map(async (path) => {
+  const outputPaths = outputPathsForNextRun(nodeId, node);
+  const evidencePaths = handoffEvidencePaths(task, nodeId);
+  return Promise.all(outputPaths.map(async (path) => {
     let content: Buffer;
     try {
       content = await readFile(join(taskStore.taskDirectory(task.id), path));
     } catch {
       throw new TaskRunnerError('ARTIFACT_MISSING', `节点未生成声明产物：${path}`);
     }
-    validateArtifactContent(node, path, content.toString('utf8'));
+    validateArtifactContent(task, nodeId, path, content.toString('utf8'), evidencePaths);
     const sha256 = createHash('sha256').update(content).digest('hex');
     if (baseline.find((entry) => entry.path === path)?.sha256 === sha256) {
       throw new TaskRunnerError('ARTIFACT_STALE', `节点产物未在本次运行中更新：${path}`);
@@ -342,18 +347,29 @@ async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string, b
   }));
 }
 
-async function outputBaseline(task: Task, taskStore: TaskStore, nodeId: string): Promise<ChangeBaseline['outputs']> {
-  const node = task.nodes[nodeId];
-  if (node === undefined) {
+async function outputBaseline(task: Task, taskStore: TaskStore, nodeId: string, outputPaths: string[]): Promise<ChangeBaseline['outputs']> {
+  if (task.nodes[nodeId] === undefined) {
     throw new TaskRunnerError('ARTIFACT_MISSING', `未知节点：${nodeId}`);
   }
-  return Promise.all(node.outputs.map(async (path) => {
+  return Promise.all(outputPaths.map(async (path) => {
     const hash = await fileHash(taskStore.taskDirectory(task.id), path);
     return { path, ...(hash.sha256 === undefined ? {} : { sha256: hash.sha256 }) };
   }));
 }
 
-function validateArtifactContent(node: NonNullable<Task['nodes'][string]>, path: string, content: string): void {
+function validateArtifactContent(task: Task, nodeId: string, path: string, content: string, evidencePaths: string[]): void {
+  const node = task.nodes[nodeId];
+  if (node === undefined) {
+    throw new TaskRunnerError('ARTIFACT_MISSING', `未知节点：${nodeId}`);
+  }
+  if (path === handoffPath(nodeId, node.revision + 1)) {
+    try {
+      validateHandoff(content, { taskId: task.id, nodeId, phase: node.phase, revision: node.revision + 1, evidencePaths });
+      return;
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : '交接包无效');
+    }
+  }
   if (path === 'artifacts/work-breakdown.yaml') {
     try {
       validateWorkBreakdown(content);
@@ -374,6 +390,17 @@ function validateArtifactContent(node: NonNullable<Task['nodes'][string]>, path:
   if (node.phase === 'test' && (!/测试命令|test command/i.test(content) || !/测试结果|结果|result/i.test(content))) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '测试报告必须包含测试命令与测试结果');
   }
+}
+
+function handoffEvidencePaths(task: Task, nodeId: string): string[] {
+  const node = task.nodes[nodeId];
+  if (node === undefined) return [];
+  const upstream = dependencyClosure(task, nodeId).flatMap((dependency) => task.nodes[dependency]?.outputs ?? []);
+  return [...new Set([
+    ...Object.values(task.sources).flatMap((source) => [source.snapshotPath, source.metaPath]),
+    ...upstream,
+    ...node.outputs,
+  ])];
 }
 
 async function fileHash(projectRoot: string, path: string): Promise<{ sha256?: string; deleted?: true }> {

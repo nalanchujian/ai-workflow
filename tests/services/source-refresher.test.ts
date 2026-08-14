@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import type { NetworkClient } from '../../src/ports/network-client.js';
 import type { SourceConnector } from '../../src/services/lark-source-connector.js';
@@ -33,6 +35,7 @@ describe('SourceRefresher', () => {
 
     expect(result).toMatchObject({ changed: true, revision: 2 });
     expect(result.task.nodes.clarify.status).toBe('invalidated');
+    await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'intake', 'r2.yaml'), 'utf8')).resolves.toContain('revision: 2');
   });
 
   it('keeps the task unchanged when the refreshed content hash is unchanged', async () => {

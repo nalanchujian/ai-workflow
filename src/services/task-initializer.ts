@@ -5,6 +5,7 @@ import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
 import type { SkillLock, SourceKind, Task, TaskNode } from '../domain/task.js';
+import { handoffPath, validateHandoff } from '../domain/handoff.js';
 import type { InstalledSkill } from '../domain/skill.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
 import { executableStages } from '../domain/workflow-profile.js';
@@ -74,6 +75,34 @@ export class TaskInitializer {
         approvalRefs: [],
         events: [],
       };
+      const intakeHandoffPath = handoffPath('intake', task.nodes.intake.revision);
+      const intakeHandoff = stringify({
+        schemaVersion: 'aiw.handoff/v1',
+        taskId: task.id,
+        nodeId: 'intake',
+        phase: 'intake',
+        revision: task.nodes.intake.revision,
+        summary: '已固化需求来源快照与提取边界。',
+        facts: [{
+          id: 'FACT-01',
+          statement: `需求来源已固化：${sourceReference.origin}`,
+          evidence: [{ path: sourceReference.snapshotPath }],
+        }],
+        decisions: [],
+        acceptance: [],
+        changes: [],
+        verification: [],
+        openRisks: [],
+      });
+      validateHandoff(intakeHandoff, {
+        taskId: task.id,
+        nodeId: 'intake',
+        phase: 'intake',
+        revision: task.nodes.intake.revision,
+        evidencePaths: [sourceReference.snapshotPath, sourceReference.metaPath],
+      });
+      await mkdir(dirname(join(stagingDirectory, intakeHandoffPath)), { recursive: true });
+      await writeFile(join(stagingDirectory, intakeHandoffPath), intakeHandoff, 'utf8');
       await taskStore.createFromStaging(task, stagingDirectory);
       if (projectConfig === undefined) {
         await writeProjectConfig(input.projectRoot);

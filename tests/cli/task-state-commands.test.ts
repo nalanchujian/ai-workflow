@@ -10,6 +10,7 @@ import { TaskStore } from '../../src/services/task-store.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
+import { handoffPath, outputPathsForCompletedRun } from '../../src/domain/handoff.js';
 
 const directories: string[] = [];
 
@@ -186,14 +187,20 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan', options: { complet
   await store.create(task);
   const taskDirectory = store.taskDirectory(task.id);
   await mkdir(join(taskDirectory, 'artifacts'), { recursive: true });
-  for (const output of task.nodes[nodeId].outputs) {
-    await writeFile(join(taskDirectory, output), `# ${output}\n`, 'utf8');
+  const node = task.nodes[nodeId];
+  const outputs = outputPathsForCompletedRun(nodeId, node);
+  for (const output of outputs) {
+    await mkdir(join(taskDirectory, output, '..'), { recursive: true });
+    const content = output === handoffPath(nodeId, node.revision)
+      ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${node.outputs[0]}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
+      : `# ${output}\n`;
+    await writeFile(join(taskDirectory, output), content, 'utf8');
   }
   if (options.completionBundle !== false) {
     const runId = `${nodeId}-run-1`;
     task.events.push({
       type: 'succeed', nodeId, at: '2026-08-14T00:00:00.000Z', runId,
-      outputs: task.nodes[nodeId].outputs.map((path) => ({ path, sha256: createHash('sha256').update(`# ${path}\n`).digest('hex') })),
+      outputs: await Promise.all(outputs.map(async (path) => ({ path, sha256: createHash('sha256').update(await readFile(join(taskDirectory, path))).digest('hex') }))),
       evidencePath: `runs/${runId}/change-evidence.json`,
     });
     await store.update(task);

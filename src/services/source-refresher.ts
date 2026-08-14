@@ -1,5 +1,8 @@
 import type { Task } from '../domain/task.js';
-import { isAbsolute, join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join } from 'node:path';
+import { stringify } from 'yaml';
+import { handoffPath, validateHandoff } from '../domain/handoff.js';
 import { invalidateDependents } from './task-state-machine.js';
 import { SourceIntake } from './source-intake.js';
 import { TaskStore } from './task-store.js';
@@ -39,8 +42,37 @@ export class SourceRefresher {
     const reference = await this.deps.intake.writeSnapshot({ snapshot, taskDirectory: this.deps.taskStore.taskDirectory(task.id) });
     const next = invalidateDependents(task, 'intake', `source ${input.sourceId} changed`);
     next.sources[input.sourceId] = reference;
-    next.nodes.intake.revision += 1;
+    next.nodes.intake.revision = reference.revision;
     next.nodes.intake.outputs = [reference.snapshotPath, reference.metaPath];
+    const intakeHandoffPath = handoffPath('intake', next.nodes.intake.revision);
+    const intakeHandoff = stringify({
+      schemaVersion: 'aiw.handoff/v1',
+      taskId: next.id,
+      nodeId: 'intake',
+      phase: 'intake',
+      revision: next.nodes.intake.revision,
+      summary: '已固化更新后的需求来源快照与提取边界。',
+      facts: [{
+        id: 'FACT-01',
+        statement: `需求来源已更新至 revision ${reference.revision}。`,
+        evidence: [{ path: reference.snapshotPath }],
+      }],
+      decisions: [],
+      acceptance: [],
+      changes: [],
+      verification: [],
+      openRisks: [],
+    });
+    validateHandoff(intakeHandoff, {
+      taskId: next.id,
+      nodeId: 'intake',
+      phase: 'intake',
+      revision: next.nodes.intake.revision,
+      evidencePaths: [reference.snapshotPath, reference.metaPath],
+    });
+    const taskDirectory = this.deps.taskStore.taskDirectory(task.id);
+    await mkdir(dirname(join(taskDirectory, intakeHandoffPath)), { recursive: true });
+    await writeFile(join(taskDirectory, intakeHandoffPath), intakeHandoff, 'utf8');
     await this.deps.taskStore.update(next);
     return { changed: true, revision: reference.revision, task: next };
   }
