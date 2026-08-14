@@ -13,7 +13,9 @@ import { TaskStore } from '../services/task-store.js';
 import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { materializeImplementationWork } from '../services/implementation-work-planner.js';
+import { HandoffMigrator, type HandoffMigrationResult } from '../services/handoff-migrator.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
+import { TerminalProgressReporter, withProgress, type ProgressReporter } from './progress-reporter.js';
 
 const ApprovalFactSchema = z.object({
   nodeId: z.string().min(1),
@@ -26,10 +28,16 @@ const ApprovalFactSchema = z.object({
 });
 
 export class TaskStateCommands {
-  constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; skillRegistry?: SkillRegistry; cancellation?: TaskCancellationService }) {}
+  constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; skillRegistry?: SkillRegistry; cancellation?: TaskCancellationService; handoffMigrator?: HandoffMigrator }) {}
 
   async status(taskId: string): Promise<Task> {
     return this.deps.taskStore.load(taskId);
+  }
+
+  async migrateHandoffs(taskId: string): Promise<{ task: Task; migration: HandoffMigrationResult }> {
+    if (this.deps.handoffMigrator === undefined) throw new Error('当前环境不支持历史交接包迁移');
+    const migration = await this.deps.handoffMigrator.migrate({ taskId });
+    return { task: await this.deps.taskStore.load(taskId), migration };
   }
 
   async approve(taskId: string, nodeId: string, options: { actor?: string; note?: string }): Promise<Task> {
@@ -175,11 +183,35 @@ export class TaskStateCommands {
   }
 }
 
-export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdout: NodeJS.WriteStream }): Command {
+export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdout: NodeJS.WriteStream; progress?: ProgressReporter }): Command {
   const command = new Command('task').description('查询任务状态并处理审批');
   command.addCommand(new Command('status').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
     const task = await deps.commands.status(taskId);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '任务状态'));
+  }));
+  command.addCommand(new Command('migrate-handoffs').description('为旧任务补齐结构化交接包').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
+    const { task, migration } = await withProgress({
+      reporter: deps.progress ?? new TerminalProgressReporter({ stderr: process.stderr }),
+      command: current,
+      start: '正在根据历史产物补齐结构化交接包，等待 Codex 完成',
+      success: '历史交接包已补齐',
+      failure: '历史交接包迁移失败',
+      operation: () => deps.commands.migrateHandoffs(taskId),
+    });
+    const ready = Object.entries(task.nodes).find(([, node]) => node.status === 'ready');
+    writeCommandResult(migration, current, deps.stdout, {
+      headline: '已补齐结构化交接包',
+      details: [
+        { label: '任务 ID', value: task.id },
+        { label: '迁移批次', value: migration.migrationId },
+        { label: '已迁移节点', value: migration.migratedNodeIds.join('、') || '无' },
+        { label: '已跳过节点', value: migration.skippedNodeIds.join('、') || '无' },
+      ],
+      nextSteps: [
+        'git add .aiw && git commit -m "chore(aiw): migrate task handoffs"',
+        ...(ready === undefined ? [] : [`aiw task run ${task.id} ${ready[0]}`]),
+      ],
+    });
   }));
   command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }, current: Command) => {
     const task = await deps.commands.approve(taskId, nodeId, options);

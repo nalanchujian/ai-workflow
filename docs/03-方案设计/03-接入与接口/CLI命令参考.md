@@ -189,6 +189,23 @@ aiw task status refund-123 --json
 
 任务不存在时失败；该命令不修改任务状态。
 
+### `aiw task migrate-handoffs <task-id>`
+
+为 Handoff 上线前创建、且已有已完成节点的旧任务补齐结构化交接包。它不重跑节点、不修改业务代码、不改变节点 revision 或审批决定。
+
+```bash
+aiw task migrate-handoffs task-20260814-031640-738
+```
+
+命令要求业务工作区干净，且历史 `task.yaml`、来源快照和已完成节点产物均已提交。它先为 `intake` 原生创建交接包，再按依赖顺序调用 Codex，让其根据已提交的历史来源和 Markdown/YAML 产物生成每个缺失的 `handoff.yaml`；每份交接包均按当前 schema、节点身份、revision 和证据路径校验。已有 Handoff 的节点会跳过。
+
+迁移仅允许写入 `.aiw/tasks/<task-id>/handoffs/`、`migrations/handoffs/<migration-id>/` 审计记录和 `task.yaml` 的迁移事件。运行前后均检查 Git 工作区；发现业务代码或其他未声明文件变更时失败并保留证据。成功后必须提交迁移事实，才能运行仍处于 `ready` 的下游节点：
+
+```bash
+git add .aiw && git commit -m "chore(aiw): migrate task handoffs"
+aiw task run task-20260814-031640-738 test
+```
+
 ### `aiw task skill rebind <task-id> <node-id> --skill <name[@version]> --note <text>`
 
 显式替换待执行节点的已锁定技能。

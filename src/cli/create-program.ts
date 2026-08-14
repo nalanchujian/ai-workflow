@@ -43,7 +43,7 @@ export function createProgram(deps: CliDependencies): Command {
   task.addCommand(createTaskInitCommand({ initializer: runtime.initializer, defaultSkillProfile: async () => (await runtime.localConfig.defaultWorkflow()).defaultProfile, progress, stdout }));
   task.addCommand(new Command('source').description('管理任务来源').addCommand(createTaskSourceRefreshCommand({ refresher: runtime.sourceRefresher, progress, stdout })));
   task.addCommand(createTaskRunCommand({ runner: runtime.taskRunner, progress, stdout }));
-  const state = createTaskStateCommand({ commands: runtime.stateCommands, stdout });
+  const state = createTaskStateCommand({ commands: runtime.stateCommands, progress, stdout });
   for (const command of state.commands) {
     task.addCommand(command);
   }

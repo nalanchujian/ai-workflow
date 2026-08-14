@@ -105,6 +105,7 @@ export const TaskEventSchema = z.object({
     'invalidate',
     'add_subtask',
     'materialize_implementation',
+    'migrate_handoff',
     'supersede',
   ]),
   nodeId: z.string().min(1),

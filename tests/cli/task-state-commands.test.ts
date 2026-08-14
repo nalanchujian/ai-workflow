@@ -171,6 +171,39 @@ describe('TaskStateCommands', () => {
     expect(output).toContain('1. git add .aiw && git commit -m "chore(aiw): record plan changes"');
     expect(output).toContain('2. aiw task run refund-123 plan');
   });
+
+  it('guides users to commit migrated handoffs before continuing the ready node', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+    task.nodes.plan.status = 'completed';
+    task.nodes.implement.status = 'completed';
+    task.nodes.verify.status = 'completed';
+    task.nodes.verify.revision = 1;
+    task.nodes.test.status = 'ready';
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async migrateHandoffs() {
+          return {
+            task,
+            migration: {
+              taskId: task.id, migrationId: 'migration-1', migratedNodeIds: ['clarify', 'verify'], skippedNodeIds: ['intake'],
+              auditPaths: ['migrations/handoffs/migration-1/clarify.json'],
+            },
+          };
+        },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'migrate-handoffs', 'refund-123']);
+
+    expect(output).toContain('已补齐结构化交接包');
+    expect(output).toContain('已迁移节点：clarify、verify');
+    expect(output).toContain('1. git add .aiw && git commit -m "chore(aiw): migrate task handoffs"');
+    expect(output).toContain('2. aiw task run refund-123 test');
+  });
 });
 
 async function createApprovalTask(nodeId: 'clarify' | 'plan', options: { completionBundle?: boolean } = {}): Promise<{ store: TaskStore; directory: string }> {

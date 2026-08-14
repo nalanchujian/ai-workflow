@@ -70,13 +70,15 @@ describe('CodexAdapter', () => {
       processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
     });
     const request = runRequest({ projectRoot, runDirectory });
-    request.artifacts.push('handoffs/clarify/r1.yaml');
+    request.task.nodeRevision = 5;
+    request.artifacts.push('handoffs/clarify/r3.yaml');
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
-    expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/handoffs/clarify/r1.yaml');
+    expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/handoffs/clarify/r3.yaml');
     expect(context).toContain('phase: clarify');
+    expect(context).toContain('revision: 3');
   });
 
   it('requires a plan to declare machine-readable implementation paths', async () => {

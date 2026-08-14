@@ -24,6 +24,7 @@ import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { TaskInitializer } from '../services/task-initializer.js';
 import { TaskRunner } from '../services/task-runner.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
+import { HandoffMigrator } from '../services/handoff-migrator.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
 import type { GitClient } from '../ports/git-client.js';
@@ -102,7 +103,15 @@ export function createCliRuntime(input: {
   });
   const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore });
   const taskCancellation = new TaskCancellationService({ taskStore, runtimeRoot: join(input.homeDirectory, 'runtime') });
-  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry, cancellation: taskCancellation });
+  const codexAdapter = new CodexAdapter({ processRunner: input.ports.processRunner });
+  const handoffMigrator = new HandoffMigrator({
+    taskStore,
+    taskFactGuard,
+    changeInspector: input.ports.repositoryStatus,
+    adapter: codexAdapter,
+    runtimeRoot: join(input.homeDirectory, 'runtime'),
+  });
+  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry, cancellation: taskCancellation, handoffMigrator });
   const taskRunner = new TaskRunner({
     taskStore,
     skillRegistry: registry,
@@ -110,7 +119,7 @@ export function createCliRuntime(input: {
     contextBuilder: new ContextBuilder({ taskDirectory: (task) => taskStore.taskDirectory(task.id), projectRoot: () => taskStore.projectDirectory() }),
     taskFactGuard,
     changeInspector: input.ports.repositoryStatus,
-    adapter: new CodexAdapter({ processRunner: input.ports.processRunner }),
+    adapter: codexAdapter,
     runtimeRoot: join(input.homeDirectory, 'runtime'),
   });
   return {
