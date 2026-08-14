@@ -7,6 +7,7 @@ import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.
 import type { ContextManifest } from '../domain/context.js';
 import type { OutputRecord, SkillLock, Task } from '../domain/task.js';
 import { handoffPath, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
+import { hasTestExecutionEvidence } from '../domain/test-report.js';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
@@ -387,7 +388,7 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   if (path === 'artifacts/implementation-plan.md' && !/```ya?ml\s*\n[\s\S]*?allowedPaths:\s*\n\s*-\s*[^\s#]+/i.test(content)) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '实施计划必须声明含至少一个路径的 allowedPaths YAML 代码块');
   }
-  if (node.phase === 'test' && (!/测试命令|test command/i.test(content) || !/测试结果|结果|result/i.test(content))) {
+  if (node.phase === 'test' && !hasTestExecutionEvidence(content)) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '测试报告必须包含测试命令与测试结果');
   }
 }
