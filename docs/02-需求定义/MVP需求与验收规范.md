@@ -59,7 +59,7 @@
 - 节点仅在全部依赖 `completed` 时变为 `ready`；MVP 调度器以任务为粒度持有本机文件锁，一次只允许运行一个节点（包括 dry-run），并发运行必须返回 `TASK_BUSY`。
 - 执行模式必须在 Codex 启动前拒绝业务工作树中的未提交变更，并记录 Git 提交与分支基线；执行后采集 Git 变更路径、允许范围内未跟踪文件补丁及 Git 状态。超范围变更或 Git 历史/分支变化必须写入运行证据、将当前节点标记失败且不得解锁下游节点。实施节点缺少结构化 `allowedPaths` 范围时必须拒绝执行。
 - 需要审批的 `clarify`、`plan`、`test` 节点，在运行成功后进入 `awaiting_approval`；`solution` 可由高风险任务模板额外设置审批。
-- `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]` 仅可批准当前 revision 的 `awaiting_approval` 节点；待审产物和当前状态均已提交时，写入绑定全部输出哈希的审批文件并将节点置为 `completed`。未提供 `--actor` 时必须读取 Git 用户名，否则失败。
+- `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]` 仅可批准当前 revision 的 `awaiting_approval` 节点；待审产物和当前状态均已提交时，写入绑定全部输出哈希的审批文件并将节点置为 `completed`。未提供 `--actor` 时必须读取 Git 用户名，否则失败。MVP 的 `actor` 仅用于留痕，不验证身份、角色或权限；同一操作者可以代表不同责任角色执行提审、审批和决策命令。
 - `clarify` 必须生成 `artifacts/decision-register.yaml`：每个无法由现有事实确定、且影响验收或实施范围的事项必须含至少两个选项、取舍和 AI 推荐；`aiw task decision list|choose|wait|defer|waive|resolve` 将人工选择或外部等待写入不可变事实，并只重新评估关联工作单元。
 - `work-breakdown.yaml` 的工作单元可使用 `blockedBy: [DEC-...]`。未决或外部等待决策仅阻塞关联单元；解决或豁免后解锁；拆期后从当前验证汇合移除。
 - 测试节点必须输出 `artifacts/acceptance-results.yaml`。普通 `task approve <task-id> test` 只接受全部验收项为 `passed`、`deferred` 或 `waived` 的结果；存在 `failed` 或 `blocked` 时必须拒绝。`task close-with-risk <task-id> --owner --reason --expires-at` 是唯一风险关闭入口，必须写入风险接受事实并将交付状态标为 `risk_accepted`。
