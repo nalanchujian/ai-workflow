@@ -31,8 +31,12 @@ export class TaskDecisionService {
     const task = await this.deps.taskStore.load(input.taskId);
     const register = await this.readRegister(task);
     const proposal = this.findProposal(register, input.decisionId);
-    if (!proposal.options.some((option) => option.id === input.optionId)) {
+    const manual = input.optionId === 'manual';
+    if (!manual && !proposal.options.some((option) => option.id === input.optionId)) {
       throw new Error(`决策项不存在选项：${input.optionId}`);
+    }
+    if (manual && (input.note === undefined || input.note.trim().length === 0)) {
+      throw new Error('人工输入的决策结论不能为空');
     }
     if (input.status === 'waiting_external' && (input.owner === undefined || input.unblockCondition === undefined)) {
       throw new Error('外部等待决策必须提供责任人和解除条件');

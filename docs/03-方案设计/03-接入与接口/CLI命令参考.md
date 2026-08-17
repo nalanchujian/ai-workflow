@@ -150,7 +150,7 @@ aiw task init --project . --source ./requirements.md --force-new
 
 命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID；调用者不得指定 ID。默认输出显示任务 ID、锁定工作流、任务状态和下一步提交命令；加 `--json` 时才返回 `taskId` 字段。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。在线文档会由匹配连接器读取；例如 Lark Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
-`--project` 也可用于后续的 `task status`、`task run`、`task approve`、`task revise`、`task request-changes`、`task fail`、`task cancel`、`task source refresh`、`task skill rebind`、`task decision` 与 `task close-with-risk`。AIW 会在该目录执行命令；因此任务事实不保存本机绝对路径，其他成员在自己的仓库目录或显式传入 `--project` 均可继续同一任务。
+`--project` 也可用于后续的 `task status`、`task run`、`task review`、`task approve`、`task revise`、`task request-changes`、`task fail`、`task cancel`、`task source refresh`、`task skill rebind`、`task decision` 与 `task close-with-risk`。AIW 会在该目录执行命令；因此任务事实不保存本机绝对路径，其他成员在自己的仓库目录或显式传入 `--project` 均可继续同一任务。
 
 ```text
 intake → clarify → solution → plan → implement → verify → test
@@ -181,7 +181,7 @@ aiw task source refresh refund-123 requirements
 
 ### `aiw task status <task-id> [--project <path>]`
 
-默认显示流程状态、交付状态和各节点状态。使用 `--json` 可读取完整任务事实，其中包括节点依赖、revision、审批记录和失效原因。流程已闭环不等于可发布；交付状态为 `可发布`、`不可发布` 或 `风险已接受`。
+默认显示流程状态、交付状态和各节点状态。`clarify` 待审批且存在未处理决策时，会额外列出每项问题和 AI 建议，并将下一步指向 `task review`，而不是允许直接审批。使用 `--json` 可读取完整任务事实，其中包括节点依赖、revision、审批记录和失效原因。流程已闭环不等于可发布；交付状态为 `可发布`、`不可发布` 或 `风险已接受`。
 
 ```bash
 aiw task status refund-123
@@ -190,7 +190,17 @@ aiw task status refund-123 --json
 
 任务不存在时失败；该命令不修改任务状态。
 
-### `aiw task decision <list|choose|wait|defer|resolve>`
+### `aiw task review <task-id> [--actor <name>] [--note <text>]`
+
+日常确认需求澄清的唯一入口。仅用于处于 `awaiting_approval` 的 `clarify` 节点；AIW 按顺序展示每个待决策事项的“为什么需要确认”、影响范围、AI 建议和各方案取舍，并额外提供“输入其他处理结论”，使用者只输入序号。人工输入原文以 `manual` 决策事实保存。若选择名称或标识为“等待”的方案，AIW 仅额外询问负责团队（可直接回车，记录为“待指定”），并把该事项标记为外部等待；全部选择后，再确认一次即可同时写入各项决策事实和澄清审批事实。
+
+```bash
+aiw task review refund-123
+```
+
+执行前必须先提交本次 `clarify` 的产物、`decision-register.yaml` 与任务状态；成功后必须提交新产生的 `.aiw` 决策和审批记录。仍有未处理决策时，`task approve refund-123 clarify` 会拒绝执行并提示使用本命令。
+
+### `aiw task decision <list|choose|wait|defer|waive|resolve>`
 
 查看或处理 `clarify` 产出的 AI 决策建议。用户只需选择方案、指定外部责任人，或明确拆期；AIW 将选择写入不可变事实，并只重新评估关联工作单元。
 
@@ -282,7 +292,7 @@ aiw task cancel refund-123 implement --note "需求暂停"
 
 ### `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]`
 
-批准一个等待审批的当前节点 revision。
+批准一个等待审批的当前节点 revision。`clarify` 存在未处理决策时不能使用本命令，必须改用 `task review`。
 
 ```bash
 aiw task approve refund-123 clarify --actor jeffrey --note "验收标准完整"
@@ -357,6 +367,7 @@ git add .aiw && git commit -m "chore(aiw): request plan changes"
 | `task run --dry-run` | 无；仅创建运行预演记录。 |
 | `task run` | `ready → running → completed`，或在需要审批时进入 `awaiting_approval`。 |
 | `task fail` | `running → failed`，保留失败原因和运行记录。 |
+| `task review` | 逐项记录 `clarify` 的待决策事项，并将 `clarify` 从 `awaiting_approval → completed`。 |
 | `task approve` | `awaiting_approval → completed`。 |
 | `task close-with-risk` | 关闭测试节点并写入风险接受事实；交付状态为 `risk_accepted`。 |
 | `task decision` | 写入决策事实；只解锁、阻塞或拆期关联工作单元。 |

@@ -8,6 +8,7 @@ import { createTaskStateCommand, TaskStateCommands } from '../../src/cli/task-st
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
+import { TaskDecisionService } from '../../src/services/task-decision-service.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 import { handoffPath, outputPathsForCompletedRun } from '../../src/domain/handoff.js';
@@ -41,6 +42,57 @@ describe('TaskStateCommands', () => {
 
     await expect(commands.approve('refund-123', 'clarify', { note: '验收标准完整' }))
       .rejects.toThrow('缺少可提交的完成运行包');
+  });
+
+  it('requires outstanding clarify decisions to be reviewed before approval', async () => {
+    const { store, directory } = await createApprovalTask('clarify');
+    await writeDecisionRegister(directory);
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+      decisionService: new TaskDecisionService({ taskStore: store }),
+    });
+
+    await expect(commands.approve('refund-123', 'clarify', { note: '需求澄清确认' }))
+      .rejects.toThrow('需求澄清仍有待确认项：DEC-API-01；请运行 aiw task review refund-123');
+  });
+
+  it('records every clarify decision and approval in one review', async () => {
+    const { store, directory } = await createApprovalTask('clarify');
+    await writeDecisionRegister(directory);
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+      decisionService: new TaskDecisionService({ taskStore: store }),
+    });
+
+    const reviewed = await commands.reviewClarify('refund-123', [{
+      decisionId: 'DEC-API-01', optionId: 'wait-api', status: 'waiting_external', owner: 'backend', unblockCondition: '接口契约与联调样例已确认',
+    }], { note: '按建议等待后端接口' });
+
+    expect(reviewed.nodes.clarify.status).toBe('completed');
+    expect(reviewed.nodes.solution.status).toBe('ready');
+    expect(reviewed.decisions).toEqual([expect.objectContaining({ id: 'DEC-API-01', optionId: 'wait-api', status: 'waiting_external', owner: 'backend', actor: 'tech-lead' })]);
+    await expect(readFile(join(directory, 'decisions', 'DEC-API-01', 'r1.yaml'), 'utf8')).resolves.toContain('optionId: wait-api');
+    await expect(readFile(join(directory, 'approvals', 'clarify', 'r1.yaml'), 'utf8')).resolves.toContain('decision: approved');
+  });
+
+  it('records a human-written clarify conclusion outside the proposed options', async () => {
+    const { store, directory } = await createApprovalTask('clarify');
+    await writeDecisionRegister(directory);
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+      decisionService: new TaskDecisionService({ taskStore: store }),
+    });
+
+    const reviewed = await commands.reviewClarify('refund-123', [{
+      decisionId: 'DEC-API-01', optionId: 'manual', manualNote: '详情页先复用现有聚合接口，趋势和导出等待下一期。',
+    }], { note: '需求澄清确认' });
+
+    expect(reviewed.decisions).toEqual([expect.objectContaining({
+      id: 'DEC-API-01', optionId: 'manual', note: '详情页先复用现有聚合接口，趋势和导出等待下一期。',
+    })]);
   });
 
   it('records changes requested with a next revision instruction', async () => {
@@ -217,7 +269,22 @@ describe('TaskStateCommands', () => {
     task.nodes.clarify.status = 'awaiting_approval';
     let output = '';
     const command = createTaskStateCommand({
-      commands: { async status() { return task; } } as never,
+      commands: {
+        async status() { return task; },
+        async listDecisions() {
+          return [{
+            item: {
+              id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
+              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
+              options: [
+                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。' },
+                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。' },
+              ],
+              recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情与趋势接口。' },
+            },
+          }];
+        },
+      } as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });
 
@@ -225,7 +292,56 @@ describe('TaskStateCommands', () => {
 
     expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/brief.md');
     expect(output).toContain('2. 若尚未提交当前产物和状态：git add .aiw && git commit -m "chore(aiw): record clarify result"');
-    expect(output).toContain('3. aiw task approve refund-123 clarify --note "<审批说明>"');
+    expect(output).toContain('需求澄清待确认（1 项）');
+    expect(output).toContain('DEC-API-01：详情趋势数据来源；AI 建议：等待正式 API');
+    expect(output).toContain('3. aiw task review refund-123');
+    expect(output).not.toContain('aiw task approve refund-123 clarify');
+  });
+
+  it('guides users through every clarify decision and confirms them together', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'awaiting_approval';
+    let output = '';
+    let selections: unknown;
+    const answers = ['3', '详情页先复用现有聚合接口，趋势和导出等待下一期。', '1'];
+    const command = createTaskStateCommand({
+      commands: {
+        async listDecisions() {
+          return [{
+            item: {
+              id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
+              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
+              options: [
+                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。' },
+                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。' },
+              ],
+              recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情与趋势接口。' },
+            },
+          }];
+        },
+        async reviewClarify(_taskId: string, received: unknown) {
+          selections = received;
+          return task;
+        },
+      } as never,
+      reviewPrompter: { async ask() { return answers.shift() ?? ''; } },
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'review', 'refund-123']);
+
+    expect(output).toContain('需求澄清需要确认（1 项）');
+    expect(output).toContain('AI 建议：等待正式 API');
+    expect(output).toContain('为什么需要确认：当前仓库没有可信详情与趋势接口。');
+    expect(output).toContain('取舍：交付依赖后端排期，但数据口径一致。');
+    expect(output).toContain('取舍：可以提前验证界面，但不能完成端到端验收。');
+    expect(output).toContain('3. 输入其他处理结论');
+    expect(output).toContain('是否确认本次需求澄清并进入技术方案阶段？');
+    expect(selections).toEqual([{
+      decisionId: 'DEC-API-01',
+      optionId: 'manual',
+      manualNote: '详情页先复用现有聚合接口，趋势和导出等待下一期。',
+    }]);
   });
 
   it('guides users to commit migrated handoffs before continuing the ready node', async () => {
@@ -305,4 +421,27 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
     }
   }
   return { store, directory: taskDirectory };
+}
+
+async function writeDecisionRegister(directory: string): Promise<void> {
+  await writeFile(join(directory, 'artifacts', 'decision-register.yaml'), `schemaVersion: aiw.decision-register/v1
+items:
+  - id: DEC-API-01
+    title: 详情趋势数据来源
+    type: external-contract
+    affects:
+      acceptanceRefs: [AC-07]
+      workUnits: [performance-overview]
+    status: proposed
+    options:
+      - id: wait-api
+        title: 等待正式 API
+        tradeoffs: 交付依赖后端排期，但数据口径一致。
+      - id: mock-ui
+        title: 使用 Mock 验证界面
+        tradeoffs: 可以提前验证界面，但不能完成端到端验收。
+    recommendation:
+      optionId: wait-api
+      rationale: 当前仓库没有可信详情与趋势接口。
+`, 'utf8');
 }

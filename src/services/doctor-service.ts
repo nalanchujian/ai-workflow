@@ -30,9 +30,9 @@ export class DoctorService {
     let config: LocalConfigDocument | undefined;
     try {
       config = await this.deps.config.read();
-      checks.push(passed('local-configuration', '本机配置', '本机配置格式有效。'));
+      checks.push(passed('local-configuration', 'AIW 本机设置', '默认工作流和文档连接器设置有效。'));
     } catch {
-      checks.push(failed('local-configuration', '本机配置', '无法读取或校验本机配置。', '检查并修复 `~/.aiw/config.yaml`，然后重新运行 `aiw doctor`。'));
+      checks.push(failed('local-configuration', 'AIW 本机设置', '无法读取或校验 AIW 本机设置。', '检查并修复 `~/.aiw/config.yaml`，然后重新运行 `aiw doctor`。'));
     }
 
     if (config === undefined) {

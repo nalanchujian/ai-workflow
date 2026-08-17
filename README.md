@@ -43,8 +43,8 @@ aiw task init --project . --source https://example.com/requirements
 git add .aiw && git commit -m "chore(aiw): initialize task"
 aiw task run <task-id> clarify
 git add .aiw && git commit -m "chore(aiw): clarify task"
-aiw task approve <task-id> clarify --actor tech-lead
-git add .aiw && git commit -m "chore(aiw): approve clarification"
+aiw task review <task-id>
+git add .aiw && git commit -m "chore(aiw): review clarification"
 aiw task run <task-id> solution
 git add .aiw && git commit -m "chore(aiw): record solution result"
 aiw task run <task-id> plan
@@ -56,7 +56,7 @@ aiw task status <task-id> # 按输出执行 implement 或自动生成的 impleme
 
 若不在业务仓库目录中执行，所有后续任务命令均可附加 `--project /业务仓库路径`；共享任务事实不保存发起人电脑的绝对路径。
 
-这是 MVP 流程：`aiw init` 自动安装并设置 `standard-web-feature@4.0.0` 为本机默认工作流，任务创建时锁定该模板及其具体技能。需求澄清会将不能直接确认的问题沉淀为带 AI 推荐的决策登记；人工选择、外部等待或拆期后，AIW 仅阻塞受影响工作单元。计划获批后，AIW 依据机器可读工作单元自动拆分复杂实施，并按每个单元的允许路径校验实际 Git 变更是否越界；始终以 `aiw task status` 输出的可执行节点为准。每个阶段产物、决策、待审批状态和审批记录均需通过 Git 固化后，才可作为下游依据；审批人要求修改时使用 `task request-changes`，它保留退回证据和下一版修改说明。测试节点只有全部验收项满足时才能普通批准；存在未通过或阻塞项时必须处理，或使用 `task close-with-risk` 明确记录风险接受。工作流在测试验证闭环后结束，不管理 PR、发布或线上运维。
+这是 MVP 流程：`aiw init` 自动安装并设置 `standard-web-feature@4.0.0` 为本机默认工作流，任务创建时锁定该模板及其具体技能。需求澄清会将不能直接确认的问题沉淀为带 AI 推荐的决策登记；`task review` 会逐项展示建议和可选方案，确认后一次性留下决策与澄清审批记录。计划获批后，AIW 依据机器可读工作单元自动拆分复杂实施，并按每个单元的允许路径校验实际 Git 变更是否越界；始终以 `aiw task status` 输出的可执行节点为准。每个阶段产物、决策、待审批状态和审批记录均需通过 Git 固化后，才可作为下游依据；审批人要求修改时使用 `task request-changes`，它保留退回证据和下一版修改说明。测试节点只有全部验收项满足时才能普通批准；存在未通过或阻塞项时必须处理，或使用 `task close-with-risk` 明确记录风险接受。工作流在测试验证闭环后结束，不管理 PR、发布或线上运维。
 
 上例使用公开的 `ai-workflow-skills` 标准模板来源。团队应 Fork 该仓库后再定义自己的技能、版本和治理规则；已有任务始终使用创建时锁定的来源版本。
 

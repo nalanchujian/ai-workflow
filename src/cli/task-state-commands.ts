@@ -19,6 +19,7 @@ import { TaskDecisionService } from '../services/task-decision-service.js';
 import { AcceptanceResultsSchema, deliveryStatusFromAcceptanceResults } from '../domain/acceptance-results.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
 import { TerminalProgressReporter, withProgress, type ProgressReporter } from './progress-reporter.js';
+import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js';
 
 const ApprovalFactSchema = z.object({
   nodeId: z.string().min(1),
@@ -29,6 +30,15 @@ const ApprovalFactSchema = z.object({
   at: z.string().datetime(),
   note: z.string().optional(),
 });
+
+type ClarifyDecisionSelection = {
+  decisionId: string;
+  optionId: string;
+  status?: 'resolved' | 'waiting_external';
+  owner?: string;
+  unblockCondition?: string;
+  manualNote?: string;
+};
 
 export class TaskStateCommands {
   constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; skillRegistry?: SkillRegistry; cancellation?: TaskCancellationService; handoffMigrator?: HandoffMigrator; decisionService?: TaskDecisionService }) {}
@@ -80,6 +90,41 @@ export class TaskStateCommands {
 
   async approve(taskId: string, nodeId: string, options: { actor?: string; note?: string }): Promise<Task> {
     return this.decide(taskId, nodeId, 'approved', options);
+  }
+
+  async reviewClarify(taskId: string, selections: ClarifyDecisionSelection[], options: { actor?: string; note?: string }): Promise<Task> {
+    if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
+    const task = await this.deps.taskStore.load(taskId);
+    const clarify = task.nodes.clarify;
+    if (clarify?.status !== 'awaiting_approval') {
+      throw new Error('只有待审批的需求澄清节点可以进行确认');
+    }
+    const decisions = await this.deps.decisionService.list(taskId);
+    const outstanding = decisions.filter(({ resolution }) => resolution === undefined);
+    const selectedIds = new Set(selections.map((selection) => selection.decisionId));
+    if (selectedIds.size !== selections.length || outstanding.length !== selections.length || outstanding.some(({ item }) => !selectedIds.has(item.id))) {
+      throw new Error('需求澄清确认必须逐项处理所有待决策事项');
+    }
+    const completionBundle = await loadRunCompletionBundle(task, this.deps.taskStore, 'clarify');
+    await this.deps.taskFactGuard.assertCommitted({
+      task,
+      projectRoot: this.deps.taskStore.projectDirectory(),
+      paths: ['task.yaml', 'artifacts/decision-register.yaml', ...completionBundle.paths],
+    });
+    const actor = await this.deps.taskFactGuard.actor(options.actor);
+    for (const selection of selections) {
+      await this.deps.decisionService.choose({
+        taskId,
+        decisionId: selection.decisionId,
+        optionId: selection.optionId,
+        actor,
+        status: selection.status ?? 'resolved',
+        ...(selection.owner === undefined ? {} : { owner: selection.owner }),
+        ...(selection.unblockCondition === undefined ? {} : { unblockCondition: selection.unblockCondition }),
+        ...(selection.manualNote === undefined ? options.note === undefined ? {} : { note: options.note } : { note: selection.manualNote }),
+      });
+    }
+    return this.decide(taskId, 'clarify', 'approved', { actor, note: options.note }, { skipCommittedCheck: true });
   }
 
   async requestChanges(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
@@ -179,6 +224,7 @@ export class TaskStateCommands {
     nodeId: string,
     decision: 'approved' | 'changes_requested',
     options: { actor?: string; note?: string; riskAcceptance?: { owner: string; reason: string; expiresAt: string } },
+    internal: { skipCommittedCheck?: boolean } = {},
   ): Promise<Task> {
     const task = await this.deps.taskStore.load(taskId);
     const node = task.nodes[nodeId];
@@ -192,8 +238,13 @@ export class TaskStateCommands {
     if (decision === 'changes_requested' && (note === undefined || note.length === 0)) {
       throw new Error('变更说明不能为空');
     }
+    if (decision === 'approved' && nodeId === 'clarify') {
+      await this.assertClarifyDecisionsReviewed(taskId);
+    }
     const completionBundle = await loadRunCompletionBundle(task, this.deps.taskStore, nodeId);
-    await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...completionBundle.paths] });
+    if (!internal.skipCommittedCheck) {
+      await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...completionBundle.paths] });
+    }
     const actor = await this.deps.taskFactGuard.actor(options.actor);
     const deliveryStatus = nodeId === 'test' && decision === 'approved'
       ? await readDeliveryStatus(task, this.deps.taskStore)
@@ -249,13 +300,31 @@ export class TaskStateCommands {
       paths: ['task.yaml', 'artifacts/decision-register.yaml'],
     });
   }
+
+  private async assertClarifyDecisionsReviewed(taskId: string): Promise<void> {
+    if (this.deps.decisionService === undefined) return;
+    const pending = (await this.deps.decisionService.list(taskId))
+      .filter(({ resolution }) => resolution === undefined)
+      .map(({ item }) => item.id);
+    if (pending.length > 0) {
+      throw new Error(`需求澄清仍有待确认项：${pending.join('、')}；请运行 aiw task review ${taskId}`);
+    }
+  }
 }
 
-export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdout: NodeJS.WriteStream; progress?: ProgressReporter }): Command {
+export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdout: NodeJS.WriteStream; progress?: ProgressReporter; reviewPrompter?: ReviewPrompter }): Command {
   const command = new Command('task').description('查询任务状态并处理审批');
   command.addCommand(new Command('status').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
     const task = await deps.commands.status(taskId);
-    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '任务状态'));
+    const decisions = await optionalDecisions(deps.commands, taskId);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '任务状态', undefined, decisions));
+  }));
+  command.addCommand(new Command('review').description('逐项确认需求澄清中的待决策事项，并完成澄清审批').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>', '本次澄清确认说明').action(async (taskId: string, options: { actor?: string; note?: string }, current: Command) => {
+    const decisions = (await deps.commands.listDecisions(taskId)).filter(({ resolution }) => resolution === undefined);
+    const prompter = deps.reviewPrompter ?? createReviewPrompter(deps.stdout);
+    const selections = await promptClarifyReview(taskId, decisions, prompter, deps.stdout);
+    const task = await deps.commands.reviewClarify(taskId, selections, options);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '需求澄清已确认', 'chore(aiw): review clarify'));
   }));
   command.addCommand(new Command('migrate-handoffs').description('为旧任务补齐结构化交接包').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
     const { task, migration } = await withProgress({
@@ -364,7 +433,7 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   return command;
 }
 
-function renderTaskOutput(task: Task, headline: string, commitMessage?: string): HumanOutput {
+function renderTaskOutput(task: Task, headline: string, commitMessage?: string, decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>> = []): HumanOutput {
   const ready = Object.entries(task.nodes).find(([, node]) => node.status === 'ready');
   const waiting = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');
   const blocked = Object.entries(task.nodes).filter(([, node]) => node.status === 'blocked');
@@ -378,16 +447,126 @@ function renderTaskOutput(task: Task, headline: string, commitMessage?: string):
       { label: '整体状态', value: taskStatusLabel(task.status) },
       { label: '交付状态', value: deliveryStatusLabel(task.deliveryStatus) },
     ],
-    sections: [{ title: '节点', lines: Object.entries(task.nodes).map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) }],
+    sections: [
+      { title: '节点', lines: Object.entries(task.nodes).map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) },
+      ...clarifyDecisionSection(waiting, decisions),
+    ],
     nextSteps: ready === undefined && waiting === undefined && blocked.length === 0 && failed === undefined && invalidated === undefined ? undefined : [
       ...(commitMessage === undefined ? [] : [`git add .aiw && git commit -m "${commitMessage}"`]),
-      ...(waiting === undefined ? [] : approvalNextSteps(task, waiting[0], waiting[1])),
+      ...(waiting === undefined ? [] : reviewOrApprovalNextSteps(task, waiting, decisions)),
       ...(ready === undefined ? [] : [`aiw task run ${task.id} ${ready[0]}`]),
       ...(blocked.length === 0 ? [] : [`aiw task decision list ${task.id}`]),
       ...(failed === undefined ? [] : [`修正失败原因后：aiw task revise ${task.id} ${failed[0]} --note "<修改说明>"`]),
       ...(invalidated === undefined ? [] : [`上游已变更，请先更新结论：aiw task revise ${task.id} ${invalidated[0]} --note "根据上游变更重新执行"`]),
     ],
   };
+}
+
+async function optionalDecisions(commands: TaskStateCommands, taskId: string): Promise<Awaited<ReturnType<TaskStateCommands['listDecisions']>>> {
+  try {
+    return await commands.listDecisions(taskId);
+  } catch {
+    return [];
+  }
+}
+
+function clarifyDecisionSection(
+  waiting: [string, TaskNode] | undefined,
+  decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>>,
+): Array<NonNullable<HumanOutput['sections']>[number]> {
+  if (waiting?.[0] !== 'clarify') return [];
+  const outstanding = decisions.filter(({ resolution }) => resolution === undefined);
+  if (outstanding.length === 0) return [];
+  return [{
+    title: `需求澄清待确认（${outstanding.length} 项）`,
+    lines: outstanding.map(({ item }) => {
+      const recommendation = item.options.find((option) => option.id === item.recommendation.optionId)!;
+      return `${item.id}：${item.title}；AI 建议：${recommendation.title}`;
+    }),
+  }];
+}
+
+function reviewOrApprovalNextSteps(
+  task: Task,
+  waiting: [string, TaskNode],
+  decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>>,
+): string[] {
+  if (waiting[0] === 'clarify' && decisions.some(({ resolution }) => resolution === undefined)) {
+    return [
+      `查看待审批产物：${waiting[1].outputs.map((path) => `.aiw/tasks/${task.id}/${path}`).join('、')}`,
+      '若尚未提交当前产物和状态：git add .aiw && git commit -m "chore(aiw): record clarify result"',
+      `aiw task review ${task.id}`,
+    ];
+  }
+  return approvalNextSteps(task, waiting[0], waiting[1]);
+}
+
+async function promptClarifyReview(
+  taskId: string,
+  decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>>,
+  prompter: ReviewPrompter,
+  stdout: NodeJS.WritableStream,
+): Promise<ClarifyDecisionSelection[]> {
+  stdout.write(`需求澄清需要确认（${decisions.length} 项）\n\n`);
+  const selections: ClarifyDecisionSelection[] = [];
+  for (const [index, { item }] of decisions.entries()) {
+    const recommendation = item.options.find((option) => option.id === item.recommendation.optionId)!;
+    const alternatives = item.options.filter((option) => option.id !== recommendation.id);
+    stdout.write(`[${index + 1}/${decisions.length}] 需要确认：${item.title}\n`);
+    stdout.write(`为什么需要确认：${item.recommendation.rationale}\n`);
+    stdout.write(`影响范围：验收项 ${item.affects.acceptanceRefs.join('、')}；工作单元 ${item.affects.workUnits.join('、')}\n`);
+    stdout.write(`AI 建议：${recommendation.title}\n`);
+    stdout.write(`1. 接受 AI 建议：${recommendation.title}\n   取舍：${recommendation.tradeoffs}\n`);
+    alternatives.forEach((option, optionIndex) => stdout.write(`${optionIndex + 2}. ${option.title}\n   取舍：${option.tradeoffs}\n`));
+    stdout.write(`${alternatives.length + 2}. 输入其他处理结论\n`);
+    const choices = [recommendation, ...alternatives];
+    const answer = await askNumber(prompter, `请输入选择（1-${choices.length + 1}）：`, choices.length + 1);
+    if (answer === choices.length + 1) {
+      const manualNote = await askRequiredText(prompter, '请输入处理结论：');
+      selections.push({ decisionId: item.id, optionId: 'manual', manualNote });
+      stdout.write('\n');
+      continue;
+    }
+    const choice = choices[answer - 1]!;
+    if (isExternalWaitOption(choice)) {
+      stdout.write('该方案需要等待外部信息。请输入负责团队（直接回车可稍后补充）：\n');
+      const owner = (await prompter.ask('等待对象：')).trim() || '待指定';
+      selections.push({
+        decisionId: item.id,
+        optionId: choice.id,
+        status: 'waiting_external',
+        owner,
+        unblockCondition: `已确认：${item.title}`,
+      });
+    } else {
+      selections.push({ decisionId: item.id, optionId: choice.id });
+    }
+    stdout.write('\n');
+  }
+  stdout.write('是否确认本次需求澄清并进入技术方案阶段？\n1. 确认\n2. 返回修改\n');
+  const confirmation = await askNumber(prompter, '请输入选择（1-2）：', 2);
+  if (confirmation !== 1) {
+    throw new Error(`已取消需求澄清确认；可继续查看或修改任务 ${taskId} 的产物。`);
+  }
+  return selections;
+}
+
+function isExternalWaitOption(option: { id: string; title: string }): boolean {
+  return option.id.startsWith('wait-') || /等待/.test(option.title);
+}
+
+async function askNumber(prompter: ReviewPrompter, prompt: string, maximum: number): Promise<number> {
+  while (true) {
+    const answer = Number((await prompter.ask(prompt)).trim());
+    if (Number.isInteger(answer) && answer >= 1 && answer <= maximum) return answer;
+  }
+}
+
+async function askRequiredText(prompter: ReviewPrompter, prompt: string): Promise<string> {
+  while (true) {
+    const answer = (await prompter.ask(prompt)).trim();
+    if (answer.length > 0) return answer;
+  }
 }
 
 function approvalNextSteps(task: Task, nodeId: string, node: TaskNode): string[] {

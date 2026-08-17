@@ -26,6 +26,12 @@ describe('DoctorService', () => {
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'git-cli', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'project-repository', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'codex-cli', status: 'passed' }));
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      id: 'local-configuration',
+      label: 'AIW 本机设置',
+      message: '默认工作流和文档连接器设置有效。',
+      status: 'passed',
+    }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-sources', status: 'warning' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', label: '文档连接器配置', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', label: '文档读取授权', status: 'warning' }));
