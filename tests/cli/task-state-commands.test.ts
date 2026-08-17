@@ -172,6 +172,13 @@ describe('TaskStateCommands', () => {
       '    acceptanceRefs: [AC-02]',
       '    steps: [实现文件名生成函数]',
       '    verification: [pnpm test -- export]',
+      'acceptanceCoverage:',
+      '  - acceptanceId: AC-01',
+      '    disposition: implement',
+      '    workUnitIds: [page]',
+      '  - acceptanceId: AC-02',
+      '    disposition: implement',
+      '    workUnitIds: [export]',
     ].join('\n') + '\n', 'utf8');
     const commands = new TaskStateCommands({
       taskStore: store,
@@ -196,6 +203,34 @@ describe('TaskStateCommands', () => {
     expect(updated.nodes.verify.dependsOn).toEqual(['implement-page', 'implement-export']);
     await expect(readFile(join(directory, 'artifacts', 'work-units', 'r1', 'implement-export.md'), 'utf8'))
       .resolves.toContain('src/services/export.ts');
+  });
+
+  it('rejects plan approval when an acceptance item is not covered by work or an explicit decision', async () => {
+    const { store, directory } = await createApprovalTask('plan');
+    await writeFile(join(directory, 'artifacts', 'work-breakdown.yaml'), [
+      'schemaVersion: aiw.work-breakdown/v1',
+      'units:',
+      '  - id: page',
+      '    title: 实现页面筛选',
+      '    goal: 提供可筛选的列表页面',
+      '    allowedPaths: [src/pages/links/**]',
+      '    acceptanceRefs: [AC-01]',
+      '    steps: [实现筛选状态]',
+      '    verification: [pnpm test -- links]',
+      'acceptanceCoverage:',
+      '  - acceptanceId: AC-01',
+      '    disposition: implement',
+      '    workUnitIds: [page]',
+    ].join('\n') + '\n', 'utf8');
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    await expect(commands.approve('refund-123', 'plan', { note: '计划确认' }))
+      .rejects.toThrow('未声明覆盖方式：AC-02');
+    expect((await store.load('refund-123')).nodes.plan.status).toBe('awaiting_approval');
+    await expect(readFile(join(directory, 'approvals', 'plan', 'r1.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('guides a waiting approval through review, commit, and approval in task status', async () => {
@@ -433,6 +468,18 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
   await store.create(task);
   const taskDirectory = store.taskDirectory(task.id);
   await mkdir(join(taskDirectory, 'artifacts'), { recursive: true });
+  if (nodeId === 'plan') {
+    await writeFile(join(taskDirectory, 'artifacts', 'acceptance.yaml'), [
+      'schemaVersion: aiw.acceptance-catalog/v1',
+      'items:',
+      '  - id: AC-01',
+      '    title: 页面筛选',
+      '    description: 用户可以按筛选条件查看列表页面。',
+      '  - id: AC-02',
+      '    title: 导出文件名',
+      '    description: 用户可以按筛选条件获取符合规则的导出文件名。',
+    ].join('\n') + '\n', 'utf8');
+  }
   const node = task.nodes[nodeId];
   const outputs = outputPathsForCompletedRun(nodeId, node);
   for (const output of outputs) {
@@ -441,8 +488,12 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
       ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${node.outputs[0]}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
       : nodeId === 'test' && output === 'artifacts/acceptance-results.yaml'
         ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/test-report.md\n`
-        : nodeId === 'test' && output === 'artifacts/test-report.md'
+      : nodeId === 'test' && output === 'artifacts/test-report.md'
           ? '# 测试报告\n\n## 测试命令\n\n`pnpm test`\n\n## 测试结果\n\n已执行。\n'
+          : nodeId === 'clarify' && output === 'artifacts/acceptance.yaml'
+            ? 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n'
+            : nodeId === 'clarify' && output === 'artifacts/decision-register.yaml'
+              ? 'schemaVersion: aiw.decision-register/v1\nitems: []\n'
           : `# ${output}\n`;
     await writeFile(join(taskDirectory, output), content, 'utf8');
   }

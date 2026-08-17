@@ -41,7 +41,7 @@ export function createSevenPhaseTask(): Task {
     sources: {},
     nodes: {
       intake: node('接入资料', 'intake', [], 'completed', false, ['sources/requirements/r1/snapshot.md']),
-      clarify: node('澄清需求', 'clarify', ['intake'], 'ready', true, ['artifacts/brief.md'], createSkillLock('requirements-clarification')),
+      clarify: node('澄清需求', 'clarify', ['intake'], 'ready', true, ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml'], createSkillLock('requirements-clarification')),
       solution: node('形成技术方案', 'solution', ['clarify'], 'pending', false, ['artifacts/solution.md'], createSkillLock('technical-solution')),
       plan: node('制定实施计划', 'plan', ['solution'], 'pending', true, ['artifacts/implementation-plan.md', 'artifacts/implementation-context.md', 'artifacts/work-breakdown.yaml'], createSkillLock('implementation-planning')),
       implement: { ...node('完成实现', 'implement', ['plan'], 'pending', false, ['artifacts/implementation.md'], createSkillLock('typescript-web-implementation')), contextPath: 'artifacts/implementation-context.md', allowedPaths: [] },

@@ -103,6 +103,17 @@ describe('ImplementationWorkPlanner', () => {
       '    acceptanceRefs: [AC-01]',
       '    steps: [实现退款流程]',
       '    verification: [pnpm test]',
+      'acceptanceCoverage:',
+      '  - acceptanceId: AC-01',
+      '    disposition: implement',
+      '    workUnitIds: [main]',
+    ].join('\n') + '\n', 'utf8');
+    await writeFile(join(store.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), [
+      'schemaVersion: aiw.acceptance-catalog/v1',
+      'items:',
+      '  - id: AC-01',
+      '    title: 退款申请',
+      '    description: 用户可以提交退款申请并查看处理结果。',
     ].join('\n') + '\n', 'utf8');
 
     const materialized = await materializeImplementationWork(await store.load(task.id), store);
@@ -114,8 +125,20 @@ describe('ImplementationWorkPlanner', () => {
 
 async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first' | 'second', blockExport = false): Promise<void> {
   const directory = store.taskDirectory(taskId);
+  const task = await store.load(taskId);
+  const exportCoverage = task.decisions.find((decision) => decision.id === 'DEC-API-01')?.status;
   await mkdir(join(directory, 'artifacts'), { recursive: true });
   await writeFile(join(directory, 'artifacts', 'implementation-plan.md'), '# 实施计划\n\n```yaml\nallowedPaths:\n  - src/**\n```\n', 'utf8');
+  await writeFile(join(directory, 'artifacts', 'acceptance.yaml'), [
+    'schemaVersion: aiw.acceptance-catalog/v1',
+    'items:',
+    '  - id: AC-01',
+    '    title: 列表页面',
+    '    description: 用户可以完成列表页面的筛选与查看。',
+    '  - id: AC-02',
+    '    title: 导出文件',
+    '    description: 用户可以获得符合规则的导出文件名称。',
+  ].join('\n') + '\n', 'utf8');
   await writeFile(join(directory, 'artifacts', 'work-breakdown.yaml'), [
     'schemaVersion: aiw.work-breakdown/v1',
     'units:',
@@ -136,5 +159,14 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    steps: [实现导出]',
     '    verification: [pnpm test -- export]',
     ...(blockExport ? ['    blockedBy: [DEC-API-01]'] : []),
+    'acceptanceCoverage:',
+    '  - acceptanceId: AC-01',
+    '    disposition: implement',
+    '    workUnitIds: [page]',
+    ...(blockExport && exportCoverage === 'waiting_external'
+      ? ['  - acceptanceId: AC-02', '    disposition: waiting_external', '    decisionId: DEC-API-01', '    workUnitIds: [export]']
+      : blockExport && exportCoverage === 'deferred'
+        ? ['  - acceptanceId: AC-02', '    disposition: deferred', '    decisionId: DEC-API-01', '    workUnitIds: []']
+        : ['  - acceptanceId: AC-02', '    disposition: implement', '    workUnitIds: [export]']),
   ].join('\n') + '\n', 'utf8');
 }

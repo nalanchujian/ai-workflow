@@ -60,7 +60,8 @@
 - 需要审批的 `clarify`、`plan`、`test` 节点，在运行成功后进入 `awaiting_approval`；`solution` 可由高风险任务模板额外设置审批。
 - `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]` 仅可批准当前 revision 的 `awaiting_approval` 节点；待审产物和当前状态均已提交时，写入绑定全部输出哈希的审批文件并将节点置为 `completed`。未提供 `--actor` 时必须读取 Git 用户名，否则失败。MVP 的 `actor` 仅用于留痕，不验证身份、角色或权限；同一操作者可以代表不同责任角色执行提审、审批和决策命令。
 - `clarify` 必须生成 `artifacts/decision-register.yaml`：每个无法由现有事实确定、且影响验收或实施范围的事项必须含至少两个选项、取舍、AI 推荐和明确的 `effect`。`effect` 只能是 `resolved`（本期继续）、`waiting_external`（等待外部条件）、`deferred`（拆至后续范围）或 `waived`（接受风险继续）。存在未处理事项时，普通 `task approve ... clarify` 必须拒绝；`aiw task review <task-id>` 必须逐项展示建议、选项和人工输入入口，并按选项声明的结果一次性写入选择与澄清审批事实。人工输入会以保留原文的 `manual` 决策事实写入任务；选择等待方案时，`review` 记录外部等待并仅阻塞关联工作单元；选择拆期或风险豁免时必须说明原因。澄清确认后不允许修改决策结论；仅在外部条件已满足时允许使用 `aiw task decision resolve` 解除对应等待。
-- `work-breakdown.yaml` 的工作单元可使用 `blockedBy: [DEC-...]`。未决或外部等待决策仅阻塞关联单元；解决或豁免后解锁；拆期后从当前验证汇合移除。
+- `clarify` 必须同时生成供人审阅的 `acceptance.md` 与机器可读的 `acceptance.yaml`；后者列出本期完整 AC 清单。
+- `work-breakdown.yaml` 的工作单元可使用 `blockedBy: [DEC-...]`。未决或外部等待决策仅阻塞关联单元；解决或豁免后解锁；拆期后从当前验证汇合移除。其 `acceptanceCoverage` 必须对账 `acceptance.yaml` 中每个 AC，声明由实施单元完成、外部等待、拆期或风险豁免；遗漏时计划不得批准。
 - 测试节点必须输出 `artifacts/acceptance-results.yaml`。普通 `task approve <task-id> test` 只接受全部验收项为 `passed`、`deferred` 或 `waived` 的结果；存在 `failed` 或 `blocked` 时必须拒绝。`task close-with-risk <task-id> --owner --reason --expires-at` 是唯一风险关闭入口，必须写入风险接受事实并将交付状态标为 `risk_accepted`。
 - 阶段产物一旦形成不提供人工修订或退回入口。需求变更必须更新原始来源并执行 `aiw task source refresh`；来源产生新 revision 后，AIW 从 `clarify` 重新开始受影响的下游流程。任一非 `intake` 节点均可直接再次执行：AIW 覆盖该节点及下游的当前任务产物、审批和状态，但不删除需求快照、业务代码或运行记录。
 - `aiw task status <task-id>` 默认显示任务、交付和节点状态摘要；使用 `--json` 时输出完整任务事实，其中包含依赖、revision、审批与失效原因。

@@ -48,8 +48,8 @@ schemaVersion: aiw.local/v1
 workflow:
   defaultSkillSource:
     url: https://github.com/nalanchujian/ai-workflow-skills.git
-    ref: v5.0.0
-  defaultProfile: standard-web-feature@5.0.0
+    ref: v6.0.0
+  defaultProfile: standard-web-feature@6.0.0
 
 # 只有任务来源是 Lark 文档时，才把下方示例改为实际配置。
 # connectors:

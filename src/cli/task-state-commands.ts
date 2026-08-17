@@ -12,7 +12,7 @@ import { transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
 import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
-import { materializeImplementationWork } from '../services/implementation-work-planner.js';
+import { materializeImplementationWork, readWorkBreakdown, validatePlanAcceptanceCoverage } from '../services/implementation-work-planner.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
 import { AcceptanceResultsSchema, deliveryStatusFromAcceptanceResults } from '../domain/acceptance-results.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
@@ -43,6 +43,24 @@ export class TaskStateCommands {
 
   async status(taskId: string): Promise<Task> {
     return this.deps.taskStore.load(taskId);
+  }
+
+  async acceptanceCoverageSummary(taskId: string): Promise<NonNullable<HumanOutput['sections']>[number]> {
+    const task = await this.deps.taskStore.load(taskId);
+    const breakdown = await readWorkBreakdown(task, this.deps.taskStore);
+    const labels = {
+      implement: '本期实施',
+      waiting_external: '等待外部条件',
+      deferred: '拆至后续范围',
+      waived: '风险豁免',
+    } as const;
+    return {
+      title: '验收覆盖',
+      lines: (Object.keys(labels) as Array<keyof typeof labels>).map((disposition) => {
+        const items = breakdown.acceptanceCoverage.filter((item) => item.disposition === disposition).map((item) => item.acceptanceId);
+        return `${labels[disposition]}：${items.length === 0 ? '无' : items.join('、')}`;
+      }),
+    };
   }
 
   async uncommittedTaskPaths(taskId: string): Promise<string[]> {
@@ -157,6 +175,9 @@ export class TaskStateCommands {
     if (nodeId === 'test' && decision === 'approved' && deliveryStatus !== 'ready' && options.riskAcceptance === undefined) {
       throw new Error('验收结果包含未通过或阻塞项；请先处理，或使用 task close-with-risk 明确记录风险接受。');
     }
+    if (nodeId === 'plan' && decision === 'approved') {
+      await validatePlanAcceptanceCoverage(task, this.deps.taskStore);
+    }
     const artifactHashes = await outputHashes(task, this.deps.taskStore, nodeId);
     const approvalPath = `approvals/${nodeId}/r${node.revision}.yaml`;
     const approval = ApprovalFactSchema.parse({
@@ -259,7 +280,8 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     })));
   command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }, current: Command) => {
     const task = await deps.commands.approve(taskId, nodeId, options);
-    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已批准`, `chore(aiw): approve ${nodeId}`));
+    const coverageSection = nodeId === 'plan' ? await deps.commands.acceptanceCoverageSummary(taskId) : undefined;
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已批准`, `chore(aiw): approve ${nodeId}`, [], undefined, coverageSection));
   }));
   command.addCommand(new Command('close-with-risk').description('例外：接受未通过验收项的风险并关闭测试节点').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--owner <name>').requiredOption('--reason <text>').requiredOption('--expires-at <datetime>').option('--actor <name>').action(async (taskId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }, current: Command) => {
     const task = await deps.commands.closeWithRisk(taskId, options);
@@ -282,6 +304,7 @@ function renderTaskOutput(
   commitMessage?: string,
   decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>> = [],
   uncommittedTaskPaths?: string[],
+  extraSection?: NonNullable<HumanOutput['sections']>[number],
 ): HumanOutput {
   const ready = Object.entries(task.nodes).filter(([, node]) => node.status === 'ready');
   const waiting = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');
@@ -300,6 +323,7 @@ function renderTaskOutput(
     sections: [
       ...nodeSections(task),
       ...clarifyDecisionSection(waiting, decisions),
+      ...(extraSection === undefined ? [] : [extraSection]),
     ],
     nextSteps: ready.length === 0 && waiting === undefined && blocked.length === 0 && failed === undefined && cancelled === undefined && invalidated === undefined ? undefined : [
       ...(commitMessage === undefined ? [] : [`git add .aiw && git commit -m "${commitMessage}"`]),

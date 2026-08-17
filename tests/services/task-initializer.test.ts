@@ -39,6 +39,7 @@ describe('TaskInitializer', () => {
     expect(task.nodes.intake.status).toBe('completed');
     expect(task.nodes.clarify.skill?.name).toBe('requirements-clarification');
     expect(task.nodes.clarify.outputs).toContain('artifacts/decision-register.yaml');
+    expect(task.nodes.clarify.outputs).toContain('artifacts/acceptance.yaml');
     expect(task.nodes.test.skill?.name).toBe('acceptance-testing');
     expect((await store.load('task-20260813-120000-000')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
     await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.md'), 'utf8')).resolves.toContain('需求来源：requirements.md');

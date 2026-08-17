@@ -9,6 +9,7 @@ import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Ta
 import { handoffPath, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
 import { hasTestExecutionEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
+import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { parse } from 'yaml';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
@@ -397,6 +398,14 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       return;
     } catch {
       throw new TaskRunnerError('ARTIFACT_INVALID', '决策登记必须是有效的 aiw.decision-register/v1 YAML');
+    }
+  }
+  if (path === 'artifacts/acceptance.yaml') {
+    try {
+      AcceptanceCatalogSchema.parse(parse(content));
+      return;
+    } catch {
+      throw new TaskRunnerError('ARTIFACT_INVALID', '验收清单必须是有效的 aiw.acceptance-catalog/v1 YAML');
     }
   }
   if (path === 'artifacts/acceptance-results.yaml') {

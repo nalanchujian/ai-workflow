@@ -259,6 +259,10 @@ describe('TaskRunner', () => {
     const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']] });
     await mkdir(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts'), { recursive: true });
     await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'brief.md'), '# 需求澄清\n\n## 结论\n\n这是上一次运行遗留的产物。\n', 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'questions.md'), '# 待确认事项\n\n当前没有阻塞性待确认事项；后续可以按验收清单继续推进。\n', 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'acceptance.md'), '# 验收标准\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
     await writeHandoff(fixture.taskStore, 'refund-123');
 
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
@@ -318,6 +322,10 @@ async function createRunnerFixture(options: {
         if (options.writeArtifact !== undefined) {
           await mkdir(join(taskStore.taskDirectory(task.id), 'artifacts'), { recursive: true });
           await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'brief.md'), options.writeArtifact, 'utf8');
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'questions.md'), '# 待确认事项\n\n当前没有阻塞性待确认事项；后续可以按照验收清单继续完成技术方案。\n', 'utf8');
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.md'), '# 验收标准\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
           await writeHandoff(taskStore, task.id, options.writeHandoff);
         }
         return { exitCode: options.exitCode ?? 0, signal: options.signal ?? null, stdout: '', stderr: '', timedOut: false };
