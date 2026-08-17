@@ -67,8 +67,9 @@ export class TaskRunner {
       await this.deps.taskStore.update(recovered);
       throw new TaskRunnerError('RUN_RECOVERED', '上次运行未正常结束，节点已自动标记失败；提交失败证据后可直接再次执行 task run 重试');
     }
-    if (node === undefined || node.phase === 'intake' || !['ready', 'failed'].includes(node.status) || node.skill === undefined) {
-      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪或可重试且已锁定技能的节点');
+    const canOverwriteCompletedPlan = input.nodeId === 'plan' && node?.status === 'completed';
+    if (node === undefined || node.phase === 'intake' || (!['ready', 'failed'].includes(node.status) && !canOverwriteCompletedPlan) || node.skill === undefined) {
+      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪、可重试或已完成的计划节点');
     }
 
     const skill = await this.loadLockedSkill(node.skill);

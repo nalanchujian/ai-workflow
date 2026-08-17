@@ -260,7 +260,7 @@ aiw task subtask add task-20260813-111606-115 implement-export \
 
 ### `aiw task run <task-id> <node-id> [--project <path>] [--dry-run] [--include <relative-path>]`
 
-使用节点已锁定的技能运行一个已就绪或可重试节点；`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
+使用节点已锁定的技能运行一个已就绪或可重试节点；`plan` 已完成时也可直接再次运行，用新计划覆盖当前计划和实施单元。`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
 
 ```bash
 aiw task run refund-123 clarify
@@ -275,7 +275,7 @@ aiw task run refund-123 implement --include docs/api-contract.md
 | `--dry-run` | 可选。不启动 Codex，只生成 `context.md`、manifest 和预演结果。 |
 | `--include <relative-path>` | 可重复。可显式加入项目根目录内的文件；每项必须记录到 manifest。 |
 
-节点仅在 `ready` 或 `failed` 且任务模板/技能锁定已提交时可运行。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。失败时先提交 `.aiw` 中的失败证据，再直接重跑同一命令；不会创建人工修改说明。
+节点通常仅在 `ready` 或 `failed` 且任务模板/技能锁定已提交时可运行；`plan` 已完成时例外，可直接再次运行。重跑计划会覆盖计划产物和当前实施分解，移除旧实施单元，随后重新进入计划审批；原有业务代码不会被删除。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。失败时先提交 `.aiw` 中的失败证据，再直接重跑同一命令；不会创建人工修改说明。
 
 运行前，Runner 必须确认所有默认上游产物、审批文件与状态变化已经提交到当前 Git 分支；否则拒绝运行并列出待提交路径。执行模式还要求业务工作树干净，并记录当前 Git 提交与分支；执行期间发生提交、重置或切换分支时，节点失败并保留证据。`task run` 不自动执行 Git 操作。共享 `runs/` 写入 manifest、允许范围、变更路径、允许范围内未跟踪文件的补丁及去敏结果；完整提示词与原始日志位于 `~/.aiw/runtime/<task-id>/<run-id>/`。
 

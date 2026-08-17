@@ -117,12 +117,36 @@ describe('task state machine', () => {
     expect(next.events).toContainEqual(expect.objectContaining({ type: 'start', nodeId: 'solution', runId: 'retry-run' }));
   });
 
-  it('does not allow a completed node to be restarted as a content revision', () => {
+  it('does not allow a completed non-plan node to be restarted', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
 
     expect(() => transitionNode(task, 'clarify', { type: 'start', runId: 'retry-run' }))
-      .toThrow('只能启动已就绪或可重试节点');
+      .toThrow('只能启动已就绪、可重试或已完成的计划节点');
+  });
+
+  it('allows a completed plan to be run again and directly replaces its downstream graph', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+    task.nodes.plan.status = 'completed';
+    task.nodes.implement.status = 'superseded';
+    task.nodes['implement-export'] = {
+      ...task.nodes.implement,
+      title: '导出能力',
+      status: 'ready',
+      dependsOn: ['plan'],
+      generatedFromPlanRevision: 1,
+    };
+    task.nodes.verify.status = 'pending';
+    task.nodes.verify.dependsOn = ['implement-export'];
+
+    const next = transitionNode(task, 'plan', { type: 'start', runId: 'replace-plan-run' });
+
+    expect(next.nodes.plan.status).toBe('running');
+    expect(next.nodes['implement-export']).toBeUndefined();
+    expect(next.nodes.implement).toMatchObject({ status: 'pending', dependsOn: ['plan'] });
+    expect(next.nodes.verify).toMatchObject({ status: 'pending', dependsOn: ['implement'] });
   });
 
   it('allows an explicit skill rebind only for a node that is not complete', () => {

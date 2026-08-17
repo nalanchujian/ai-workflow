@@ -28,7 +28,11 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       }
       break;
     case 'start':
-      assertStatus(node, ['ready', 'failed'], '只能启动已就绪或可重试节点');
+      if (nodeId === 'plan' && node.status === 'completed') {
+        resetDownstreamForPlanOverwrite(next);
+      } else {
+        assertStatus(node, ['ready', 'failed'], '只能启动已就绪、可重试或已完成的计划节点');
+      }
       node.status = 'running';
       addEvent(next, 'start', nodeId, { runId: event.runId });
       break;
@@ -170,6 +174,56 @@ function unlockDependents(task: Task, upstreamNodeId: string): void {
       addEvent(task, 'evaluate', nodeId);
     }
   }
+}
+
+/**
+ * A completed plan may be run again when the workflow engine changes. The new
+ * plan becomes the sole active plan: its generated implementation graph
+ * replaces the previous one instead of keeping a parallel revision graph.
+ */
+function resetDownstreamForPlanOverwrite(task: Task): void {
+  const affected = downstreamNodeIds(task, 'plan');
+  const implementationNodeIds = affected.filter((nodeId) => task.nodes[nodeId]?.phase === 'implement');
+
+  for (const nodeId of implementationNodeIds) {
+    if (nodeId !== 'implement') delete task.nodes[nodeId];
+  }
+
+  const implementation = task.nodes.implement;
+  if (implementation !== undefined) {
+    implementation.status = 'pending';
+    implementation.dependsOn = ['plan'];
+  }
+
+  for (const nodeId of affected) {
+    if (nodeId === 'implement' || implementationNodeIds.includes(nodeId)) continue;
+    const node = task.nodes[nodeId];
+    if (node === undefined) continue;
+    if (node.phase === 'verify') {
+      node.dependsOn = [...new Set([
+        ...node.dependsOn.filter((dependency) => !implementationNodeIds.includes(dependency)),
+        'implement',
+      ])];
+    }
+    node.status = 'pending';
+    addEvent(task, 'invalidate', nodeId, { reason: '计划重新执行，将直接覆盖原实施分解' });
+  }
+}
+
+function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {
+  const queue = [upstreamNodeId];
+  const result: string[] = [];
+  const visited = new Set<string>([upstreamNodeId]);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const [nodeId, node] of Object.entries(task.nodes)) {
+      if (!node.dependsOn.includes(current) || visited.has(nodeId)) continue;
+      visited.add(nodeId);
+      result.push(nodeId);
+      queue.push(nodeId);
+    }
+  }
+  return result;
 }
 
 function assertStatus(node: TaskNode, allowed: TaskNode['status'][], message: string): void {
