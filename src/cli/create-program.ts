@@ -30,7 +30,7 @@ export function createProgram(deps: CliDependencies): Command {
   aiw init → aiw doctor → aiw task init → aiw task run
   节点待审批时使用 aiw task approve；AI 提出疑问时使用 aiw task decision。
 
-高级与维护：技能升级、运行记录清理和历史任务迁移。
+高级与维护：技能升级、运行记录清理。
   分别查看 aiw skills --help、aiw run --help、aiw task --help。
 `);
   if (deps.runtime === undefined) {

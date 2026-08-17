@@ -1,4 +1,4 @@
-import { access, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parse, stringify } from 'yaml';
 
@@ -103,6 +103,18 @@ export class TaskStore {
     const temporaryPath = `${absolutePath}.tmp`;
     await writeFile(temporaryPath, content, 'utf8');
     await rename(temporaryPath, absolutePath);
+  }
+
+  /** Removes only declared task facts; callers must never pass business-repository paths. */
+  async removeFacts(taskId: string, paths: string[]): Promise<void> {
+    for (const path of [...new Set(paths)]) {
+      const directory = this.taskDirectory(taskId);
+      const absolutePath = resolve(directory, path);
+      if (this.relativeTaskPath(taskId, absolutePath) !== path) {
+        throw new TaskStoreError('任务事实路径无效');
+      }
+      await rm(absolutePath, { force: true, recursive: true });
+    }
   }
 
   relativeTaskPath(taskId: string, absolutePath: string): string {

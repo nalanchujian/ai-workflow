@@ -18,7 +18,7 @@ import { ImplementationWorkPlannerError, validateWorkBreakdown } from './impleme
 import { SkillRegistry } from './skill-registry.js';
 import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
-import { transitionNode } from './task-state-machine.js';
+import { overwriteCleanupPaths, transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 import { loadRunCompletionBundle } from './run-completion-bundle.js';
 
@@ -67,9 +67,9 @@ export class TaskRunner {
       await this.deps.taskStore.update(recovered);
       throw new TaskRunnerError('RUN_RECOVERED', '上次运行未正常结束，节点已自动标记失败；提交失败证据后可直接再次执行 task run 重试');
     }
-    const canOverwriteCompletedPlan = input.nodeId === 'plan' && node?.status === 'completed';
-    if (node === undefined || node.phase === 'intake' || (!['ready', 'failed'].includes(node.status) && !canOverwriteCompletedPlan) || node.skill === undefined) {
-      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪、可重试或已完成的计划节点');
+    const canOverwrite = node !== undefined && node.phase !== 'intake' && ['completed', 'awaiting_approval'].includes(node.status);
+    if (node === undefined || node.phase === 'intake' || (!['ready', 'failed'].includes(node.status) && !canOverwrite) || node.skill === undefined) {
+      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪、可重试、已完成或待审批节点');
     }
 
     const skill = await this.loadLockedSkill(node.skill);
@@ -119,6 +119,9 @@ export class TaskRunner {
       prompt: this.deps.adapter.renderPrompt(request),
     });
     await this.deps.taskStore.createFact(task.id, contextManifestFactPath, JSON.stringify(finalizedManifest, null, 2) + '\n');
+    if (!input.dryRun && canOverwrite) {
+      await this.deps.taskStore.removeFacts(task.id, overwriteCleanupPaths(task, input.nodeId));
+    }
     const baseline: ChangeBaseline = {
       path: `runs/${runId}/change-baseline.json`,
       changedPaths: [],
@@ -418,7 +421,7 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   }
 }
 
-function handoffEvidencePaths(task: Task, nodeId: string): string[] {
+export function handoffEvidencePaths(task: Task, nodeId: string): string[] {
   const node = task.nodes[nodeId];
   if (node === undefined) return [];
   const upstream = dependencyClosure(task, nodeId).flatMap((dependency) => task.nodes[dependency]?.outputs ?? []);
@@ -427,6 +430,7 @@ function handoffEvidencePaths(task: Task, nodeId: string): string[] {
     ...registeredDecisionFactPaths(task),
     ...upstream,
     ...node.outputs,
+    ...(node.contextPath === undefined ? [] : [node.contextPath]),
   ])];
 }
 

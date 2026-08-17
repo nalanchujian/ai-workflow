@@ -150,7 +150,7 @@ aiw task init --project . --source ./requirements.md --force-new
 
 命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID；调用者不得指定 ID。默认输出显示任务 ID、锁定工作流、任务状态和下一步提交命令；加 `--json` 时才返回 `taskId` 字段。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。在线文档会由匹配连接器读取；例如 Lark Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
-`--project` 也可用于后续的 `task status`、`task run`、`task review`、`task approve`、`task fail`、`task cancel`、`task source refresh`、`task skill rebind`、`task decision` 与 `task close-with-risk`。AIW 会在该目录执行命令；因此任务事实不保存本机绝对路径，其他成员在自己的仓库目录或显式传入 `--project` 均可继续同一任务。
+`--project` 也可用于后续的 `task status`、`task run`、`task review`、`task approve`、`task cancel`、`task source refresh`、`task decision` 与 `task close-with-risk`。AIW 会在该目录执行命令；因此任务事实不保存本机绝对路径，其他成员在自己的仓库目录或显式传入 `--project` 均可继续同一任务。
 
 ```text
 intake → clarify → solution → plan → implement → verify → test
@@ -190,77 +190,32 @@ aiw task status refund-123 --json
 
 任务不存在时失败；该命令不修改任务状态。
 
-### `aiw task review <task-id> [--actor <name>] [--note <text>]`
+### `aiw task review <task-id> [--actor <name>] [--note <text>] [--confirm]`
 
 日常确认需求澄清的唯一入口。仅用于处于 `awaiting_approval` 的 `clarify` 节点；AIW 按顺序以“问题 → 原因 → 影响 → 推荐 → 备选”的短卡片展示每项待决策事项，使用者只输入序号。最后一项固定为“自定义结论”，人工输入原文以 `manual` 决策事实保存。若选择名称或标识为“等待”的方案，AIW 仅额外询问负责团队（可直接回车，记录为“待指定”），并把该事项标记为外部等待；全部选择后，再确认一次即可同时写入各项决策事实和澄清审批事实。
 
 ```bash
 aiw task review refund-123
+aiw task review refund-123 --confirm # 没有待确认事项时用于脚本化确认
 ```
 
-执行前必须先提交本次 `clarify` 的产物、`decision-register.yaml` 与任务状态；成功后必须提交新产生的 `.aiw` 决策和审批记录。`clarify` 不使用 `task approve`，无论是否存在待决事项均通过本命令确认。
+执行前必须先提交本次 `clarify` 的产物、`decision-register.yaml` 与任务状态；成功后必须提交新产生的 `.aiw` 决策和审批记录。`clarify` 不使用 `task approve`，无论是否存在待决事项均通过本命令确认。`--confirm` 仅在不存在待确认事项时可用；存在事项时必须使用交互式 review 逐项选择。
 
-### `aiw task decision <list|choose|wait|defer|waive|resolve>`
+### `aiw task decision <list|resolve>`
 
-查看或处理 `clarify` 产出的 AI 决策建议。用户只需选择方案、指定外部责任人，或明确拆期；AIW 将选择写入不可变事实，并只重新评估关联工作单元。
+查看 `clarify` 产出的 AI 决策建议，或在已选择“等待外部条件”且条件满足后解除对应阻塞。初始选择、外部等待、拆期、风险豁免和人工结论均只能在 `task review` 中完成。
 
 ```bash
 aiw task decision list refund-123
-aiw task decision choose refund-123 DEC-API-01 --option mock-only --note "先完成 UI 验证"
-aiw task decision wait refund-123 DEC-API-01 --option wait-api --owner backend --unblock-condition "接口契约与联调样例已确认"
-aiw task decision defer refund-123 DEC-API-01 --option defer-scope --note "接口能力拆至下一版本"
-aiw task decision waive refund-123 DEC-API-01 --option mock-only --note "本版本接受只覆盖 UI 验证的风险"
 aiw task decision resolve refund-123 DEC-API-01 --note "后端接口已发布并完成联调"
 ```
 
-- `list` 显示 AI 推荐、可选方案、取舍、影响的验收项/工作单元和当前选择。
-- `choose` 记录已选择方案；`wait` 还必须记录责任人和解除条件；`defer`、`waive` 必须记录原因；`resolve` 只能解除已处于外部等待的事项。
-- 命令成功后必须提交 `.aiw`。`proposed` 或 `waiting_external` 的决策使对应 `blockedBy` 工作单元等待；`resolve` 或豁免只解锁相关单元；`defer` 将相关单元从当前验证汇合中移除。
-
-### `aiw task migrate-handoffs <task-id> [--project <path>]`
-
-为 Handoff 上线前创建、且已有已完成节点的旧任务补齐结构化交接包。它不重跑节点、不修改业务代码、不改变节点 revision 或审批决定。
-
-```bash
-aiw task migrate-handoffs task-20260814-031640-738
-```
-
-命令要求业务工作区干净，且历史 `task.yaml`、来源快照和已完成节点产物均已提交。它先为 `intake` 原生创建交接包，再按依赖顺序调用 Codex，让其根据已提交的历史来源和 Markdown/YAML 产物生成每个缺失的 `handoff.yaml`；每份交接包均按当前 schema、节点身份、revision 和证据路径校验。已有 Handoff 的节点会跳过。
-
-迁移仅允许写入 `.aiw/tasks/<task-id>/handoffs/`、`migrations/handoffs/<migration-id>/` 审计记录和 `task.yaml` 的迁移事件。运行前后均检查 Git 工作区；发现业务代码或其他未声明文件变更时失败并保留证据。成功后必须提交迁移事实，才能运行仍处于 `ready` 的下游节点：
-
-```bash
-git add .aiw && git commit -m "chore(aiw): migrate task handoffs"
-aiw task run task-20260814-031640-738 test
-```
-
-### `aiw task skill rebind <task-id> <node-id> --skill <name[@version]> --note <text>`
-
-显式替换待执行节点的已锁定技能。
-
-```bash
-aiw task skill rebind refund-123 plan --skill implementation-planning@1.1.0 --note "采用补充了迁移检查的新方法"
-```
-
-仅允许 `pending`、`ready` 或 `failed` 节点重新绑定；`running`、`awaiting_approval`、`completed`、`invalidated` 节点不可重新绑定。命令记录前后锁定及原因，并使所有已开始下游节点失效。重新绑定后的 `task.yaml` 必须提交后才能运行。
-
-### `aiw task subtask add <task-id> <node-id>`
-
-计划获批后，AIW 会依据 `work-breakdown.yaml` 自动创建复杂需求的实施子节点；普通用户不需要调用本命令。`task subtask add` 仅用于补充计划之外、仍需显式治理的实施工作。`--allowed-path` 至少一个，定义该手工子任务允许修改的业务路径；`--depends-on <node-id>` 可重复，默认依赖 `plan`；`--before <node-id>` 可重复，默认让 `verify` 等待该子任务，形成明确汇合边；`--requires-approval` 使该子任务独立进入审批。子节点沿用当前任务锁定的实施技能，产物写入 `artifacts/subtasks/<node-id>.md`。只能修改尚未开始的汇合节点。所有 `task` 子命令均可加 `--project <业务仓库>`，无需先 `cd` 到业务仓库。
-
-```bash
-aiw task subtask add task-20260813-111606-115 implement-export \
-  --project /path/to/business-repository \
-  --title "实现导出文件名" \
-  --allowed-path src/services/export.ts \
-  --depends-on plan \
-  --before verify \
-  --requires-approval
-```
+- `list` 显示 AI 推荐、可选方案、取舍、影响的验收项/工作单元和当前选择；`resolve` 只能解除已处于外部等待的事项。
+- 命令成功后必须提交 `.aiw`。`waiting_external` 的决策使对应 `blockedBy` 工作单元等待；`resolve` 只解锁相关单元。
 
 ### `aiw task run <task-id> <node-id> [--project <path>] [--dry-run] [--include <relative-path>]`
 
-使用节点已锁定的技能运行一个已就绪或可重试节点；`plan` 已完成时也可直接再次运行，用新计划覆盖当前计划和实施单元。`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
+使用节点已锁定的技能运行一个已就绪、可重试、已完成或待审批节点。对已完成或待审批节点再次运行时，AIW 直接覆盖该节点及下游节点的当前任务产物。`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
 
 ```bash
 aiw task run refund-123 clarify
@@ -275,7 +230,7 @@ aiw task run refund-123 implement --include docs/api-contract.md
 | `--dry-run` | 可选。不启动 Codex，只生成 `context.md`、manifest 和预演结果。 |
 | `--include <relative-path>` | 可重复。可显式加入项目根目录内的文件；每项必须记录到 manifest。 |
 
-节点通常仅在 `ready` 或 `failed` 且任务模板/技能锁定已提交时可运行；`plan` 已完成时例外，可直接再次运行。重跑计划会覆盖计划产物和当前实施分解，移除旧实施单元，随后重新进入计划审批；原有业务代码不会被删除。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。失败时先提交 `.aiw` 中的失败证据，再直接重跑同一命令；不会创建人工修改说明。
+节点通常在 `ready` 或 `failed` 且任务模板/技能锁定已提交时可运行；已完成或待审批的非 `intake` 节点也可直接再次运行。覆盖式重跑会删除当前节点及下游节点的任务产物、Handoff、审批和动态实施单元，随后从当前节点重新生成；需求快照、业务代码和 `runs/` 调试记录不会被删除。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。
 
 运行前，Runner 必须确认所有默认上游产物、审批文件与状态变化已经提交到当前 Git 分支；否则拒绝运行并列出待提交路径。执行模式还要求业务工作树干净，并记录当前 Git 提交与分支；执行期间发生提交、重置或切换分支时，节点失败并保留证据。`task run` 不自动执行 Git 操作。共享 `runs/` 写入 manifest、允许范围、变更路径、允许范围内未跟踪文件的补丁及去敏结果；完整提示词与原始日志位于 `~/.aiw/runtime/<task-id>/<run-id>/`。
 
@@ -317,18 +272,6 @@ aiw task close-with-risk refund-123 \
 
 该命令不能替代普通审批：它会写入 `risk-acceptances/test/r<revision>.yaml`，记录责任人、原因、到期时间和操作者，并把交付状态设为 `风险已接受`。命令成功后同样必须提交 `.aiw`；未记录风险时不得通过普通 `task approve ... test` 绕过失败验收。
 
-### `aiw task fail <task-id> <node-id> --note <text> [--actor <name>]`
-
-将因进程异常、终端中断等原因遗留在 `running` 的节点正式标记为失败。
-
-```bash
-aiw task fail refund-123 clarify --note "Codex CLI 异常退出"
-git add .aiw && git commit -m "chore(aiw): record clarify failure"
-aiw task run refund-123 clarify
-```
-
-仅允许 `running` 节点使用；`--note` 必填，`--actor` 未提供时使用当前仓库的 Git 作者。命令不删除现有上下文、日志或产物，只在 `task.yaml` 中追加失败事件及原因，并将节点置为 `failed`。必须提交该状态变化后，才能直接重试同一 `task run`。
-
 ### 阶段产物不可人工退回
 
 审批只允许接受当前产物；不通过时不提供 `task request-changes` 或 `task revise`。需求或结论变化必须更新来源后执行 `task source refresh`，工具异常则保留证据后直接重试。
@@ -349,10 +292,8 @@ git add .aiw && git commit -m "chore(aiw): refresh requirement source"
 | `task init` | 创建默认任务图与初始节点状态。 |
 | `task source refresh` | 内容变化时创建新的来源 revision，并从 `clarify` 重新排队受影响流程。 |
 | `task status` | 无。 |
-| `task skill rebind` | 显式替换技能锁定，并使已开始下游节点失效。 |
 | `task run --dry-run` | 无；仅创建运行预演记录。 |
-| `task run` | `ready` 或 `failed` → `running → completed`，或在需要审批时进入 `awaiting_approval`。 |
-| `task fail` | `running → failed`，保留失败原因和运行记录。 |
+| `task run` | `ready`、`failed`、`completed` 或 `awaiting_approval` 的非 `intake` 节点均可运行；后两种先覆盖当前节点及下游的有效任务产物，再进入 `running`。 |
 | `task review` | 逐项记录 `clarify` 的待决策事项，并将 `clarify` 从 `awaiting_approval → completed`。 |
 | `task approve` | `awaiting_approval → completed`。 |
 | `task close-with-risk` | 关闭测试节点并写入风险接受事实；交付状态为 `risk_accepted`。 |

@@ -110,14 +110,12 @@ export const TaskNodeSchema = z.object({
 export const TaskEventSchema = z.object({
   type: z.enum([
     'evaluate',
-    'rebind_skill',
     'start',
     'succeed',
     'approve',
     'fail',
     'cancel',
     'invalidate',
-    'add_subtask',
     'materialize_implementation',
     'migrate_handoff',
     'supersede',
@@ -135,8 +133,6 @@ export const TaskEventSchema = z.object({
   runId: z.string().optional(),
   outputs: z.array(OutputRecordSchema).optional(),
   evidencePath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
-  previousSkill: SkillLockSchema.optional(),
-  nextSkill: SkillLockSchema.optional(),
 });
 
 const TaskBaseSchema = z.object({

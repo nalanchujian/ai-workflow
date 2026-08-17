@@ -6,7 +6,6 @@ import { createHash } from 'node:crypto';
 import { createTaskStateCommand, TaskStateCommands } from '../../src/cli/task-state-commands.js';
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskStore } from '../../src/services/task-store.js';
-import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { TaskDecisionService } from '../../src/services/task-decision-service.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
@@ -25,6 +24,13 @@ describe('TaskStateCommands', () => {
 
     expect(command.commands.map((item) => item.name())).not.toContain('revise');
     expect(command.commands.map((item) => item.name())).not.toContain('request-changes');
+    expect(command.commands.map((item) => item.name())).not.toContain('fail');
+
+    const decision = command.commands.find((item) => item.name() === 'decision');
+    expect(decision?.commands.map((item) => item.name())).not.toContain('choose');
+    expect(decision?.commands.map((item) => item.name())).not.toContain('wait');
+    expect(decision?.commands.map((item) => item.name())).not.toContain('defer');
+    expect(decision?.commands.map((item) => item.name())).not.toContain('waive');
   });
 
   it('requires clarify to use the review command', async () => {
@@ -138,59 +144,6 @@ describe('TaskStateCommands', () => {
     await expect(commands.closeWithRisk('refund-123', {
       owner: 'product-owner', reason: '后端接口未就绪，先以已知风险发布。', expiresAt: '下个版本',
     })).rejects.toThrow('风险到期时间必须为 ISO 8601 时间');
-  });
-
-  it('marks an interrupted running node as failed with an auditable reason', async () => {
-    const { store } = await createApprovalTask('clarify');
-    const task = await store.load('refund-123');
-    task.nodes.clarify.status = 'running';
-    await store.update(task);
-    const commands = new TaskStateCommands({
-      taskStore: store,
-      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'developer'; } } }),
-    });
-
-    await commands.fail('refund-123', 'clarify', { note: 'Codex CLI 参数冲突导致进程中断' });
-
-    const failed = await store.load('refund-123');
-    expect(failed.nodes.clarify.status).toBe('failed');
-    expect(failed.events.at(-1)).toMatchObject({ type: 'fail', nodeId: 'clarify', actor: 'developer', reason: 'Codex CLI 参数冲突导致进程中断' });
-  });
-
-  it('rejects a skill rebind when the installed skill does not support the target phase', async () => {
-    const { store, directory } = await createApprovalTask('plan');
-    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
-    await registry.replace({
-      skills: [{
-        name: 'clarify-only', version: '1.0.0', description: 'clarify only', phases: ['clarify'], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: 'a'.repeat(64), methodSources: [],
-      }],
-      profiles: [],
-    });
-    const task = await store.load('refund-123');
-    task.nodes.plan.status = 'ready';
-    await store.update(task);
-    const commands = new TaskStateCommands({ taskStore: store, taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; } } }), skillRegistry: registry });
-
-    await expect(commands.rebindSkill('refund-123', 'plan', { skill: 'clarify-only@1.0.0', note: '错误映射' }))
-      .rejects.toThrow('技能与节点阶段不兼容');
-  });
-
-  it('adds an implementation subtask with explicit dependency, approval and verify merge edge', async () => {
-    const { store } = await createApprovalTask('plan');
-    const task = await store.load('refund-123');
-    task.nodes.plan.status = 'completed';
-    task.nodes.implement.status = 'pending';
-    task.nodes.verify.status = 'pending';
-    await store.update(task);
-    const commands = new TaskStateCommands({ taskStore: store, taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; } } }) });
-
-    const updated = await commands.addSubtask('refund-123', 'implement-export', {
-      title: '实现导出文件名', dependsOn: ['plan'], before: ['verify'], allowedPaths: ['src/services/export.ts'], requiresApproval: true,
-    });
-
-    expect(updated.nodes['implement-export']).toMatchObject({ phase: 'implement', dependsOn: ['plan'], status: 'ready', requiresApproval: true, outputs: ['artifacts/subtasks/implement-export.md'], allowedPaths: ['src/services/export.ts'] });
-    expect(updated.nodes.verify.dependsOn).toEqual(['implement', 'implement-export']);
-    expect(updated.events.at(-1)).toMatchObject({ type: 'add_subtask', nodeId: 'implement-export' });
   });
 
   it('materializes implementation work units automatically when a plan is approved', async () => {
@@ -395,38 +348,6 @@ describe('TaskStateCommands', () => {
     expect(output).not.toContain('aiw task status refund-123');
   });
 
-  it('guides users to commit migrated handoffs before continuing the ready node', async () => {
-    const task = createSevenPhaseTask();
-    task.nodes.clarify.status = 'completed';
-    task.nodes.solution.status = 'completed';
-    task.nodes.plan.status = 'completed';
-    task.nodes.implement.status = 'completed';
-    task.nodes.verify.status = 'completed';
-    task.nodes.verify.revision = 1;
-    task.nodes.test.status = 'ready';
-    let output = '';
-    const command = createTaskStateCommand({
-      commands: {
-        async migrateHandoffs() {
-          return {
-            task,
-            migration: {
-              taskId: task.id, migrationId: 'migration-1', migratedNodeIds: ['clarify', 'verify'], skippedNodeIds: ['intake'],
-              auditPaths: ['migrations/handoffs/migration-1/clarify.json'],
-            },
-          };
-        },
-      } as never,
-      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
-    });
-
-    await command.parseAsync(['node', 'task', 'migrate-handoffs', 'refund-123']);
-
-    expect(output).toContain('已补齐结构化交接包');
-    expect(output).toContain('已迁移节点：clarify、verify');
-    expect(output).toContain('1. git add .aiw && git commit -m "chore(aiw): migrate task handoffs"');
-    expect(output).toContain('2. aiw task run refund-123 test');
-  });
 });
 
 async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: { completionBundle?: boolean; acceptanceStatus?: 'passed' | 'blocked' } = {}): Promise<{ store: TaskStore; directory: string }> {

@@ -1,8 +1,7 @@
-import { TaskSchema, type OutputRecord, type SkillLock, type Task, type TaskNode } from '../domain/task.js';
+import { TaskSchema, type OutputRecord, type Task, type TaskNode } from '../domain/task.js';
 
 export type NodeEvent =
   | { type: 'evaluate' }
-  | { type: 'rebind_skill'; skill: SkillLock; note: string }
   | { type: 'start'; runId: string }
   | { type: 'succeed'; runId: string; outputs: OutputRecord[]; evidencePath: string }
   | { type: 'approve'; actor: string; note?: string }
@@ -28,10 +27,10 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       }
       break;
     case 'start':
-      if (nodeId === 'plan' && node.status === 'completed') {
-        resetDownstreamForPlanOverwrite(next);
+      if (node.phase !== 'intake' && ['completed', 'awaiting_approval'].includes(node.status)) {
+        resetForOverwrite(next, nodeId);
       } else {
-        assertStatus(node, ['ready', 'failed'], '只能启动已就绪、可重试或已完成的计划节点');
+        assertStatus(node, ['ready', 'failed'], '只能启动已就绪、可重试、已完成或待审批节点');
       }
       node.status = 'running';
       addEvent(next, 'start', nodeId, { runId: event.runId });
@@ -51,15 +50,6 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       addEvent(next, 'approve', nodeId, { actor: event.actor, note: event.note });
       unlockDependents(next, nodeId);
       break;
-    case 'rebind_skill': {
-      assertStatus(node, ['pending', 'ready', 'failed'], '只能重新绑定待执行或可重试节点的技能');
-      assertNote(event.note);
-      const previousSkill = node.skill;
-      node.skill = event.skill;
-      const afterRebind = invalidateDependents(next, nodeId, 'skill rebound');
-      addEvent(afterRebind, 'rebind_skill', nodeId, { note: event.note, previousSkill, nextSkill: event.skill });
-      return TaskSchema.parse(deriveTaskStatus(afterRebind));
-    }
     case 'fail':
       assertStatus(node, ['running'], '只能将运行中的节点标记为失败');
       node.status = 'failed';
@@ -176,38 +166,57 @@ function unlockDependents(task: Task, upstreamNodeId: string): void {
   }
 }
 
-/**
- * A completed plan may be run again when the workflow engine changes. The new
- * plan becomes the sole active plan: its generated implementation graph
- * replaces the previous one instead of keeping a parallel revision graph.
- */
-function resetDownstreamForPlanOverwrite(task: Task): void {
-  const affected = downstreamNodeIds(task, 'plan');
-  const implementationNodeIds = affected.filter((nodeId) => task.nodes[nodeId]?.phase === 'implement');
+/** Re-running a completed stage replaces its active output and every downstream active output. */
+function resetForOverwrite(task: Task, nodeId: string): void {
+  const affected = [nodeId, ...downstreamNodeIds(task, nodeId)];
+  const affectedSet = new Set(affected);
+  const generatedImplementationIds = affected.filter((id) => id !== nodeId && task.nodes[id]?.phase === 'implement' && task.nodes[id]?.generatedFromPlanRevision !== undefined);
 
-  for (const nodeId of implementationNodeIds) {
-    if (nodeId !== 'implement') delete task.nodes[nodeId];
-  }
+  for (const id of generatedImplementationIds) delete task.nodes[id];
 
   const implementation = task.nodes.implement;
-  if (implementation !== undefined) {
+  if (implementation !== undefined && affectedSet.has('implement')) {
     implementation.status = 'pending';
     implementation.dependsOn = ['plan'];
+    implementation.blockedByDecisionIds = undefined;
   }
 
-  for (const nodeId of affected) {
-    if (nodeId === 'implement' || implementationNodeIds.includes(nodeId)) continue;
-    const node = task.nodes[nodeId];
+  for (const id of affected) {
+    if (id === nodeId || id === 'implement' || generatedImplementationIds.includes(id)) continue;
+    const node = task.nodes[id];
     if (node === undefined) continue;
-    if (node.phase === 'verify') {
+    if (node.phase === 'verify' && generatedImplementationIds.length > 0) {
       node.dependsOn = [...new Set([
-        ...node.dependsOn.filter((dependency) => !implementationNodeIds.includes(dependency)),
+        ...node.dependsOn.filter((dependency) => !generatedImplementationIds.includes(dependency)),
         'implement',
       ])];
     }
     node.status = 'pending';
-    addEvent(task, 'invalidate', nodeId, { reason: '计划重新执行，将直接覆盖原实施分解' });
+    node.blockedByDecisionIds = undefined;
+    addEvent(task, 'invalidate', id, { reason: `重新执行 ${nodeId}，已覆盖上次结果` });
   }
+
+  if (affectedSet.has('clarify')) task.decisions = [];
+  if (affectedSet.has('test')) task.deliveryStatus = 'not_assessed';
+  task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
+}
+
+/** Current task facts that must be deleted before a completed stage is re-run. Runtime records remain for debugging. */
+export function overwriteCleanupPaths(task: Task, nodeId: string): string[] {
+  const affected = [nodeId, ...downstreamNodeIds(task, nodeId)];
+  const paths = affected.flatMap((id) => {
+    const node = task.nodes[id];
+    if (node === undefined) return [];
+    return [
+      ...node.outputs,
+      ...(node.contextPath === undefined ? [] : [node.contextPath]),
+      `handoffs/${id}`,
+      `approvals/${id}`,
+      `risk-acceptances/${id}`,
+    ];
+  });
+  if (affected.includes('clarify')) paths.push('decisions');
+  return [...new Set(paths)];
 }
 
 function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {
@@ -229,12 +238,6 @@ function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {
 function assertStatus(node: TaskNode, allowed: TaskNode['status'][], message: string): void {
   if (!allowed.includes(node.status)) {
     throw new TaskTransitionError(message);
-  }
-}
-
-function assertNote(note: string): void {
-  if (note.trim().length === 0) {
-    throw new TaskTransitionError('变更原因不能为空');
   }
 }
 

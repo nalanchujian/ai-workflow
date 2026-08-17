@@ -24,7 +24,6 @@ import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { TaskInitializer } from '../services/task-initializer.js';
 import { TaskRunner } from '../services/task-runner.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
-import { HandoffMigrator } from '../services/handoff-migrator.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
@@ -105,14 +104,7 @@ export function createCliRuntime(input: {
   const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore });
   const taskCancellation = new TaskCancellationService({ taskStore, runtimeRoot: join(input.homeDirectory, 'runtime') });
   const codexAdapter = new CodexAdapter({ processRunner: input.ports.processRunner });
-  const handoffMigrator = new HandoffMigrator({
-    taskStore,
-    taskFactGuard,
-    changeInspector: input.ports.repositoryStatus,
-    adapter: codexAdapter,
-    runtimeRoot: join(input.homeDirectory, 'runtime'),
-  });
-  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, skillRegistry: registry, cancellation: taskCancellation, handoffMigrator, decisionService: new TaskDecisionService({ taskStore }) });
+  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, cancellation: taskCancellation, decisionService: new TaskDecisionService({ taskStore }) });
   const taskRunner = new TaskRunner({
     taskStore,
     skillRegistry: registry,

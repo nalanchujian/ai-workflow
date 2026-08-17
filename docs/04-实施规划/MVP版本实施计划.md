@@ -156,10 +156,6 @@ it('invalidates every started downstream stage when clarify is revised', () => {
   expect(next.nodes.test.status).toBe('invalidated');
 });
 
-it('rebinds an initialized profile skill only by an explicit exception event', async () => {
-  const rebound = transitionNode(readyClarifyTask(), 'clarify', { type: 'rebind_skill', skill: replacementClarificationSkill(), note: '需要补充合规检查' });
-  expect(rebound.nodes.clarify.skill?.sha256).toMatch(/^[a-f0-9]{64}$/);
-});
 ```
 
 - [x] **步骤 2：运行测试并确认失败**
@@ -172,7 +168,6 @@ it('rebinds an initialized profile skill only by an explicit exception event', a
 ```ts
 export type NodeEvent =
   | { type: 'evaluate' }
-  | { type: 'rebind_skill'; skill: SkillLock; note: string }
   | { type: 'start'; runId: string }
   | { type: 'succeed'; outputs: OutputRecord[] }
   | { type: 'approve'; actor: string; note?: string }

@@ -17,7 +17,7 @@ describe('aiw CLI help', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('日常使用：');
     expect(result.stdout).toContain('aiw init → aiw doctor → aiw task init');
-    expect(result.stdout).toContain('高级与维护：技能升级、运行记录清理和历史任务迁移');
+    expect(result.stdout).toContain('高级与维护：技能升级、运行记录清理。');
   });
 
 });

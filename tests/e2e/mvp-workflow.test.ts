@@ -55,13 +55,21 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
     };
 
     for (const nodeId of ['clarify', 'solution', 'plan', 'implement', 'verify', 'test']) {
-      const run = await runCli(['task', 'run', taskId, nodeId], fixture.runtime);
+      let run;
+      try {
+        run = await runCli(['task', 'run', taskId, nodeId], fixture.runtime);
+      } catch (error) {
+        throw new Error(`节点 ${nodeId} 执行失败：${error instanceof Error ? error.message : String(error)}`);
+      }
       expect(run.exitCode).toBe(0);
       fixture.repository.commitTaskFacts();
       if (['clarify', 'plan', 'test'].includes(nodeId)) {
         const beforeApproval = await runCli(['task', 'status', taskId, '--json'], fixture.runtime);
         expect(JSON.parse(beforeApproval.stdout).nodes[nodeId].status, `节点 ${nodeId} 应等待审批`).toBe('awaiting_approval');
-        await expect(runCli(['task', 'approve', taskId, nodeId, '--actor', 'tech-lead'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
+        const approvalArgs = nodeId === 'clarify'
+          ? ['task', 'review', taskId, '--actor', 'tech-lead', '--confirm']
+          : ['task', 'approve', taskId, nodeId, '--actor', 'tech-lead'];
+        await expect(runCli(approvalArgs, fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
         fixture.repository.commitTaskFacts();
       }
     }

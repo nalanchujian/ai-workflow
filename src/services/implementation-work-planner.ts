@@ -93,6 +93,8 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
   if (split) {
     next.nodes.implement = { ...implementation, status: 'superseded' };
     next.events.push({ type: 'supersede', nodeId: 'implement', at: new Date().toISOString(), reason: `计划 r${planRevision} 已拆分为 ${breakdown.units.length} 个实施单元` });
+  } else {
+    verify.dependsOn = [...new Set([...verify.dependsOn, 'implement'])];
   }
 
   const nodeIds = new Map(breakdown.units.map((unit, index) => [unit.id, !split && index === 0 ? 'implement' : nextNodeId(next, `implement-${unit.id}`, planRevision)]));

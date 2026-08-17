@@ -83,6 +83,33 @@ describe('ImplementationWorkPlanner', () => {
     expect(materialized.task.nodes['implement-export'].status).toBe('superseded');
     expect(materialized.task.nodes.verify.dependsOn).toEqual(['implement-page']);
   });
+
+  it('keeps verify dependent on implement when the plan has exactly one work unit', async () => {
+    const projectRoot = await createTempDirectory('aiw-work-planner-');
+    directories.push(projectRoot);
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    task.nodes.plan.status = 'completed';
+    task.nodes.plan.revision = 1;
+    await store.create(task);
+    await writePlanFacts(store, task.id, 'first');
+    await writeFile(join(store.taskDirectory(task.id), 'artifacts', 'work-breakdown.yaml'), [
+      'schemaVersion: aiw.work-breakdown/v1',
+      'units:',
+      '  - id: main',
+      '    title: 完成退款功能',
+      '    goal: 完成退款功能的最小实现',
+      '    allowedPaths: [src/**]',
+      '    acceptanceRefs: [AC-01]',
+      '    steps: [实现退款流程]',
+      '    verification: [pnpm test]',
+    ].join('\n') + '\n', 'utf8');
+
+    const materialized = await materializeImplementationWork(await store.load(task.id), store);
+
+    expect(materialized.task.nodes.implement.status).toBe('ready');
+    expect(materialized.task.nodes.verify.dependsOn).toEqual(['implement']);
+  });
 });
 
 async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first' | 'second', blockExport = false): Promise<void> {

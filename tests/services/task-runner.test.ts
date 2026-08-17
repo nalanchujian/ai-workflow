@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CodexAdapter } from '../../src/adapters/codex-adapter.js';
 import { ContextBuilder } from '../../src/services/context-builder.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
-import { TaskRunner } from '../../src/services/task-runner.js';
+import { TaskRunner, handoffEvidencePaths } from '../../src/services/task-runner.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { handoffPath } from '../../src/domain/handoff.js';
 import { ExecutableNotFoundError } from '../../src/ports/process-runner.js';
@@ -57,6 +57,33 @@ describe('TaskRunner', () => {
     const retried = await fixture.taskStore.load('refund-123');
     expect(retried.nodes.clarify?.status).toBe('awaiting_approval');
     expect(retried.events).toContainEqual(expect.objectContaining({ type: 'fail', nodeId: 'clarify', reason: 'Codex CLI 异常退出' }));
+  });
+
+  it('overwrites a completed node and clears its downstream task facts before running again', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r2.yaml']],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n这是覆盖重跑后生成的新澄清结论。\n',
+    });
+    const task = await fixture.taskStore.load('refund-123');
+    task.nodes.clarify!.status = 'completed';
+    task.nodes.clarify!.revision = 1;
+    task.nodes.solution!.status = 'completed';
+    task.nodes.solution!.revision = 1;
+    task.approvalRefs = ['approvals/clarify/r1.yaml'];
+    await fixture.taskStore.update(task);
+    await fixture.taskStore.createFact(task.id, 'artifacts/brief.md', '# 旧澄清\n');
+    await fixture.taskStore.createFact(task.id, 'artifacts/solution.md', '# 旧方案\n');
+    await fixture.taskStore.createFact(task.id, 'handoffs/clarify/r1.yaml', '旧交接\n');
+    await fixture.taskStore.createFact(task.id, 'approvals/clarify/r1.yaml', '旧审批\n');
+
+    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result.status).toBe('succeeded');
+    expect((await fixture.taskStore.load(task.id)).nodes.clarify).toMatchObject({ status: 'awaiting_approval', revision: 2 });
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'brief.md'), 'utf8')).resolves.toContain('覆盖重跑后');
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'solution.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'handoffs', 'clarify', 'r1.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'approvals', 'clarify', 'r1.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rejects a run when another process holds the task execution lock', async () => {
@@ -201,6 +228,16 @@ describe('TaskRunner', () => {
     expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_INVALID' } });
     const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
     expect(evidence).toMatchObject({ failure: { stage: 'artifact', code: 'ARTIFACT_INVALID' } });
+  });
+
+  it('allows an implementation handoff to cite only its declared work-unit context', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.implement!.contextPath = 'artifacts/work-units/r2/implement-performance.md';
+
+    const evidencePaths = handoffEvidencePaths(task, 'implement');
+
+    expect(evidencePaths).toContain('artifacts/work-units/r2/implement-performance.md');
+    expect(evidencePaths).not.toContain('artifacts/work-units/r2/other-unit.md');
   });
 
   it('rejects a valid-looking artifact left over from a previous run', async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { TaskTransitionError, invalidateDependents, reconcileDecisionBlocks, transitionNode } from '../../src/services/task-state-machine.js';
-import { createSevenPhaseTask, createSkillLock } from '../helpers/task-fixtures.js';
+import { invalidateDependents, overwriteCleanupPaths, reconcileDecisionBlocks, transitionNode } from '../../src/services/task-state-machine.js';
+import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 
 describe('task state machine', () => {
   it('marks the task completed when every node is completed', () => {
@@ -117,12 +117,29 @@ describe('task state machine', () => {
     expect(next.events).toContainEqual(expect.objectContaining({ type: 'start', nodeId: 'solution', runId: 'retry-run' }));
   });
 
-  it('does not allow a completed non-plan node to be restarted', () => {
+  it('allows a completed stage to be run again and resets all active downstream state', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+    task.nodes.plan.status = 'completed';
+    task.nodes.implement.status = 'completed';
+    task.nodes.verify.status = 'completed';
+    task.nodes.test.status = 'awaiting_approval';
+    task.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml', 'approvals/test/r1.yaml'];
+    task.decisions = [{
+      id: 'DEC-API-01', revision: 1, status: 'resolved', optionId: 'mock', actor: 'tester', at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r1.yaml',
+    }];
 
-    expect(() => transitionNode(task, 'clarify', { type: 'start', runId: 'retry-run' }))
-      .toThrow('只能启动已就绪、可重试或已完成的计划节点');
+    const next = transitionNode(task, 'clarify', { type: 'start', runId: 'replace-clarify-run' });
+
+    expect(next.nodes.clarify.status).toBe('running');
+    expect(next.nodes.solution.status).toBe('pending');
+    expect(next.nodes.plan.status).toBe('pending');
+    expect(next.nodes.implement.status).toBe('pending');
+    expect(next.nodes.verify.status).toBe('pending');
+    expect(next.nodes.test.status).toBe('pending');
+    expect(next.approvalRefs).toEqual([]);
+    expect(next.decisions).toEqual([]);
   });
 
   it('allows a completed plan to be run again and directly replaces its downstream graph', () => {
@@ -149,31 +166,20 @@ describe('task state machine', () => {
     expect(next.nodes.verify).toMatchObject({ status: 'pending', dependsOn: ['implement'] });
   });
 
-  it('allows an explicit skill rebind only for a node that is not complete', () => {
+  it('lists only current and downstream task facts for overwrite cleanup', () => {
     const task = createSevenPhaseTask();
-    const previousSkill = task.nodes.clarify.skill;
-    const replacementSkill = createSkillLock('requirements-clarification-v2');
+    task.nodes.implement!.contextPath = 'artifacts/work-units/r1/implement-export.md';
 
-    const next = transitionNode(task, 'clarify', {
-      type: 'rebind_skill',
-      skill: replacementSkill,
-      note: '增加合规检查',
-    });
+    const paths = overwriteCleanupPaths(task, 'implement');
 
-    expect(next.nodes.clarify.skill?.name).toBe('requirements-clarification-v2');
-    expect(next.events.at(-1)).toMatchObject({
-      type: 'rebind_skill',
-      nodeId: 'clarify',
-      note: '增加合规检查',
-      previousSkill,
-      nextSkill: replacementSkill,
-    });
-
-    next.nodes.clarify.status = 'completed';
-    expect(() => transitionNode(next, 'clarify', {
-      type: 'rebind_skill',
-      skill: createSkillLock('requirements-clarification-v3'),
-      note: '不应替换已完成节点',
-    })).toThrow(TaskTransitionError);
+    expect(paths).toContain('artifacts/implementation.md');
+    expect(paths).toContain('artifacts/work-units/r1/implement-export.md');
+    expect(paths).toContain('artifacts/verification.md');
+    expect(paths).toContain('artifacts/test-report.md');
+    expect(paths).toContain('handoffs/implement');
+    expect(paths).toContain('approvals/test');
+    expect(paths).not.toContain('artifacts/brief.md');
+    expect(paths).not.toContain('sources/requirements/r1/snapshot.md');
   });
+
 });
