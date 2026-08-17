@@ -22,6 +22,11 @@ const ResolutionSchema = z.object({
 export const DecisionItemSchema = z.object({
   id: z.string().regex(decisionIdPattern, '决策 ID 格式无效'),
   title: z.string().min(1),
+  detail: z.object({
+    question: z.string().min(8),
+    background: z.string().min(16),
+    impact: z.string().min(12),
+  }).strict().optional(),
   type: z.enum(['business-rule', 'technical-contract', 'external-contract', 'engineering-baseline']),
   affects: z.object({
     acceptanceRefs: z.array(z.string().min(1)).min(1),

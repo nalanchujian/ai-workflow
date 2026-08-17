@@ -342,7 +342,7 @@ describe('TaskStateCommands', () => {
     task.nodes.clarify.status = 'awaiting_approval';
     let output = '';
     let selections: unknown;
-    const answers = ['3', '详情页先复用现有聚合接口，趋势和导出等待下一期。', '1'];
+    const answers = ['4', '详情页先复用现有聚合接口，趋势和导出等待下一期。', '1'];
     const command = createTaskStateCommand({
       commands: {
         async status() { return task; },
@@ -350,6 +350,11 @@ describe('TaskStateCommands', () => {
           return [{
             item: {
               id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
+              detail: {
+                question: '详情趋势页面本期使用哪一套数据接口？',
+                background: '当前仓库没有可覆盖趋势、导出与日期粒度的统一接口。',
+                impact: '不先确认会导致页面交互和最终验收使用不同的数据口径。',
+              },
               affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
               options: [
                 { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。', effect: 'waiting_external' },
@@ -379,13 +384,56 @@ describe('TaskStateCommands', () => {
     expect(output).toContain('结果：本期继续实施');
     expect(output).toContain('取舍：交付依赖后端排期，但数据口径一致。');
     expect(output).toContain('取舍：可以提前验证界面，但不能完成端到端验收。');
-    expect(output).toContain('3. 自定义结论');
+    expect(output).toContain('3. 查看问题详情');
+    expect(output).toContain('4. 自定义结论');
     expect(output).toContain('全部事项已处理。是否确认并进入技术方案？');
     expect(selections).toEqual([{
       decisionId: 'DEC-API-01',
       optionId: 'manual',
       manualNote: '详情页先复用现有聚合接口，趋势和导出等待下一期。',
     }]);
+  });
+
+  it('shows a plain-language decision detail without recording a selection', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'awaiting_approval';
+    let selections: unknown;
+    const answers = ['3', '1', '1'];
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return task; },
+        async listDecisions() {
+          return [{
+            item: {
+              id: 'DEC-METRIC-01', title: 'Custom metrics 的配置规则', type: 'business-rule',
+              detail: {
+                question: '用户可以选择哪些指标，以及刷新页面后是否保留选择？',
+                background: '需求只说明新增 Custom metrics，未说明字段白名单、默认顺序和持久化规则。',
+                impact: '不确认会使列表展示和导出字段采用不同规则，造成返工和验收争议。',
+              },
+              affects: { acceptanceRefs: ['AC-01'], workUnits: ['list-custom-metrics'] }, status: 'proposed',
+              options: [
+                { id: 'confirm-product', title: '由产品确认规则', tradeoffs: '规则准确，但需要等待产品补充说明。', effect: 'waiting_external' },
+                { id: 'use-existing', title: '沿用现有列表列', tradeoffs: '可以立即开发，但可能与本期规则不一致。', effect: 'waived' },
+              ],
+              recommendation: { optionId: 'confirm-product', rationale: '当前需求没有足以锁定配置规则的证据。' },
+            },
+          }];
+        },
+        async reviewClarify(_taskId: string, received: unknown) { selections = received; return task; },
+      } as never,
+      reviewPrompter: { async ask() { return answers.shift() ?? ''; } },
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'review', 'refund-123']);
+
+    expect(output).toContain('问题详情');
+    expect(output).toContain('需要确认：用户可以选择哪些指标，以及刷新页面后是否保留选择？');
+    expect(output).toContain('当前情况：需求只说明新增 Custom metrics，未说明字段白名单、默认顺序和持久化规则。');
+    expect(output).toContain('不确认的影响：不确认会使列表展示和导出字段采用不同规则，造成返工和验收争议。');
+    expect(selections).toEqual([{ decisionId: 'DEC-METRIC-01', optionId: 'confirm-product', status: 'waiting_external', owner: '待指定', unblockCondition: '已确认：Custom metrics 的配置规则' }]);
   });
 
   it('records the declared deferred effect and requires a scope-splitting note', async () => {

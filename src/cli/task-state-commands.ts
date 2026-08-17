@@ -405,7 +405,7 @@ async function promptClarifyReview(
   prompter: ReviewPrompter,
   stdout: NodeJS.WritableStream,
 ): Promise<ClarifyDecisionSelection[]> {
-  stdout.write(`需求澄清 · 待确认 ${decisions.length} 项\n按序号选择；“自定义结论”可输入补充说明。\n\n`);
+  stdout.write(`需求澄清 · 待确认 ${decisions.length} 项\n按序号选择；不理解问题时可先选择“查看问题详情”。\n\n`);
   const selections: ClarifyDecisionSelection[] = [];
   for (const [index, { item }] of decisions.entries()) {
     const recommendation = item.options.find((option) => option.id === item.recommendation.optionId)!;
@@ -418,10 +418,18 @@ async function promptClarifyReview(
       stdout.write('  备选\n');
       alternatives.forEach((option, optionIndex) => stdout.write(`    ${optionIndex + 2}. ${option.title}\n       取舍：${option.tradeoffs}\n       结果：${decisionEffectLabel(option.effect)}\n`));
     }
-    stdout.write(`    ${alternatives.length + 2}. 自定义结论\n`);
+    const detailChoice = alternatives.length + 2;
+    const customChoice = detailChoice + 1;
+    stdout.write(`    ${detailChoice}. 查看问题详情\n`);
+    stdout.write(`    ${customChoice}. 自定义结论\n`);
     const choices = [recommendation, ...alternatives];
-    const answer = await askNumber(prompter, `请输入选择（1-${choices.length + 1}）：`, choices.length + 1);
-    if (answer === choices.length + 1) {
+    let answer: number;
+    while (true) {
+      answer = await askNumber(prompter, `请输入选择（1-${customChoice}）：`, customChoice);
+      if (answer !== detailChoice) break;
+      writeDecisionDetail(item, stdout);
+    }
+    if (answer === customChoice) {
       const manualNote = await askRequiredText(prompter, '请输入结论：');
       selections.push({ decisionId: item.id, optionId: 'manual', manualNote });
       stdout.write('\n');
@@ -453,6 +461,23 @@ async function promptClarifyReview(
     throw new Error(`已取消本次需求澄清确认；本次选择未保存。可重新执行 aiw task review ${taskId}。`);
   }
   return selections;
+}
+
+function writeDecisionDetail(
+  item: Awaited<ReturnType<TaskStateCommands['listDecisions']>>[number]['item'],
+  stdout: NodeJS.WritableStream,
+): void {
+  const detail = item.detail;
+  stdout.write('\n问题详情\n');
+  if (detail !== undefined) {
+    stdout.write(`  需要确认：${detail.question}\n`);
+    stdout.write(`  当前情况：${detail.background}\n`);
+    stdout.write(`  不确认的影响：${detail.impact}\n\n`);
+    return;
+  }
+  stdout.write(`  需要确认：${item.title}\n`);
+  stdout.write(`  当前情况：${item.recommendation.rationale}\n`);
+  stdout.write(`  不确认的影响：${item.affects.acceptanceRefs.join('、')} 的验收与 ${item.affects.workUnits.join('、')} 的实施边界无法可靠确定。\n\n`);
 }
 
 async function askNumber(prompter: ReviewPrompter, prompt: string, maximum: number): Promise<number> {
