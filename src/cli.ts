@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 
 import { createProgram } from './cli/create-program.js';
 import { createProductionCliRuntime } from './cli/create-runtime.js';
+import { renderCliError } from './cli/error-guidance.js';
 import { packageVersion } from './cli/package-version.js';
 
 async function main(): Promise<void> {
@@ -24,8 +25,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    const message = error instanceof Error ? error.message : '未知错误';
-    process.stderr.write(`aiw: ${message}\n`);
+    process.stderr.write(`${renderCliError(error, process.argv.slice(2))}\n`);
     process.exitCode = 1;
   }
 }
