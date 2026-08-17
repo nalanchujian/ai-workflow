@@ -30,7 +30,6 @@ export class SourceRefresher {
       throw new SourceRefreshError(`来源不存在：${input.sourceId}`);
     }
     const snapshot = await this.deps.intake.snapshot({
-      kind: current.kind,
       sourceId: input.sourceId,
       value: sourceValue(this.deps.taskStore.projectDirectory(), current.kind, current.origin),
       ...(current.section === undefined ? {} : { section: current.section }),

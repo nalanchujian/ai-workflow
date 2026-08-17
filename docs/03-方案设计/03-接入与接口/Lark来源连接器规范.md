@@ -30,17 +30,17 @@ aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-tok
 aiw task source refresh <task-id> requirements
 ```
 
-`task init` 根据 URL 识别来源类型：本地文件、公开 HTTP(S) 地址或 Lark 文档。MVP 接受 `https://<tenant>.larksuite.com` 或 `https://<tenant>.feishu.cn` 下的 `docx/<document-id>` 与 `wiki/<node-token>` 链接；查询参数和片段不参与文档标识。Wiki 链接先由 MCP 解析节点，只有其实际对象为 `docx` 时才读取正文；表格、旧版文档或其他对象必须提示不支持，且不得回退为公开 URL 抓取。Lark 文档交给已配置的 Lark Connector；其余现有来源仍沿用原来的接入规则。
+`task init` 的 `--source` 只接收通用来源地址或本地文件路径。来源路由器先匹配已配置连接器，再回退到公开 HTTP(S) 读取器或本地文件读取器；Lark Connector 仅是其中一个内部实现。MVP 中该连接器识别 `https://<tenant>.larksuite.com` 或 `https://<tenant>.feishu.cn` 下的 `docx/<document-id>` 与 `wiki/<node-token>` 链接；查询参数和片段不参与文档标识。Wiki 链接先由 MCP 解析节点，只有其实际对象为 `docx` 时才读取正文；表格、旧版文档或其他对象必须提示不支持，且不得回退为公开 URL 抓取。
 
 `task source refresh` 是显式动作，不在 MVP 中轮询或订阅 Lark 文档变化。它重新读取指定来源、创建新的快照 revision；若正文哈希不变，只返回“未变化”且不修改任务状态。哈希变化时，保留旧快照、创建新 revision，并由任务状态机使依赖旧 revision 的下游节点失效。
 
-大文档可在 `task init` 传入 `--source-section <title>`。此时连接器不依赖 `rawContent` 的文本格式，而是分页读取 Lark 文档块：按唯一的 Lark 标题块定位章节，截取该标题至下一个同级或上级标题之前的内容，并将标题块 ID 与末个内容块 ID 写入来源元数据。章节不存在、重名或为空时拒绝创建。刷新时复用已锁定标题，因此文档其他章节变化不会导致该任务产生新 revision。
+大文档可在 `task init` 传入通用参数 `--section <title>`。此时 Lark Connector 不依赖 `rawContent` 的文本格式，而是分页读取 Lark 文档块：按唯一的 Lark 标题块定位章节，截取该标题至下一个同级或上级标题之前的内容，并将标题块 ID 与末个内容块 ID 写入来源元数据。章节不存在、重名或为空时拒绝创建。刷新时复用已锁定标题，因此文档其他章节变化不会导致该任务产生新 revision。其他连接器只有显式支持章节读取时才能接受该通用参数。
 
 ## 本机 MCP 解析与调用
 
-`aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。`aiw init` 默认扫描 `~/.codex/config.toml` 中名称、命令或参数包含 `lark` / `feishu` 的 Server；若唯一候选同时暴露 `docx_v1_document_rawContent` 和 `docx_v1_documentBlock_list`，则自动生成本机 Connector Profile。这样 `doctor` 可在创建任务前明确发现章节读取能力缺失。多个候选时仅输出候选名称，使用者通过 `aiw init --lark-server <name>` 选择一次；已有 Profile 永不覆盖。自动发现失败不影响默认工作流初始化。
+`aiw` 直接调用 MCP Server，但不复制其命令、环境变量或凭据。`aiw init` 默认扫描 `~/.codex/config.toml` 中名称、命令或参数包含 `lark` / `feishu` 的 Server；若唯一候选同时暴露 `docx_v1_document_rawContent` 和 `docx_v1_documentBlock_list`，则自动生成本机 Connector Profile。这样 `doctor` 可在创建任务前明确发现章节读取能力缺失。多个候选时仅输出候选名称，使用者通过通用参数 `aiw init --connector-server <name>` 选择一次；已有 Profile 永不覆盖。自动发现失败不影响默认工作流初始化。
 
-仅在使用 `--source-section` 时，Lark MCP 还必须启用只读工具 `docx_v1_documentBlock_list`。对于 `@larksuiteoapi/lark-mcp`，在 Codex MCP 配置的启动参数中增加一组：`-t` 与 `preset.default,docx.v1.documentBlock.list`。该参数是 MCP 暴露工具的白名单，不是凭据；已有 `docx:document:readonly` 和 `wiki:wiki:readonly` 授权即可读取 docx/Wiki 文档块，无需新增应用权限。
+仅在使用 `--section` 时，Lark MCP 还必须启用只读工具 `docx_v1_documentBlock_list`。对于 `@larksuiteoapi/lark-mcp`，在 Codex MCP 配置的启动参数中增加一组：`-t` 与 `preset.default,docx.v1.documentBlock.list`。该参数是 MCP 暴露工具的白名单，不是凭据；已有 `docx:document:readonly` 和 `wiki:wiki:readonly` 授权即可读取 docx/Wiki 文档块，无需新增应用权限。
 
 本机 Connector Profile 位于 `~/.aiw/config.yaml`，不纳入 Git；仅在自动发现不支持团队 MCP 时由维护者补充：
 
@@ -125,7 +125,7 @@ Wiki 链接先调用标准 Lark MCP 工具 `wiki_v2_space_getNode`，传入节�
 ```json
 {
   "sourceId": "requirements",
-  "kind": "lark-document",
+  "kind": "connected-document",
   "origin": "https://<tenant>.larksuite.com/wiki/<node-token>",
   "externalId": "<node-token>",
   "resolvedExternalId": "<docx-token>",

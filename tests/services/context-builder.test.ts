@@ -233,7 +233,7 @@ describe('ContextBuilder', () => {
     await mkdir(join(directory, 'sources', 'requirements', 'r2'), { recursive: true });
     await writeFile(join(directory, 'sources', 'requirements', 'r2', 'snapshot.md'), '# Lark requirements\n', 'utf8');
     task.sources.requirements = {
-      kind: 'lark-document',
+      kind: 'connected-document',
       origin: 'https://example.larksuite.com/docx/doccn123',
       externalId: 'doccn123',
       revision: 2,

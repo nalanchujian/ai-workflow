@@ -3,7 +3,7 @@ import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { NetworkClient } from '../../src/ports/network-client.js';
-import type { SourceConnector } from '../../src/services/lark-source-connector.js';
+import type { SourceConnector } from '../../src/ports/source-connector.js';
 import { SourceIntake, SourceIntakeError } from '../../src/services/source-intake.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -21,7 +21,7 @@ describe('SourceIntake', () => {
     await writeFile(sourcePath, '# Refund\n\nAllow refunds within 30 days.\n');
     const intake = new SourceIntake({ network: safeNetwork(), projectRoot });
 
-    const snapshot = await intake.snapshot({ kind: 'local-file', sourceId: 'requirements', value: sourcePath });
+    const snapshot = await intake.snapshot({ sourceId: 'requirements', value: sourcePath });
 
     expect(snapshot.markdown).toContain('Allow refunds within 30 days.');
     expect(snapshot.contentSha256).toMatch(/^[a-f0-9]{64}$/);
@@ -36,7 +36,7 @@ describe('SourceIntake', () => {
     await writeFile(sourcePath, '# Confidential\n');
     const intake = new SourceIntake({ network: safeNetwork(), projectRoot });
 
-    await expect(intake.snapshot({ kind: 'local-file', sourceId: 'requirements', value: sourcePath }))
+    await expect(intake.snapshot({ sourceId: 'requirements', value: sourcePath }))
       .rejects.toMatchObject({ code: 'SOURCE_INVALID' } satisfies Partial<SourceIntakeError>);
   });
 
@@ -50,7 +50,7 @@ describe('SourceIntake', () => {
     await symlink(externalSourcePath, sourcePath);
     const intake = new SourceIntake({ network: safeNetwork(), projectRoot });
 
-    await expect(intake.snapshot({ kind: 'local-file', sourceId: 'requirements', value: sourcePath }))
+    await expect(intake.snapshot({ sourceId: 'requirements', value: sourcePath }))
       .rejects.toMatchObject({ code: 'SOURCE_INVALID' } satisfies Partial<SourceIntakeError>);
   });
 
@@ -67,7 +67,7 @@ describe('SourceIntake', () => {
     };
     const intake = new SourceIntake({ network, projectRoot: '/project' });
 
-    await expect(intake.snapshot({ kind: 'public-url', sourceId: 'requirements', value: 'http://example.test/doc' }))
+    await expect(intake.snapshot({ sourceId: 'requirements', value: 'http://example.test/doc' }))
       .rejects.toMatchObject({ code: 'UNSAFE_URL' } satisfies Partial<SourceIntakeError>);
 
     expect(fetchCalls).toBe(0);
@@ -86,12 +86,34 @@ describe('SourceIntake', () => {
     };
     const intake = new SourceIntake({ network, projectRoot: '/project' });
 
-    await intake.snapshot({ kind: 'public-url', sourceId: 'requirements', value: 'https://example.test/requirements' });
+    await intake.snapshot({ sourceId: 'requirements', value: 'https://example.test/requirements' });
 
     expect(received).toMatchObject({ vettedAddresses: ['8.8.8.8'] });
   });
 
-  it('snapshots only the selected Lark Markdown section and its child headings', async () => {
+  it('routes a document address to the matching installed connector', async () => {
+    const connector: SourceConnector = {
+      supports(value) { return value.startsWith('https://docs.example.test/'); },
+      async fetch(input) {
+        return { canonicalUrl: input, externalId: 'document-1', extractor: 'example-mcp/v1', fetchedAt: '2026-08-17T00:00:00.000Z', markdown: '# Requirement' };
+      },
+    };
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot: '/project' });
+
+    const snapshot = await intake.snapshot({ sourceId: 'requirements', value: 'https://docs.example.test/document-1' });
+
+    expect(intake.classify('https://docs.example.test/document-1')).toBe('connected-document');
+    expect(snapshot).toMatchObject({ kind: 'connected-document', extractor: 'example-mcp/v1' });
+  });
+
+  it('rejects section selection for a source without a matching document connector', async () => {
+    const intake = new SourceIntake({ network: safeNetwork(), projectRoot: '/project' });
+
+    await expect(intake.snapshot({ sourceId: 'requirements', value: 'https://example.test/requirements', section: '退款流程' }))
+      .rejects.toMatchObject({ code: 'SOURCE_INVALID', message: '当前文档来源不支持按章节读取' } satisfies Partial<SourceIntakeError>);
+  });
+
+  it('snapshots only the selected connected document section and its child headings', async () => {
     const connector: SourceConnector = {
       supports() { return true; },
       async fetch(input) {
@@ -113,10 +135,9 @@ describe('SourceIntake', () => {
         };
       },
     };
-    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot: '/project' });
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot: '/project' });
 
     const snapshot = await intake.snapshot({
-      kind: 'lark-document',
       sourceId: 'requirements',
       value: 'https://acme.larksuite.com/docx/doccn123',
       section: '订单退款流程',
@@ -126,16 +147,16 @@ describe('SourceIntake', () => {
     expect(snapshot.section).toBe('订单退款流程');
   });
 
-  it('rejects a selected section that is not unique in a Lark document', async () => {
+  it('rejects a selected section that is not unique in a connected document', async () => {
     const connector: SourceConnector = {
       supports() { return true; },
       async fetch(input) {
         return { canonicalUrl: input, externalId: 'doccn123', extractor: 'lark-mcp/v1', fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '## 需求\nA\n## 需求\nB' };
       },
     };
-    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot: '/project' });
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot: '/project' });
 
-    await expect(intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://acme.larksuite.com/docx/doccn123', section: '需求' }))
+    await expect(intake.snapshot({ sourceId: 'requirements', value: 'https://acme.larksuite.com/docx/doccn123', section: '需求' }))
       .rejects.toMatchObject({ code: 'SOURCE_INVALID', message: '需求章节不唯一：需求' } satisfies Partial<SourceIntakeError>);
   });
 
@@ -156,9 +177,9 @@ describe('SourceIntake', () => {
         };
       },
     };
-    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot });
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot });
 
-    const snapshot = await intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://acme.larksuite.com/wiki/wiki123' });
+    const snapshot = await intake.snapshot({ sourceId: 'requirements', value: 'https://acme.larksuite.com/wiki/wiki123' });
     const reference = await intake.writeSnapshot({ snapshot, taskDirectory });
     const metadata = JSON.parse(await readFile(join(taskDirectory, reference.metaPath), 'utf8')) as Record<string, unknown>;
 
@@ -166,7 +187,7 @@ describe('SourceIntake', () => {
     expect(metadata).toMatchObject({ externalId: 'wiki123', resolvedExternalId: 'docx456' });
   });
 
-  it('preserves the selected Lark Block range in the snapshot metadata', async () => {
+  it('preserves the selected document Block range in the snapshot metadata', async () => {
     const projectRoot = await createTempDirectory('aiw-source-intake-');
     directories.push(projectRoot);
     const taskDirectory = join(projectRoot, '.aiw', 'tasks', 'task-1');
@@ -183,9 +204,9 @@ describe('SourceIntake', () => {
         };
       },
     };
-    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot });
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot });
 
-    const snapshot = await intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://acme.larksuite.com/docx/docx456', section: '二期 (V2.3)' });
+    const snapshot = await intake.snapshot({ sourceId: 'requirements', value: 'https://acme.larksuite.com/docx/docx456', section: '二期 (V2.3)' });
     const reference = await intake.writeSnapshot({ snapshot, taskDirectory });
     const metadata = JSON.parse(await readFile(join(taskDirectory, reference.metaPath), 'utf8')) as Record<string, unknown>;
 

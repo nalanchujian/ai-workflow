@@ -1,21 +1,6 @@
 import type { McpClient } from '../ports/mcp-client.js';
 import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
-
-export interface ConnectorSource {
-  canonicalUrl: string;
-  externalId: string;
-  resolvedExternalId?: string;
-  section?: { title: string; startBlockId: string; endBlockId: string };
-  title?: string;
-  markdown: string;
-  fetchedAt: string;
-  extractor: 'lark-mcp/v1';
-}
-
-export interface SourceConnector {
-  supports(input: string): boolean;
-  fetch(input: string, options?: { section?: string }): Promise<ConnectorSource>;
-}
+import type { ConnectedDocumentSource, SourceConnector } from '../ports/source-connector.js';
 
 export interface LarkConnectorConfig {
   configPath: string;
@@ -40,7 +25,7 @@ export class LarkSourceConnector implements SourceConnector {
     return parseLarkUrl(input) !== undefined;
   }
 
-  async fetch(input: string, options: { section?: string } = {}): Promise<ConnectorSource> {
+  async fetch(input: string, options: { section?: string } = {}): Promise<ConnectedDocumentSource> {
     const parsed = parseLarkUrl(input);
     if (parsed === undefined) {
       throw new LarkSourceConnectorError('LARK_URL_UNSUPPORTED', '当前 Connector 不支持该文档类型');
@@ -142,6 +127,10 @@ export class LarkSourceConnector implements SourceConnector {
     }
     return node.obj_token;
   }
+}
+
+export function isLarkDocumentReference(input: string): boolean {
+  return parseLarkUrl(input) !== undefined;
 }
 
 function parseLarkUrl(input: string): { kind: 'docx' | 'wiki'; canonicalUrl: string; externalId: string } | undefined {

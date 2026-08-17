@@ -25,7 +25,7 @@ describe('HandoffMigrator', () => {
     }
     task.nodes.test.status = 'ready';
     task.sources.requirements = {
-      kind: 'lark-document', origin: 'https://example.test/docx/requirements', externalId: 'requirements', revision: 1,
+      kind: 'connected-document', origin: 'https://example.test/docx/requirements', externalId: 'requirements', revision: 1,
       snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: 'a'.repeat(64),
     };
     await store.create(task);

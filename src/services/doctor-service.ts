@@ -3,7 +3,7 @@ import type { McpClient } from '../ports/mcp-client.js';
 import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
-import { LarkSourceConnector } from './lark-source-connector.js';
+import { isLarkDocumentReference, LarkSourceConnector } from './lark-source-connector.js';
 import { LocalConfig, type LocalConfigDocument } from './local-config.js';
 import { SkillRegistry } from './skill-registry.js';
 
@@ -20,7 +20,7 @@ export class DoctorService {
     registry?: SkillRegistry;
   }) {}
 
-  async inspect(input: { projectRoot: string; larkUrl?: string; codexBin?: string }): Promise<DoctorResult> {
+  async inspect(input: { projectRoot: string; source?: string; codexBin?: string }): Promise<DoctorResult> {
     const checks: DoctorCheck[] = [
       await this.executableCheck('git-cli', 'Git CLI', 'git', ['--version'], input.projectRoot, '安装 Git，并确保 `git --version` 可执行。'),
       await this.projectCheck(input.projectRoot),
@@ -37,15 +37,16 @@ export class DoctorService {
 
     if (config === undefined) {
       checks.push(warning('method-sources', '方法来源', '未检查内置方法，因为本机配置无效。', '运行 `aiw init` 重新创建或修复 `~/.aiw/config.yaml`。'));
-      checks.push(input.larkUrl === undefined
-        ? warning('lark-configuration', 'Lark MCP 配置', '未检查 Lark MCP 配置，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的 `connectors.lark` 配置。')
-        : failed('lark-configuration', 'Lark MCP 配置', '无法验证指定 Lark 文档，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的 `connectors.lark` 配置。'));
-      checks.push(warning('lark-authorization', 'Lark 授权', '未验证，因为本机配置无效。', '修复配置后运行 `aiw doctor --lark-url <lark-url>`。'));
+      const connectorSource = larkSource(input.source);
+      checks.push(connectorSource === undefined
+        ? warning('document-connector-configuration', '文档连接器配置', '未检查文档连接器配置，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的文档连接器配置。')
+        : failed('document-connector-configuration', '文档连接器配置', '无法验证指定文档，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的文档连接器配置。'));
+      checks.push(warning('document-authorization', '文档读取授权', '未验证，因为本机配置无效。', '修复配置后运行 `aiw doctor --source <文档地址>`。'));
       return result(checks);
     }
 
     checks.push(...await this.methodSourceChecks(config));
-    checks.push(...await this.larkChecks(config, input.larkUrl));
+    checks.push(...await this.larkChecks(config, larkSource(input.source)));
     return result(checks);
   }
 
@@ -78,20 +79,20 @@ export class DoctorService {
       : [passed('method-sources', '方法来源', `已安装 ${bundledMethods.length} 个由团队技能包锁定的内置方法。`)];
   }
 
-  private async larkChecks(config: LocalConfigDocument, larkUrl: string | undefined): Promise<DoctorCheck[]> {
+  private async larkChecks(config: LocalConfigDocument, source: string | undefined): Promise<DoctorCheck[]> {
     const profile = config.connectors.lark;
     if (profile === undefined) {
       return [
-        larkUrl === undefined
-          ? warning('lark-configuration', 'Lark MCP 配置', '未配置 Lark Connector。', '如需读取 Lark 文档，在 `~/.aiw/config.yaml` 配置 `connectors.lark`。')
-          : failed('lark-configuration', 'Lark MCP 配置', '未配置 Lark Connector，无法验证指定文档。', '在 `~/.aiw/config.yaml` 配置 `connectors.lark`。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '配置 Lark Connector 后运行 `aiw doctor --lark-url <lark-url>`。'),
+        source === undefined
+          ? warning('document-connector-configuration', '文档连接器配置', '未配置可用的文档连接器。', '如需读取在线文档，在 `~/.aiw/config.yaml` 配置对应的文档连接器。')
+          : failed('document-connector-configuration', '文档连接器配置', '未配置可读取该文档的连接器，无法验证指定文档。', '在 `~/.aiw/config.yaml` 配置对应的文档连接器。'),
+        warning('document-authorization', '文档读取授权', '未验证。', '配置文档连接器后运行 `aiw doctor --source <文档地址>`。'),
       ];
     }
     if (this.deps.mcpServerConfigResolver === undefined || this.deps.mcpClient === undefined) {
       return [
-        failed('lark-configuration', 'Lark MCP 配置', '当前运行环境未提供 MCP 调用能力。', '使用完整的 aiw CLI 运行 `aiw doctor`。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 调用环境后运行 `aiw doctor --lark-url <lark-url>`。'),
+        failed('document-connector-configuration', '文档连接器配置', '当前运行环境未提供 MCP 调用能力。', '使用完整的 aiw CLI 运行 `aiw doctor`。'),
+        warning('document-authorization', '文档读取授权', '未验证。', '修复 MCP 调用环境后运行 `aiw doctor --source <文档地址>`。'),
       ];
     }
     let server: Awaited<ReturnType<McpServerConfigResolver['resolve']>>;
@@ -99,8 +100,8 @@ export class DoctorService {
       server = await this.deps.mcpServerConfigResolver.resolve({ source: profile.configSource.kind, path: profile.configSource.path, server: profile.server });
     } catch {
       return [
-        failed('lark-configuration', 'Lark MCP 配置', '无法解析指定的 MCP Server。', '检查 `connectors.lark` 和 Codex TOML 中对应的 MCP Server 定义。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 配置后运行 `aiw doctor --lark-url <lark-url>`。'),
+        failed('document-connector-configuration', '文档连接器配置', '无法解析已配置的文档 MCP Server。', '检查本机文档连接器配置和 Codex TOML 中对应的 MCP Server 定义。'),
+        warning('document-authorization', '文档读取授权', '未验证。', '修复 MCP 配置后运行 `aiw doctor --source <文档地址>`。'),
       ];
     }
     try {
@@ -111,20 +112,20 @@ export class DoctorService {
       const missing = LARK_REQUIRED_TOOLS.filter((tool) => !available.has(tool));
       if (missing.length > 0) {
         return [
-          failed('lark-configuration', 'Lark MCP 配置', `缺少章节读取工具：${missing.join('、')}。`, '为 Lark MCP 启用 `docx_v1_document_rawContent` 与 `docx_v1_documentBlock_list` 后重新运行 `aiw doctor`。'),
-          warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 工具配置后运行 `aiw doctor --lark-url <lark-url>`。'),
+          failed('document-connector-configuration', '文档连接器配置', `缺少章节读取工具：${missing.join('、')}。`, '为当前文档 MCP 启用正文读取与章节读取工具后重新运行 `aiw doctor`。'),
+          warning('document-authorization', '文档读取授权', '未验证。', '修复 MCP 工具配置后运行 `aiw doctor --source <文档地址>`。'),
         ];
       }
     } catch {
       return [
-        failed('lark-configuration', 'Lark MCP 配置', '无法读取 Lark MCP 工具清单。', '确认 Lark MCP 可启动并启用文档正文和文档块列表工具。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '修复 MCP 工具配置后运行 `aiw doctor --lark-url <lark-url>`。'),
+        failed('document-connector-configuration', '文档连接器配置', '无法读取文档 MCP 工具清单。', '确认文档 MCP 可启动并启用正文和章节读取工具。'),
+        warning('document-authorization', '文档读取授权', '未验证。', '修复 MCP 工具配置后运行 `aiw doctor --source <文档地址>`。'),
       ];
     }
-    if (larkUrl === undefined) {
+    if (source === undefined) {
       return [
-        passed('lark-configuration', 'Lark MCP 配置', 'Connector Profile 与 MCP Server 定义可解析。'),
-        warning('lark-authorization', 'Lark 授权', '未验证。', '运行 `aiw doctor --lark-url <lark-url>` 验证文档读取权限。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
+        warning('document-authorization', '文档读取授权', '未验证。', '运行 `aiw doctor --source <文档地址>` 验证文档读取权限。'),
       ];
     }
     try {
@@ -133,18 +134,22 @@ export class DoctorService {
         resolver: this.deps.mcpServerConfigResolver,
         config: { configPath: profile.configSource.path, server: profile.server, tool: profile.tool, useUAT: profile.useUAT },
       });
-      await connector.fetch(larkUrl);
+      await connector.fetch(source);
       return [
-        passed('lark-configuration', 'Lark MCP 配置', 'Connector Profile 与 MCP Server 定义可解析。'),
-        passed('lark-authorization', 'Lark 授权', '指定文档可通过 Lark MCP 读取。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
+        passed('document-authorization', '文档读取授权', '指定文档可通过已配置连接器读取。'),
       ];
     } catch {
       return [
-        passed('lark-configuration', 'Lark MCP 配置', 'Connector Profile 与 MCP Server 定义可解析。'),
-        failed('lark-authorization', 'Lark 授权', '无法通过 Lark MCP 读取指定文档。', '确认该文档 URL、Lark 应用授权和当前账号权限后重试。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
+        failed('document-authorization', '文档读取授权', '无法通过已配置连接器读取指定文档。', '确认文档地址、连接器授权和当前账号权限后重试。'),
       ];
     }
   }
+}
+
+function larkSource(source: string | undefined): string | undefined {
+  return source !== undefined && isLarkDocumentReference(source) ? source : undefined;
 }
 
 function result(checks: DoctorCheck[]): DoctorResult {

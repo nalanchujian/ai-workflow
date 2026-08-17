@@ -78,7 +78,7 @@ export function createCliRuntime(input: {
       client: input.ports.mcpClient,
       resolver: input.ports.mcpServerConfigResolver,
     });
-  const intake = (root: string) => new SourceIntake({ connector, network: input.ports.network, projectRoot: root });
+  const intake = (root: string) => new SourceIntake({ ...(connector === undefined ? {} : { connectors: [connector] }), network: input.ports.network, projectRoot: root });
   const taskFactGuard = new TaskFactGuard({ repositoryStatus: input.ports.repositoryStatus });
   const initializer = new TaskInitializer({
     registry,

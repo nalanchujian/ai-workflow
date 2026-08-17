@@ -12,7 +12,7 @@ describe('DoctorService', () => {
 
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('reports Git, Codex, bundled-method status, and Lark configuration without testing Lark authorization by default', async () => {
+  it('reports Git, Codex, bundled-method status, and document connector configuration without testing document authorization by default', async () => {
     const directory = await createConfiguredDirectory(directories);
     const result = await new DoctorService({
       config: new LocalConfig(join(directory, 'config.yaml')),
@@ -27,11 +27,11 @@ describe('DoctorService', () => {
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'project-repository', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'codex-cli', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-sources', status: 'warning' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-configuration', status: 'passed' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-authorization', status: 'warning' }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', label: '文档连接器配置', status: 'passed' }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', label: '文档读取授权', status: 'warning' }));
   });
 
-  it('uses an explicitly supplied Lark document only to verify Lark authorization', async () => {
+  it('uses an explicitly supplied connected document only to verify its read authorization', async () => {
     const directory = await createConfiguredDirectory(directories);
     let receivedArguments: unknown;
     const result = await new DoctorService({
@@ -46,9 +46,9 @@ describe('DoctorService', () => {
         },
         async listTools() { return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }]; },
       },
-    }).inspect({ projectRoot: directory, codexBin: 'codex', larkUrl: 'https://acme.larksuite.com/docx/doccn123' });
+    }).inspect({ projectRoot: directory, codexBin: 'codex', source: 'https://acme.larksuite.com/docx/doccn123' });
 
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-authorization', status: 'passed' }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', label: '文档读取授权', status: 'passed' }));
     expect(receivedArguments).toEqual({ path: { document_id: 'doccn123' }, params: { lang: 0 }, useUAT: false });
     expect(JSON.stringify(result)).not.toContain('# requirements');
   });
@@ -87,7 +87,7 @@ describe('DoctorService', () => {
       mcpClient: { async callTool() { return { data: { content: '# requirements' } }; }, async listTools() { return [{ name: 'docx_v1_document_rawContent' }]; } },
     }).inspect({ projectRoot: directory, codexBin: 'codex' });
 
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-configuration', status: 'failed', message: expect.stringContaining('docx_v1_documentBlock_list') }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', status: 'failed', message: expect.stringContaining('docx_v1_documentBlock_list') }));
   });
 
   it('returns actionable failures instead of throwing when the local configuration is invalid', async () => {
@@ -105,7 +105,7 @@ describe('DoctorService', () => {
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'local-configuration', status: 'failed', suggestion: expect.stringContaining('~/.aiw/config.yaml') }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'project-repository', status: 'failed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-sources', status: 'warning' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'lark-authorization', status: 'warning' }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', status: 'warning' }));
   });
 });
 

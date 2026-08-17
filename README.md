@@ -68,7 +68,7 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 
 **MVP 核心链路已可运行。** `aiw` 已组合技能安装、任务初始化、来源刷新、阶段审批与修订、`task run` 和 Codex Adapter；顶层 CLI 在开发者本机创建实际 Git、网络、Lark MCP 和 Codex 适配器，测试通过确定性替身覆盖完整七阶段主流程。
 
-真实使用前仍需准备 Git、兼容的 Node.js、已授权的 Lark MCP（如使用 Lark 来源）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、已安装的内置方法与 Lark MCP 配置；需要验证 Lark 文档授权时，显式传入 `--lark-url <docx-or-wiki-url>`。
+真实使用前仍需准备 Git、兼容的 Node.js、与需求来源匹配的文档连接器（如使用受控在线文档）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、已安装的内置方法与文档连接器配置；需要验证某份在线文档时，显式传入 `--source <文档地址>`。CLI 只接收通用来源地址，内部再按地址路由到对应连接器；当前内置连接器支持 Lark 文档。
 
 ## 本地运行
 
@@ -98,7 +98,7 @@ npm update -g @nalanchujian/ai-workflow
 npm uninstall -g @nalanchujian/ai-workflow
 ```
 
-`aiw init` 生成不含凭据的 `~/.aiw/config.yaml`，并安装配置中锁定的默认团队技能包。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；如 Codex 中存在唯一兼容的 Lark MCP，初始化会自动建立映射。团队升级默认技能时执行 `aiw skills update --ref <tag-or-commit>`；安装成功后会同步切换同名默认模板的新版本。本机 Registry 以 Git revision 保留同一来源的多个版本，未完成任务仍可按其锁定版本继续执行。当前 MVP 不会自动删除旧版本，也尚未提供技能缓存清理命令。
+`aiw init` 生成不含凭据的 `~/.aiw/config.yaml`，并安装配置中锁定的默认团队技能包。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；如 Codex 中存在唯一兼容的文档 MCP，初始化会自动建立映射。团队升级默认技能时执行 `aiw skills update --ref <tag-or-commit>`；安装成功后会同步切换同名默认模板的新版本。本机 Registry 以 Git revision 保留同一来源的多个版本，未完成任务仍可按其锁定版本继续执行。当前 MVP 不会自动删除旧版本，也尚未提供技能缓存清理命令。
 
 升级时应删除旧配置中的 `methodSources`；当前版本仅支持团队技能包提供的 `bundled:*` 方法，旧任务需使用新版技能包重新创建。
 

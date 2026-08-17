@@ -49,7 +49,7 @@ describe('task init command', () => {
     expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', skillProfile: 'standard-web-feature@2.0.0' });
   });
 
-  it('forwards a requested Lark source section to task initialization', async () => {
+  it('forwards a generic document section selector without exposing its connector', async () => {
     let received: unknown;
     const command = createTaskInitCommand({
       initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature', version: '2.0.0' }, nodes: {} }; } } as never,
@@ -57,12 +57,12 @@ describe('task init command', () => {
       stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
     });
 
-    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', 'https://acme.larksuite.com/docx/doccn123', '--source-section', '订单退款流程']);
+    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', 'https://acme.larksuite.com/docx/doccn123', '--section', '订单退款流程']);
 
     expect(received).toEqual({
       projectRoot: '/repo',
       source: 'https://acme.larksuite.com/docx/doccn123',
-      sourceSection: '订单退款流程',
+      section: '订单退款流程',
       skillProfile: 'standard-web-feature@2.0.0',
     });
   });

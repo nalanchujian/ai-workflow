@@ -1,6 +1,7 @@
 import type { McpClient } from '../ports/mcp-client.js';
 import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
-import { LarkSourceConnector, type ConnectorSource, type SourceConnector } from './lark-source-connector.js';
+import type { ConnectedDocumentSource, SourceConnector } from '../ports/source-connector.js';
+import { LarkSourceConnector } from './lark-source-connector.js';
 import { LocalConfig } from './local-config.js';
 
 export class ConfiguredLarkSourceConnector implements SourceConnector {
@@ -14,7 +15,7 @@ export class ConfiguredLarkSourceConnector implements SourceConnector {
     }).supports(input);
   }
 
-  async fetch(input: string, options?: { section?: string }): Promise<ConnectorSource> {
+  async fetch(input: string, options?: { section?: string }): Promise<ConnectedDocumentSource> {
     const config = await this.deps.config.larkConnector();
     return new LarkSourceConnector({
       client: this.deps.client,

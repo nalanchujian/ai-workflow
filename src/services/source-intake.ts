@@ -5,14 +5,13 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import type { SourceKind, SourceReference } from '../domain/task.js';
 import type { NetworkClient } from '../ports/network-client.js';
-import type { SourceConnector } from './lark-source-connector.js';
+import type { SourceConnector } from '../ports/source-connector.js';
 
 const MAX_SOURCE_BYTES = 5 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export interface SourceInput {
-  kind: SourceKind;
   sourceId: string;
   value: string;
   section?: string;
@@ -44,21 +43,25 @@ export class SourceIntakeError extends Error {
 
 export class SourceIntake {
   constructor(
-    private readonly deps: { connector?: SourceConnector; network: NetworkClient; projectRoot: string },
+    private readonly deps: { connectors?: SourceConnector[]; network: NetworkClient; projectRoot: string },
   ) {}
 
+  classify(value: string): SourceKind {
+    if (this.connectorFor(value) !== undefined) return 'connected-document';
+    return /^https?:\/\//.test(value) ? 'public-url' : 'local-file';
+  }
+
   async snapshot(input: SourceInput): Promise<SnapshotRecord> {
-    if (input.section !== undefined && input.kind !== 'lark-document') {
-      throw new SourceIntakeError('SOURCE_INVALID', '需求章节仅支持 Lark 文档来源');
+    const connector = this.connectorFor(input.value);
+    if (connector !== undefined) {
+      return this.snapshotConnectedDocument(input, connector);
     }
-    switch (input.kind) {
-      case 'local-file':
-        return this.snapshotLocalFile(input);
-      case 'public-url':
-        return this.snapshotPublicUrl(input);
-      case 'lark-document':
-        return this.snapshotLarkDocument(input);
+    if (input.section !== undefined) {
+      throw new SourceIntakeError('SOURCE_INVALID', '当前文档来源不支持按章节读取');
     }
+    return /^https?:\/\//.test(input.value)
+      ? this.snapshotPublicUrl(input)
+      : this.snapshotLocalFile(input);
   }
 
   async writeSnapshot(input: { snapshot: SnapshotRecord; taskDirectory: string }): Promise<SourceReference> {
@@ -154,11 +157,8 @@ export class SourceIntake {
     throw new SourceIntakeError('UNSAFE_URL', 'URL 重定向次数超限');
   }
 
-  private async snapshotLarkDocument(input: SourceInput): Promise<SnapshotRecord> {
-    if (this.deps.connector === undefined || !this.deps.connector.supports(input.value)) {
-      throw new SourceIntakeError('SOURCE_UNSUPPORTED', '当前 Connector 不支持该文档类型');
-    }
-    const source = await this.deps.connector.fetch(input.value, { section: input.section });
+  private async snapshotConnectedDocument(input: SourceInput, connector: SourceConnector): Promise<SnapshotRecord> {
+    const source = await connector.fetch(input.value, { section: input.section });
     const section = input.section === undefined ? undefined : source.section === undefined
       ? extractMarkdownSection(source.markdown, input.section)
       : { title: source.section.title, markdown: source.markdown };
@@ -166,7 +166,7 @@ export class SourceIntake {
     assertSize(markdown);
     return snapshot({
       sourceId: input.sourceId,
-      kind: 'lark-document',
+      kind: 'connected-document',
       origin: source.canonicalUrl,
       externalId: source.externalId,
       ...(source.resolvedExternalId === undefined ? {} : { resolvedExternalId: source.resolvedExternalId }),
@@ -177,6 +177,10 @@ export class SourceIntake {
       extractor: source.extractor,
       fetchedAt: source.fetchedAt,
     });
+  }
+
+  private connectorFor(value: string): SourceConnector | undefined {
+    return this.deps.connectors?.find((connector) => connector.supports(value));
   }
 }
 

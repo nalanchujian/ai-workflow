@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { NetworkClient } from '../../src/ports/network-client.js';
-import type { SourceConnector } from '../../src/services/lark-source-connector.js';
+import type { SourceConnector } from '../../src/ports/source-connector.js';
 import { SourceIntake } from '../../src/services/source-intake.js';
 import { SourceRefresher } from '../../src/services/source-refresher.js';
 import { TaskStore } from '../../src/services/task-store.js';
@@ -21,10 +21,10 @@ describe('SourceRefresher', () => {
     const projectRoot = await createTempDirectory('aiw-source-refresh-');
     directories.push(projectRoot);
     const connector = mutableLarkConnector('# Refund v1');
-    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot });
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot });
     const store = new TaskStore(projectRoot);
     const task = createSevenPhaseTask();
-    const first = await intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123' });
+    const first = await intake.snapshot({ sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123' });
     const reference = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
     task.sources.requirements = reference;
     await store.create(task);
@@ -42,10 +42,10 @@ describe('SourceRefresher', () => {
     const projectRoot = await createTempDirectory('aiw-source-refresh-');
     directories.push(projectRoot);
     const connector = mutableLarkConnector('# Refund v1');
-    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot });
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot });
     const store = new TaskStore(projectRoot);
     const task = createSevenPhaseTask();
-    const first = await intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123' });
+    const first = await intake.snapshot({ sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123' });
     const reference = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
     task.sources.requirements = reference;
     await store.create(task);
@@ -61,10 +61,10 @@ describe('SourceRefresher', () => {
     const projectRoot = await createTempDirectory('aiw-source-refresh-');
     directories.push(projectRoot);
     const connector = mutableLarkConnector('## 订单退款流程\n退款规则\n## 其他需求\nv1');
-    const intake = new SourceIntake({ connector, network: safeNetwork(), projectRoot });
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot });
     const store = new TaskStore(projectRoot);
     const task = createSevenPhaseTask();
-    const first = await intake.snapshot({ kind: 'lark-document', sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123', section: '订单退款流程' });
+    const first = await intake.snapshot({ sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123', section: '订单退款流程' });
     const reference = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
     task.sources.requirements = reference;
     await store.create(task);

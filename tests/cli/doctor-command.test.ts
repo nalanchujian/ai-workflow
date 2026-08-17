@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createDoctorCommand } from '../../src/cli/doctor-command.js';
 
 describe('doctor command', () => {
-  it('forwards the optional project and Lark URL without emitting the document content', async () => {
+  it('forwards the optional project and generic source reference without emitting document content', async () => {
     let received: unknown;
     let output = '';
     const command = createDoctorCommand({
@@ -16,9 +16,9 @@ describe('doctor command', () => {
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });
 
-    await command.parseAsync(['node', 'doctor', '--project', '/repo', '--lark-url', 'https://acme.larksuite.com/docx/doccn123']);
+    await command.parseAsync(['node', 'doctor', '--project', '/repo', '--source', 'https://acme.larksuite.com/docx/doccn123']);
 
-    expect(received).toEqual({ projectRoot: '/repo', larkUrl: 'https://acme.larksuite.com/docx/doccn123' });
+    expect(received).toEqual({ projectRoot: '/repo', source: 'https://acme.larksuite.com/docx/doccn123' });
     expect(output).toContain('本机环境检查通过');
     expect(output).not.toContain('requirements');
   });

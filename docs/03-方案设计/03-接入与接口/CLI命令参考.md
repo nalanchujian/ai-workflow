@@ -28,23 +28,23 @@
 
 在 `~/.aiw/config.yaml`（或 `AIW_HOME/config.yaml`）首次创建带中文注释的安全模板，并安装或复用模板中锁定的默认团队技能包与工作流。模板不包含凭据、不包含 Superpowers 路径，也不创建任务或运行目录；技能内容只写入用户目录的本机 Registry。文件已存在时原样保留，随后仍会校验并安装或复用其配置的默认工作流；默认工作流安装失败时保留配置并返回修复提示。
 
-命令还会尝试从 Codex 配置中发现唯一的 Lark MCP Server，查询其工具清单，并仅在同时存在 `docx_v1_document_rawContent` 与 `docx_v1_documentBlock_list` 时自动写入 `connectors.lark`，以保证正文读取和章节读取均可用。已有映射绝不覆盖；没有候选、多个候选、工具不支持或 MCP 不可用都不会使初始化失败。多个候选时输出候选名称，可使用 `--lark-server <name>` 显式选择其中一个；该参数只指定 Server，工具名仍由 MCP 自动发现。
+命令还会尝试从 Codex 配置中发现唯一的兼容文档 MCP，查询其工具清单，并在连接器所需工具齐全时自动写入本机映射，以保证正文读取和章节读取均可用。当前自动发现实现支持 Lark MCP，映射写入 `connectors.lark`；这是内部实现细节，不改变来源命令的通用接口。已有映射绝不覆盖；没有候选、多个候选、工具不支持或 MCP 不可用都不会使初始化失败。多个候选时输出候选名称，可使用 `--connector-server <name>` 显式选择其中一个；该参数只指定 Server，工具名仍由 MCP 自动发现。
 
-### `aiw doctor [--project <path>] [--lark-url <lark-url>]`
+### `aiw doctor [--project <path>] [--source <source>]`
 
 只读检查本机研发环境，返回 Git CLI、目标项目 Git 状态、Codex CLI、本机配置、已安装的内置方法和 Lark MCP 的诊断结果。每项结果包含 `passed`、`warning` 或 `failed`、原因及可执行修复建议；`--json` 时输出单个 `aiw.doctor/v1` JSON 对象。该命令不创建任务、不写入快照、不调用 Codex 执行任务。
 
 ```bash
 aiw doctor --project .
-aiw doctor --project /workspace/shop --lark-url https://<tenant>.larksuite.com/wiki/<node-token>
+aiw doctor --project /workspace/shop --source https://<tenant>.larksuite.com/wiki/<node-token>
 ```
 
 | 参数 | 说明 |
 |---|---|
 | `--project <path>` | 可选。要检查的业务仓库；未提供时使用当前目录。 |
-| `--lark-url <lark-url>` | 可选。显式使用 Lark docx 或 Wiki 链接验证 MCP 的读取权限；不会保存其正文或创建任务快照。 |
+| `--source <source>` | 可选。显式验证指定需求文档对应连接器的读取权限；不会保存其正文或创建任务快照。当前内置连接器支持 Lark docx 或 Wiki 链接。 |
 
-未传 `--lark-url` 时，命令仅检查 Lark Connector Profile 和对应 MCP Server 定义是否可解析，并将 Lark 授权标记为未验证；不得将此状态误报为已授权。传入该参数后，命令通过已配置的 MCP 读取一次指定文档，仅报告成功或失败，不输出令牌、MCP 参数或文档正文。Lark Connector 是可选能力；未配置时显示警告，只有显式请求验证 Lark URL 时才成为失败项。
+未传 `--source` 时，命令仅检查已配置文档连接器及对应 MCP Server 定义是否可解析，并将在线文档授权标记为未验证；不得将此状态误报为已授权。传入地址后，命令先按来源路由；对于可由已配置连接器处理的地址，读取一次指定文档并仅报告成功或失败，不输出令牌、MCP 参数或文档正文。当前 Lark Connector 是可选能力；未配置时显示警告，只有显式请求验证 Lark 文档时才成为失败项。
 
 ### `aiw run show <task-id> <run-id> [--project <path>]`
 
@@ -127,7 +127,7 @@ aiw skills profiles list --json
 
 ## 任务命令
 
-### `aiw task init --project <path> --source <source> [--source-section <title>] [--skill-profile <name[@version]>] [--force-new]`
+### `aiw task init --project <path> --source <source> [--section <title>] [--skill-profile <name[@version]>] [--force-new]`
 
 在目标项目创建任务、来源快照和默认任务图。
 
@@ -135,7 +135,7 @@ aiw skills profiles list --json
 aiw task init --project . --source ./requirements.md
 aiw task init --project /workspace/shop --source https://example.com/requirements
 aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token>
-aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token> --source-section "订单退款流程"
+aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token> --section "订单退款流程"
 aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@2.0.0
 aiw task init --project . --source ./requirements.md --force-new
 ```
@@ -143,12 +143,12 @@ aiw task init --project . --source ./requirements.md --force-new
 | 参数 | 说明 |
 |---|---|
 | `--project <path>` | 必填。业务项目根目录。 |
-| `--source <source>` | 必填。本地文件、符合安全规则的公开 HTTP(S) 来源，或由已配置 Lark Connector 识别的 Lark `docx` / `wiki` URL。 |
-| `--source-section <title>` | 可选，仅适用于 Lark 文档。按 Lark 标题块精确选择该章节及全部子标题内容，减少快照和后续上下文体积；MCP 还需启用 `docx_v1_documentBlock_list`。 |
+| `--source <source>` | 必填。需求来源地址或本地文件路径。系统依次路由到已配置文档连接器、公开 HTTP(S) 读取器或本地文件读取器；当前文档连接器支持 Lark `docx` / `wiki` URL。 |
+| `--section <title>` | 可选。选择一个标题唯一的章节及全部子标题内容，减少快照和后续上下文体积；仅支持由匹配连接器声明章节读取能力的来源。 |
 | `--skill-profile <name[@version]>` | 可选。省略时使用 `~/.aiw/config.yaml` 的默认模板；显式传入时覆盖默认值。模板一次锁定 `clarify` 至 `test` 的六阶段技能。 |
 | `--force-new` | 可选。默认发现同一仓库、同一规范化需求来源和章节存在未完成任务时拒绝创建；仅在确需另建任务时显式使用。 |
 
-命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。Lark docx 由本机已配置的 Lark MCP Server 读取；Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--source-section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
+命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。在线文档会由匹配连接器读取；例如 Lark Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
 `--project` 也可用于后续的 `task status`、`task run`、`task approve`、`task revise`、`task request-changes`、`task fail`、`task cancel`、`task source refresh`、`task skill rebind`、`task decision` 与 `task close-with-risk`。AIW 会在该目录执行命令；因此任务事实不保存本机绝对路径，其他成员在自己的仓库目录或显式传入 `--project` 均可继续同一任务。
 
@@ -158,9 +158,9 @@ intake → clarify → solution → plan → implement → verify → test
 
 来源快照成功后，`intake` 自动完成，`clarify` 成为 `ready`。`clarify`、`plan`、`test` 完成执行后等待人工审批；`intake` 不允许通过 `task run` 运行。
 
-初始化前会检查同一业务仓库内、同一规范化需求来源和章节的未完成任务。命中时输出已有 `taskId`，不会再次抓取本地、公开 URL 或 Lark 文档；应使用该 ID 继续任务。只有需要并行处理或重新开始时才加 `--force-new`。
+初始化前会检查同一业务仓库内、同一规范化需求来源和章节的未完成任务。命中时输出已有 `taskId`，不会再次抓取本地文件、公开 URL 或连接器文档；应使用该 ID 继续任务。只有需要并行处理或重新开始时才加 `--force-new`。
 
-失败情形包括：自动生成的任务 ID 与现有任务冲突、同一需求已有未完成任务、模板不存在/版本不唯一/阶段不匹配/引用技能不可用、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、Lark Connector 未配置或无权限、来源类型不受支持，以及章节参数用于非 Lark 来源、章节为空、不存在或重名。失败不得留下不完整来源快照或任务目录。
+失败情形包括：自动生成的任务 ID 与现有任务冲突、同一需求已有未完成任务、模板不存在/版本不唯一/阶段不匹配/引用技能不可用、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、匹配连接器未配置或无权限、来源类型不受支持，以及章节参数用于不支持章节读取的来源、章节为空、不存在或重名。失败不得留下不完整来源快照或任务目录。
 
 ### `aiw task source refresh <task-id> <source-id>`
 
@@ -177,7 +177,7 @@ aiw task source refresh refund-123 requirements
 
 若正文哈希不变，命令返回“未变化”，不创建新 revision，也不改变任务状态。若正文变化，命令在 `sources/<source-id>/r<revision>/` 创建新快照和元数据，保留旧 revision，更新 `intake` 的当前输出并递归使已开始下游节点 `invalidated`。调用者必须提交新 revision 与状态变化，下游节点才可重新运行。
 
-来源不存在、公共 URL 不符合安全规则、Lark Connector 不可用或无权限、正文为空或超限时，命令失败且不改变已有快照或任务状态。
+来源不存在、公共 URL 不符合安全规则、匹配连接器不可用或无权限、正文为空或超限时，命令失败且不改变已有快照或任务状态。
 
 ### `aiw task status <task-id>`
 

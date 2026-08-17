@@ -76,7 +76,7 @@ export const OutputRecordSchema = z.object({
   sha256: z.string().regex(sha256Pattern, '必须是 SHA-256 哈希'),
 });
 
-export const SourceKindSchema = z.enum(['local-file', 'public-url', 'lark-document']);
+export const SourceKindSchema = z.enum(['local-file', 'public-url', 'connected-document']);
 
 export const SourceReferenceSchema = z.object({
   kind: SourceKindSchema,
