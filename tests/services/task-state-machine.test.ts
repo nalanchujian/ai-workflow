@@ -106,41 +106,23 @@ describe('task state machine', () => {
     expect(next.nodes.solution.status).toBe('ready');
   });
 
-  it('records requested changes and invalidates downstream work', () => {
+  it('allows a failed node to be started again without creating a human revision', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
-    task.nodes.solution.status = 'completed';
-    task.nodes.plan.status = 'awaiting_approval';
-    task.nodes.implement.status = 'completed';
+    task.nodes.solution.status = 'failed';
 
-    const next = transitionNode(task, 'plan', {
-      type: 'request_changes',
-      actor: 'tech-lead',
-      note: '补充回滚方案',
-    });
+    const next = transitionNode(task, 'solution', { type: 'start', runId: 'retry-run' });
 
-    expect(next.nodes.plan.status).toBe('ready');
-    expect(next.nodes.implement.status).toBe('invalidated');
-    expect(next.events).toContainEqual(expect.objectContaining({ type: 'request_changes', nodeId: 'plan', note: '补充回滚方案' }));
+    expect(next.nodes.solution.status).toBe('running');
+    expect(next.events).toContainEqual(expect.objectContaining({ type: 'start', nodeId: 'solution', runId: 'retry-run' }));
   });
 
-  it('requires an approval decision instead of directly revising an awaiting approval node', () => {
-    const task = createSevenPhaseTask();
-    task.nodes.clarify.status = 'awaiting_approval';
-
-    expect(() => transitionNode(task, 'clarify', { type: 'revise', actor: 'developer', note: '补充边界' }))
-      .toThrow('等待审批');
-  });
-
-  it('re-evaluates a revised node when its dependencies are already completed', () => {
+  it('does not allow a completed node to be restarted as a content revision', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
-    task.nodes.solution.status = 'completed';
 
-    const next = transitionNode(task, 'solution', { type: 'revise', actor: 'developer', note: '补充异常分支' });
-
-    expect(next.nodes.solution.status).toBe('ready');
-    expect(next.events.map((event) => event.type)).toContain('evaluate');
+    expect(() => transitionNode(task, 'clarify', { type: 'start', runId: 'retry-run' }))
+      .toThrow('只能启动已就绪或可重试节点');
   });
 
   it('allows an explicit skill rebind only for a node that is not complete', () => {

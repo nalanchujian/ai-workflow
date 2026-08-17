@@ -9,7 +9,6 @@ export const ContextBudgetCategorySchema = z.enum([
   'task-fact',
   'source',
   'handoff',
-  'revision-request',
   'additional',
   'node-instruction',
   'skill',
@@ -26,7 +25,7 @@ export const ContextBudgetEntrySchema = z.object({
 });
 
 export const ContextFileSchema = z.object({
-  role: z.enum(['task', 'source', 'artifact', 'handoff', 'revision-request', 'additional']),
+  role: z.enum(['task', 'source', 'artifact', 'handoff', 'additional']),
   path: z.string().regex(relativePathPattern),
   sha256: z.string().regex(sha256Pattern),
   sourceId: z.string().min(1).optional(),

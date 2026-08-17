@@ -156,11 +156,9 @@ it('invalidates every started downstream stage when clarify is revised', () => {
   expect(next.nodes.test.status).toBe('invalidated');
 });
 
-it('rebinds an initialized profile skill only by an explicit exception event and records an approval change request separately', async () => {
+it('rebinds an initialized profile skill only by an explicit exception event', async () => {
   const rebound = transitionNode(readyClarifyTask(), 'clarify', { type: 'rebind_skill', skill: replacementClarificationSkill(), note: '需要补充合规检查' });
   expect(rebound.nodes.clarify.skill?.sha256).toMatch(/^[a-f0-9]{64}$/);
-  const changed = transitionNode(awaitingPlanTask(), 'plan', { type: 'request_changes', actor: 'tech-lead', note: '补充回滚方案' });
-  expect(changed.nodes.plan.status).toBe('ready');
 });
 ```
 
@@ -178,8 +176,6 @@ export type NodeEvent =
   | { type: 'start'; runId: string }
   | { type: 'succeed'; outputs: OutputRecord[] }
   | { type: 'approve'; actor: string; note?: string }
-  | { type: 'request_changes'; actor: string; note: string }
-  | { type: 'revise'; actor: string; note: string }
   | { type: 'fail'; message: string };
 
 export interface OutputRecord {
@@ -352,11 +348,13 @@ it('approves the committed clarify revision and unlocks solution after its fact 
   expect((await store.load('refund-123')).nodes.solution.status).toBe('ready');
 });
 
-it('records requested changes with the reviewed hashes and a next-revision instruction', async () => {
+it('allows a failed node to retry after its failure evidence is committed', async () => {
   await git.commitTaskFacts('refund-123');
-  await commands.requestChanges('refund-123', 'plan', { actor: 'tech-lead', note: '补充回滚方案' });
-  expect(await readFile(taskPath('revisions/plan/r2.md'), 'utf8')).toContain('补充回滚方案');
-  expect((await store.load('refund-123')).nodes.plan.status).toBe('ready');
+  const task = awaitingPlanTask();
+  task.nodes.plan.status = 'running';
+  const next = transitionNode(task, 'plan', { type: 'fail', message: 'Codex CLI 异常退出' });
+  expect(next.nodes.plan.status).toBe('failed');
+  expect(transitionNode(next, 'plan', { type: 'start', runId: 'retry-run' }).nodes.plan.status).toBe('running');
 });
 
 it('rejects a downstream run when its approval fact is not committed', async () => {
@@ -381,7 +379,7 @@ it('fails above the context budget without truncating any file', async () => {
 
 - [x] **步骤 3：实现 manifest 构建和任务状态命令**
 
-按[任务模型规范](../03-方案设计/02-核心规范/任务模型规范.md)、[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)和[CLI命令参考](../03-方案设计/03-接入与接口/CLI命令参考.md)实现单节点技能重新绑定、批准、要求修改、主动修订、状态查询、Git 事实校验与 Context Manifest。实施顺序为状态命令、任务模板/技能锁定提交校验、已提交事实校验、默认阶段上下文选择、修改说明注入、Manifest 生成及预算校验。
+按[任务模型规范](../03-方案设计/02-核心规范/任务模型规范.md)、[上下文包规范](../03-方案设计/02-核心规范/上下文包规范.md)和[CLI命令参考](../03-方案设计/03-接入与接口/CLI命令参考.md)实现单节点技能重新绑定、批准、状态查询、Git 事实校验与 Context Manifest。实施顺序为状态命令、任务模板/技能锁定提交校验、已提交事实校验、默认阶段上下文选择、Manifest 生成及预算校验。
 
 - [x] **步骤 4：验证审批和上下文功能**
 

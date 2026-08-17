@@ -17,7 +17,7 @@ describe('SourceRefresher', () => {
     await Promise.all(directories.splice(0).map(removeTempDirectory));
   });
 
-  it('creates a new revision and invalidates downstream nodes when Lark content changes', async () => {
+  it('creates a new revision and restarts the downstream flow when Lark content changes', async () => {
     const projectRoot = await createTempDirectory('aiw-source-refresh-');
     directories.push(projectRoot);
     const connector = mutableLarkConnector('# Refund v1');
@@ -34,7 +34,8 @@ describe('SourceRefresher', () => {
     const result = await refresher.refresh({ sourceId: 'requirements', taskId: task.id });
 
     expect(result).toMatchObject({ changed: true, revision: 2 });
-    expect(result.task.nodes.clarify.status).toBe('invalidated');
+    expect(result.task.nodes.clarify.status).toBe('ready');
+    expect(result.task.nodes.solution.status).toBe('pending');
     await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'intake', 'r2.yaml'), 'utf8')).resolves.toContain('revision: 2');
   });
 

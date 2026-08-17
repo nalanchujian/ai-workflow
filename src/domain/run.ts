@@ -7,7 +7,7 @@ export const RunModeSchema = z.enum(['dry-run', 'execute']);
 export const RunStatusSchema = z.enum(['succeeded', 'failed', 'unavailable', 'cancelled']);
 
 const RunContextFileSchema = z.object({
-  role: z.enum(['task', 'source', 'artifact', 'handoff', 'revision-request', 'additional']),
+  role: z.enum(['task', 'source', 'artifact', 'handoff', 'additional']),
   path: z.string().min(1),
   content: z.string(),
 });

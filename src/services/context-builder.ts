@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 
 import {
@@ -128,18 +128,6 @@ export class ContextBuilder {
       const decisionRegister = await this.optionalTaskFact(taskDirectory, 'artifacts/decision-register.yaml');
       if (decisionRegister !== undefined) files.push(decisionRegister);
     }
-    const revisionPath = `revisions/${nodeId}/r${task.nodes[nodeId]?.revision + 1}.md`;
-    const absoluteRevisionPath = join(taskDirectory, revisionPath);
-    try {
-      await access(absoluteRevisionPath);
-      const resolvedRevisionPath = await resolveInside(taskDirectory, revisionPath);
-      const content = await readFile(resolvedRevisionPath, 'utf8');
-      files.push({ role: 'revision-request', path: revisionPath, sha256: sha256(content), absolutePath: resolvedRevisionPath, content });
-    } catch (error) {
-      if (!isMissingFile(error)) {
-        throw error;
-      }
-    }
     return files;
   }
 
@@ -254,7 +242,6 @@ function budgetCategoryForFile(file: ContextFileWithContent): ContextBudgetCateg
     source: 'source',
     artifact: 'task-fact',
     handoff: 'handoff',
-    'revision-request': 'revision-request',
     additional: 'additional',
   } as const)[file.role];
 }
@@ -264,7 +251,6 @@ function budgetCategoryLabel(category: ContextBudgetCategory): string {
     'task-fact': '任务事实',
     source: '需求来源',
     handoff: '结构化交接',
-    'revision-request': '修改说明',
     additional: '附加文件',
     'node-instruction': '节点指令',
     skill: '阶段技能',
@@ -282,11 +268,6 @@ function budgetSuggestion(category: ContextBudgetCategory | undefined): string {
     skill: '精简当前阶段技能的重复说明，或将通用规则下沉到固定运行约束。',
     'method-source': '精简当前阶段引用的方法论，只保留本节点必需的方法。',
     'runtime-overhead': '当前阶段固定约束过大；应精简重复的产物契约，而非压缩任务事实。',
-    'revision-request': '将修改说明限定为本次变更范围，避免重复粘贴历史需求。',
     'node-instruction': '将节点目标收敛为可执行的单一工作单元。',
   } as Record<ContextBudgetCategory, string>)[category ?? 'task-fact'];
-}
-
-function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }

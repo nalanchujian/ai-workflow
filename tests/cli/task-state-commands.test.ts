@@ -18,6 +18,16 @@ const directories: string[] = [];
 describe('TaskStateCommands', () => {
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
+  it('does not expose manual revision or change-request commands', () => {
+    const command = createTaskStateCommand({
+      commands: {} as never,
+      stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    expect(command.commands.map((item) => item.name())).not.toContain('revise');
+    expect(command.commands.map((item) => item.name())).not.toContain('request-changes');
+  });
+
   it('writes an approval bound to the current output hashes before unlocking the downstream node', async () => {
     const { store, directory } = await createApprovalTask('clarify');
     const commands = new TaskStateCommands({
@@ -93,19 +103,6 @@ describe('TaskStateCommands', () => {
     expect(reviewed.decisions).toEqual([expect.objectContaining({
       id: 'DEC-API-01', optionId: 'manual', note: '详情页先复用现有聚合接口，趋势和导出等待下一期。',
     })]);
-  });
-
-  it('records changes requested with a next revision instruction', async () => {
-    const { store, directory } = await createApprovalTask('plan');
-    const commands = new TaskStateCommands({
-      taskStore: store,
-      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; } } }),
-    });
-
-    await commands.requestChanges('refund-123', 'plan', { actor: 'tech-lead', note: '补充回滚方案' });
-
-    await expect(readFile(join(directory, 'revisions', 'plan', 'r2.md'), 'utf8')).resolves.toContain('补充回滚方案');
-    expect((await store.load('refund-123')).nodes.plan.status).toBe('ready');
   });
 
   it('does not approve a test report when acceptance results still contain blocked items', async () => {
@@ -247,23 +244,6 @@ describe('TaskStateCommands', () => {
       .resolves.toContain('src/services/export.ts');
   });
 
-  it('tells users to commit a requested change before rerunning the ready node', async () => {
-    const task = createSevenPhaseTask();
-    task.nodes.clarify.status = 'completed';
-    task.nodes.solution.status = 'completed';
-    task.nodes.plan.status = 'ready';
-    let output = '';
-    const command = createTaskStateCommand({
-      commands: { async requestChanges() { return task; } } as never,
-      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
-    });
-
-    await command.parseAsync(['node', 'task', 'request-changes', 'refund-123', 'plan', '--note', '补充范围']);
-
-    expect(output).toContain('1. git add .aiw && git commit -m "chore(aiw): record plan changes"');
-    expect(output).toContain('2. aiw task run refund-123 plan');
-  });
-
   it('guides a waiting approval through review, commit, and approval in task status', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'awaiting_approval';
@@ -306,6 +286,7 @@ describe('TaskStateCommands', () => {
     const answers = ['3', '详情页先复用现有聚合接口，趋势和导出等待下一期。', '1'];
     const command = createTaskStateCommand({
       commands: {
+        async status() { return task; },
         async listDecisions() {
           return [{
             item: {
@@ -342,6 +323,25 @@ describe('TaskStateCommands', () => {
       optionId: 'manual',
       manualNote: '详情页先复用现有聚合接口，趋势和导出等待下一期。',
     }]);
+  });
+
+  it('does not prompt again when clarify was already approved', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'completed';
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return task; },
+        async listDecisions() { throw new Error('不应读取决策'); },
+      } as never,
+      reviewPrompter: { async ask() { throw new Error('不应要求输入'); } },
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'review', 'refund-123']);
+
+    expect(output).toContain('需求澄清已确认，无需再次操作');
+    expect(output).toContain('aiw task status refund-123');
   });
 
   it('guides users to commit migrated handoffs before continuing the ready node', async () => {

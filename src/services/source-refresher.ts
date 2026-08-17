@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { stringify } from 'yaml';
 import { handoffPath, validateHandoff } from '../domain/handoff.js';
-import { invalidateDependents } from './task-state-machine.js';
+import { restartDependentsForSourceChange } from './task-state-machine.js';
 import { SourceIntake } from './source-intake.js';
 import { TaskStore } from './task-store.js';
 
@@ -39,7 +39,7 @@ export class SourceRefresher {
       return { changed: false, revision: current.revision, task };
     }
     const reference = await this.deps.intake.writeSnapshot({ snapshot, taskDirectory: this.deps.taskStore.taskDirectory(task.id) });
-    const next = invalidateDependents(task, 'intake', `source ${input.sourceId} changed`);
+    const next = restartDependentsForSourceChange(task, 'intake', `source ${input.sourceId} changed`);
     next.sources[input.sourceId] = reference;
     next.nodes.intake.revision = reference.revision;
     next.nodes.intake.outputs = [reference.snapshotPath, reference.metaPath];

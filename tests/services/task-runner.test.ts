@@ -41,6 +41,24 @@ describe('TaskRunner', () => {
     expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('failed');
   });
 
+  it('retries a failed node directly and preserves its prior failure event', async () => {
+    const fixture = await createRunnerFixture({
+      exitCode: 0,
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+    });
+    const task = await fixture.taskStore.load('refund-123');
+    task.nodes.clarify!.status = 'failed';
+    task.events.push({ type: 'fail', nodeId: 'clarify', at: '2026-08-17T00:00:00.000Z', reason: 'Codex CLI 异常退出' });
+    await fixture.taskStore.update(task);
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result.status).toBe('succeeded');
+    const retried = await fixture.taskStore.load('refund-123');
+    expect(retried.nodes.clarify?.status).toBe('awaiting_approval');
+    expect(retried.events).toContainEqual(expect.objectContaining({ type: 'fail', nodeId: 'clarify', reason: 'Codex CLI 异常退出' }));
+  });
+
   it('rejects a run when another process holds the task execution lock', async () => {
     const fixture = await createRunnerFixture({
       runLock: { async acquire() { return undefined; } },

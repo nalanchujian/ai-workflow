@@ -67,7 +67,6 @@ function contextBudgetCategoryLabel(category: string): string {
     'task-fact': '任务事实',
     source: '需求来源',
     handoff: '结构化交接',
-    'revision-request': '修改说明',
     additional: '附加文件',
     'node-instruction': '节点指令',
     skill: '阶段技能',

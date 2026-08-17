@@ -49,13 +49,13 @@
 - `--section` 仅适用于支持章节读取的文档连接器：按唯一标题截取该标题及子标题内容，并锁定实际标题、起止块 ID 与截取内容哈希。空标题、不存在、重名、空章节、未启用连接器章节工具或来源不支持章节读取时必须拒绝初始化；后续刷新必须沿用锁定章节。
 - 快照元数据记录来源类型、来源、revision、获取时间、内容 SHA-256 与提取器版本；不得记录本机绝对路径、Cookie、令牌或授权头。
 - 需要团队审批的来源快照必须可由业务仓库读者访问，并通过 Git 提交；敏感来源必须先形成脱敏快照。
-- `aiw task source refresh <task-id> <source-id>` 重新读取指定来源；正文哈希未变化时不创建 revision、不改变任务状态；哈希变化时创建新 revision、保留旧快照并递归使已开始下游节点失效。
+- `aiw task source refresh <task-id> <source-id>` 重新读取指定来源；正文哈希未变化时不创建 revision、不改变任务状态；哈希变化时创建新 revision、保留旧快照，并从首个受影响节点重新开始下游流程。
 
 ### FR-4：默认任务图与状态机
 
 - `task init` 必须解析一个已安装的工作流模板（显式 `--skill-profile` 或本机默认值），原子锁定模板及 `clarify` 至 `test` 六个阶段的技能、Git revision、内容哈希和方法论来源；模板或任一技能不可用时初始化失败且不写入任务目录。
 - 模板锁定提交前，`task run` 与 dry-run 均必须拒绝；运行命令不再接收或选择技能。
-- `aiw task skill rebind <task-id> <node-id> --skill <name[@version]> --note <text>` 是例外命令，仅允许对待执行或失效节点显式变更单个节点锁定；它记录前后锁定与原因，并递归使已开始下游节点失效。已完成节点必须先修订，待审批节点必须先获得审批决定。
+- `aiw task skill rebind <task-id> <node-id> --skill <name[@version]> --note <text>` 是例外命令，仅允许对 `pending`、`ready` 或 `failed` 节点显式变更单个节点锁定；已完成、待审批或已失效节点不可重新绑定。
 - 节点仅在全部依赖 `completed` 时变为 `ready`；MVP 调度器以任务为粒度持有本机文件锁，一次只允许运行一个节点（包括 dry-run），并发运行必须返回 `TASK_BUSY`。
 - 执行模式必须在 Codex 启动前拒绝业务工作树中的未提交变更，并记录 Git 提交与分支基线；执行后采集 Git 变更路径、允许范围内未跟踪文件补丁及 Git 状态。超范围变更或 Git 历史/分支变化必须写入运行证据、将当前节点标记失败且不得解锁下游节点。实施节点缺少结构化 `allowedPaths` 范围时必须拒绝执行。
 - 需要审批的 `clarify`、`plan`、`test` 节点，在运行成功后进入 `awaiting_approval`；`solution` 可由高风险任务模板额外设置审批。
@@ -63,8 +63,7 @@
 - `clarify` 必须生成 `artifacts/decision-register.yaml`：每个无法由现有事实确定、且影响验收或实施范围的事项必须含至少两个选项、取舍和 AI 推荐。存在未处理事项时，普通 `task approve ... clarify` 必须拒绝；`aiw task review <task-id>` 必须逐项展示建议、选项和人工输入入口，并在最终确认后一次性写入选择与澄清审批事实。人工输入会以保留原文的 `manual` 决策事实写入任务；选择名称或标识为“等待”的方案时，`review` 记录外部等待并仅阻塞关联工作单元；`aiw task decision list|choose|wait|defer|waive|resolve` 保留为补充、变更或解除特殊决策的高级入口。
 - `work-breakdown.yaml` 的工作单元可使用 `blockedBy: [DEC-...]`。未决或外部等待决策仅阻塞关联单元；解决或豁免后解锁；拆期后从当前验证汇合移除。
 - 测试节点必须输出 `artifacts/acceptance-results.yaml`。普通 `task approve <task-id> test` 只接受全部验收项为 `passed`、`deferred` 或 `waived` 的结果；存在 `failed` 或 `blocked` 时必须拒绝。`task close-with-risk <task-id> --owner --reason --expires-at` 是唯一风险关闭入口，必须写入风险接受事实并将交付状态标为 `risk_accepted`。
-- `aiw task revise <task-id> <node-id> --note <text>` 写入修改说明并递归将所有已开始下游节点置为 `invalidated`；当前节点随后重新评估，全部依赖已完成时置为 `ready`，否则保持 `pending`。
-- `aiw task request-changes <task-id> <node-id> --note <text> [--actor <name>]` 仅用于 `awaiting_approval` 节点。它写入 `decision: changes_requested` 的审批事实、下一 revision 的修改说明并使已开始下游节点失效；当前节点随后按依赖状态重新评估为 `ready` 或 `pending`，不得用 `task revise` 代替该审批决定。
+- 阶段产物一旦形成不提供人工修订或退回入口。需求变更必须更新原始来源并执行 `aiw task source refresh`；来源产生新 revision 后，AIW 保留旧事实并从 `clarify` 重新开始受影响的下游流程。工具异常保留失败证据后，节点可直接重试。
 - `aiw task status <task-id>` 默认显示任务、交付和节点状态摘要；使用 `--json` 时输出完整任务事实，其中包含依赖、revision、审批与失效原因。
 - `aiw task cancel <task-id> <node-id> --note <text>` 仅用于 `running` 节点；写入本机取消请求并终止已记录的 Codex 子进程。运行收尾时必须保留证据并将节点置为 `cancelled`。
 
@@ -103,7 +102,7 @@
 | AC-3 | 从项目内本地文件建立任务 | 创建七阶段默认 DAG；`intake` 已完成、`clarify` 已就绪；快照含 SHA-256 元数据。 |
 | AC-4 | URL 初始地址或重定向地址解析到 `127.0.0.1` 或私网 | 请求在连接前被拒绝，任务目录不创建来源快照。 |
 | AC-5 | 未批准澄清节点时运行方案 | 命令失败，提示 `solution` 节点尚未 `ready`。 |
-| AC-6 | 批准澄清后修订澄清 | `solution` 至 `test` 被标记 `invalidated`，旧产物保留。 |
+| AC-6 | 已确认需求来源发生变化 | 保留旧快照并创建新 revision；AIW 将 `clarify` 重新置为 `ready`，后续节点等待新的上游结论。 |
 | AC-7 | 对可运行的计划节点执行 dry-run | 生成含方法论来源的 manifest 与 `context.md`，不启动子进程。 |
 | AC-8 | 上下文超过预算 | 命令失败并列出造成超限的文件；任何文件内容未被截断。 |
 | AC-9 | Codex 可执行文件缺失 | 生成 `RunResult(status=unavailable)`，节点转为 `failed`，保留日志。 |
@@ -115,14 +114,14 @@
 | AC-15 | 从已配置的文档连接器读取需求（当前为 Lark MCP） | 可读取 Lark docx，或先解析 Wiki 节点为 docx 后读取；生成 `lark-mcp/v1` Markdown 快照与不含凭据的元数据；`intake` 完成。 |
 | AC-16 | 文档连接器未配置、无权限、超时、正文超限或返回无效正文（当前为 Lark MCP） | 命令失败，不创建或覆盖快照，不泄露 MCP 配置或令牌。 |
 | AC-17 | 刷新 Lark 来源且正文未变化 | 不创建新 revision，任务状态与下游节点不变。 |
-| AC-18 | 刷新 Lark 来源且正文变化 | 保留旧快照，创建新 revision；`clarify` 至 `test` 的已开始节点失效。 |
+| AC-18 | 刷新 Lark 来源且正文变化 | 保留旧快照，创建新 revision；`clarify` 重新进入 `ready`，受影响下游节点等待新的上游结论。 |
 | AC-19 | 本地来源为目录、设备文件或符号链接逃逸 | 初始化失败，不创建来源快照。 |
 | AC-20 | `--include` 指向项目根目录外的文件 | 命令失败，Context Manifest 不包含该文件。 |
 | AC-21 | 来源或技能正文试图覆盖 Runner 规则 | 渲染的上下文将其标记为不可信数据，Runner 约束与阶段契约保持在前且不被覆盖。 |
 | AC-22 | Codex 子进程超时、取消或非零退出 | 超时返回 `failed` / `CODEX_TIMEOUT` 并终止子进程；取消或非零退出正确标识为取消或失败；节点不被标记为成功，已存在的共享事实保留。 |
 | AC-23 | Lark 来源进入后续节点运行 | Context Manifest 记录实际使用的快照路径、来源 revision 与 SHA-256，不记录 MCP 配置、令牌或原始响应。 |
 | AC-24 | 以工作流模板创建并运行任务 | `task init` 使用显式模板或本机默认模板，原子写入模板及六阶段精确技能/方法来源锁定；提交前 `task run` 和 dry-run 均拒绝，提交后按节点锁定运行且不再传入技能。 |
-| AC-25 | 审批人要求修改当前计划 revision | `task request-changes` 写入含产物哈希的 `changes_requested` 审批记录和下一版修改说明；当前节点按依赖状态重新评估为 `ready` 或 `pending`，已开始下游节点失效，旧产物与审批记录保留。 |
+| AC-25 | 节点运行失败后重试 | 失败运行证据与失败状态均需提交；随后可直接再次执行同一 `task run`，产生新的运行 ID 且不覆盖旧证据。 |
 | AC-26 | 以 Lark 文档章节创建并刷新任务 | 快照只包含唯一指定标题及子标题内容，并记录标题；文档其他章节变化不创建 revision，指定章节变化才触发后续失效。 |
 | AC-27 | AI 提出决策并由人工处理 | 澄清产出包含选项、取舍和推荐的决策登记；选择、外部等待、拆期或豁免均形成不可变事实，且只改变关联工作单元状态。 |
 | AC-28 | 测试存在阻塞验收项 | 普通测试审批拒绝；只有明确记录责任人、原因和到期时间的风险关闭才能完成流程，交付状态为 `risk_accepted`。 |

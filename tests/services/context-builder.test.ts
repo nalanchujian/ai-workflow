@@ -204,20 +204,6 @@ describe('ContextBuilder', () => {
     ]));
   });
 
-  it('includes the next revision instruction only for the node being rerun', async () => {
-    const directory = await taskDirectory();
-    const task = createSevenPhaseTask();
-    task.nodes.plan.revision = 1;
-    await writeHandoff(directory, task, 'solution');
-    await mkdir(join(directory, 'revisions', 'plan'), { recursive: true });
-    await writeFile(join(directory, 'revisions', 'plan', 'r2.md'), '补充回滚方案\n', 'utf8');
-
-    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
-      .build({ task, nodeId: 'plan', includes: [] });
-
-    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'revision-request', path: 'revisions/plan/r2.md' }));
-  });
-
   it('rejects an additional file outside the project root', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();

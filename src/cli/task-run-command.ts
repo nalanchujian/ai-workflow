@@ -42,7 +42,7 @@ export function createTaskRunCommand(deps: { runner: TaskRunner; progress?: Prog
         ],
         nextSteps: result.status === 'succeeded'
           ? [`git add .aiw && git commit -m "chore(aiw): record ${nodeId} result"`, `aiw task status ${taskId}`]
-          : [`aiw task status ${taskId}`, `aiw task revise ${taskId} ${nodeId} --note "<修改说明>"`],
+          : [`git add .aiw && git commit -m "chore(aiw): record ${nodeId} failure"`, `aiw task run ${taskId} ${nodeId}`],
       });
     });
 }

@@ -114,8 +114,6 @@ export const TaskEventSchema = z.object({
     'start',
     'succeed',
     'approve',
-    'request_changes',
-    'revise',
     'fail',
     'cancel',
     'invalidate',

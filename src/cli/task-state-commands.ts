@@ -25,7 +25,7 @@ const ApprovalFactSchema = z.object({
   nodeId: z.string().min(1),
   nodeRevision: z.number().int().positive(),
   artifactHashes: z.record(z.string(), z.string().regex(/^sha256:[a-f0-9]{64}$/)),
-  decision: z.enum(['approved', 'changes_requested']),
+  decision: z.literal('approved'),
   actor: z.string().min(1),
   at: z.string().datetime(),
   note: z.string().optional(),
@@ -127,10 +127,6 @@ export class TaskStateCommands {
     return this.decide(taskId, 'clarify', 'approved', { actor, note: options.note }, { skipCommittedCheck: true });
   }
 
-  async requestChanges(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
-    return this.decide(taskId, nodeId, 'changes_requested', options);
-  }
-
   async closeWithRisk(taskId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }): Promise<Task> {
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(options.expiresAt) || Number.isNaN(Date.parse(options.expiresAt))) {
       throw new Error('风险到期时间必须为 ISO 8601 时间');
@@ -149,18 +145,6 @@ export class TaskStateCommands {
   async cancel(taskId: string, nodeId: string, options: { note: string }): Promise<{ taskId: string; nodeId: string; runId: string; status: 'requested' | 'signalled' }> {
     if (this.deps.cancellation === undefined) throw new Error('当前环境不支持取消运行');
     return this.deps.cancellation.request({ taskId, nodeId, note: options.note.trim() });
-  }
-
-  async revise(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
-    const task = await this.deps.taskStore.load(taskId);
-    const next = transitionNode(task, nodeId, { type: 'revise', actor: await this.deps.taskFactGuard.actor(options.actor), note: options.note });
-    const node = task.nodes[nodeId];
-    if (node === undefined) {
-      throw new Error(`未知节点：${nodeId}`);
-    }
-    await this.deps.taskStore.createFact(taskId, `revisions/${nodeId}/r${node.revision + 1}.md`, `${options.note.trim()}\n`);
-    await this.deps.taskStore.update(next);
-    return next;
   }
 
   async rebindSkill(taskId: string, nodeId: string, options: { skill: string; note: string }): Promise<Task> {
@@ -222,7 +206,7 @@ export class TaskStateCommands {
   private async decide(
     taskId: string,
     nodeId: string,
-    decision: 'approved' | 'changes_requested',
+    decision: 'approved',
     options: { actor?: string; note?: string; riskAcceptance?: { owner: string; reason: string; expiresAt: string } },
     internal: { skipCommittedCheck?: boolean } = {},
   ): Promise<Task> {
@@ -235,9 +219,6 @@ export class TaskStateCommands {
       throw new Error('只能审批等待审批的节点');
     }
     const note = options.note?.trim();
-    if (decision === 'changes_requested' && (note === undefined || note.length === 0)) {
-      throw new Error('变更说明不能为空');
-    }
     if (decision === 'approved' && nodeId === 'clarify') {
       await this.assertClarifyDecisionsReviewed(taskId);
     }
@@ -264,16 +245,11 @@ export class TaskStateCommands {
       ...(note === undefined ? {} : { note }),
     });
     await this.deps.taskStore.createFact(taskId, approvalPath, stringify(approval));
-    if (decision === 'changes_requested') {
-      await this.deps.taskStore.createFact(taskId, `revisions/${nodeId}/r${node.revision + 1}.md`, `${note}\n`);
-    }
     if (options.riskAcceptance !== undefined) {
       const riskPath = `risk-acceptances/test/r${node.revision}.yaml`;
       await this.deps.taskStore.createFact(taskId, riskPath, stringify({ schemaVersion: 'aiw.risk-acceptance/v1', nodeId: 'test', nodeRevision: node.revision, actor, ...options.riskAcceptance, at: new Date().toISOString() }));
     }
-    let next = transitionNode(task, nodeId, decision === 'approved'
-      ? { type: 'approve', actor, ...(note === undefined ? {} : { note }) }
-      : { type: 'request_changes', actor, note: note ?? '' });
+    let next = transitionNode(task, nodeId, { type: 'approve', actor, ...(note === undefined ? {} : { note }) });
     const generatedFacts: Array<{ path: string; content: string }> = [];
     if (decision === 'approved' && nodeId === 'plan') {
       const materialized = await materializeImplementationWork(next, this.deps.taskStore);
@@ -320,6 +296,19 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '任务状态', undefined, decisions));
   }));
   command.addCommand(new Command('review').description('逐项确认需求澄清中的待决策事项，并完成澄清审批').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>', '本次澄清确认说明').action(async (taskId: string, options: { actor?: string; note?: string }, current: Command) => {
+    const currentTask = await deps.commands.status(taskId);
+    const clarifyStatus = currentTask.nodes.clarify?.status;
+    if (clarifyStatus === 'completed') {
+      writeCommandResult(currentTask, current, deps.stdout, {
+        headline: '需求澄清已确认，无需再次操作',
+        details: [{ label: '任务 ID', value: currentTask.id }],
+        nextSteps: [`aiw task status ${currentTask.id}`],
+      });
+      return;
+    }
+    if (clarifyStatus !== 'awaiting_approval') {
+      throw new Error(`需求澄清当前状态为「${clarifyStatus ?? '不存在'}」，暂时不能确认`);
+    }
     const decisions = (await deps.commands.listDecisions(taskId)).filter(({ resolution }) => resolution === undefined);
     const prompter = deps.reviewPrompter ?? createReviewPrompter(deps.stdout);
     const selections = await promptClarifyReview(taskId, decisions, prompter, deps.stdout);
@@ -394,10 +383,6 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     const task = await deps.commands.closeWithRisk(taskId, options);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '测试节点已按风险接受关闭', 'chore(aiw): close test with risk'));
   }));
-  command.addCommand(new Command('request-changes').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
-    const task = await deps.commands.requestChanges(taskId, nodeId, options);
-    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已退回修改`, `chore(aiw): record ${nodeId} changes`));
-  }));
   command.addCommand(new Command('fail').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
     const task = await deps.commands.fail(taskId, nodeId, options);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已标记失败`, `chore(aiw): record ${nodeId} failure`));
@@ -409,10 +394,6 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
       details: [{ label: '任务 ID', value: taskId }, { label: '运行 ID', value: result.runId }],
       nextSteps: ['等待当前命令结束后，AIW 会保存证据并将节点标记为已取消。'],
     });
-  }));
-  command.addCommand(new Command('revise').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; note: string }, current: Command) => {
-    const task = await deps.commands.revise(taskId, nodeId, options);
-    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已进入修订`, `chore(aiw): record ${nodeId} revision`));
   }));
   command.addCommand(new Command('skill').addCommand(new Command('rebind').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--skill <name@version>').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { skill: string; note: string }, current: Command) => {
     const task = await deps.commands.rebindSkill(taskId, nodeId, options);
@@ -456,10 +437,14 @@ function renderTaskOutput(task: Task, headline: string, commitMessage?: string, 
       ...(waiting === undefined ? [] : reviewOrApprovalNextSteps(task, waiting, decisions)),
       ...(ready === undefined ? [] : [`aiw task run ${task.id} ${ready[0]}`]),
       ...(blocked.length === 0 ? [] : [`aiw task decision list ${task.id}`]),
-      ...(failed === undefined ? [] : [`修正失败原因后：aiw task revise ${task.id} ${failed[0]} --note "<修改说明>"`]),
-      ...(invalidated === undefined ? [] : [`上游已变更，请先更新结论：aiw task revise ${task.id} ${invalidated[0]} --note "根据上游变更重新执行"`]),
+      ...(failed === undefined ? [] : [`提交失败证据：git add .aiw && git commit -m "chore(aiw): record ${failed[0]} failure"`, `重试当前节点：aiw task run ${task.id} ${failed[0]}`]),
+      ...(invalidated === undefined ? [] : sourceRefreshNextSteps(task)),
     ],
   };
+}
+
+function sourceRefreshNextSteps(task: Task): string[] {
+  return Object.keys(task.sources).map((sourceId) => `需求来源变更后：aiw task source refresh ${task.id} ${sourceId}`);
 }
 
 async function optionalDecisions(commands: TaskStateCommands, taskId: string): Promise<Awaited<ReturnType<TaskStateCommands['listDecisions']>>> {

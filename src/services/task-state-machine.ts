@@ -6,8 +6,6 @@ export type NodeEvent =
   | { type: 'start'; runId: string }
   | { type: 'succeed'; runId: string; outputs: OutputRecord[]; evidencePath: string }
   | { type: 'approve'; actor: string; note?: string }
-  | { type: 'request_changes'; actor: string; note: string }
-  | { type: 'revise'; actor: string; note: string }
   | { type: 'fail'; message: string; actor?: string }
   | { type: 'cancel'; note: string };
 
@@ -30,7 +28,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       }
       break;
     case 'start':
-      assertStatus(node, ['ready'], '只能启动已就绪节点');
+      assertStatus(node, ['ready', 'failed'], '只能启动已就绪或可重试节点');
       node.status = 'running';
       addEvent(next, 'start', nodeId, { runId: event.runId });
       break;
@@ -49,29 +47,8 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       addEvent(next, 'approve', nodeId, { actor: event.actor, note: event.note });
       unlockDependents(next, nodeId);
       break;
-    case 'request_changes': {
-      assertStatus(node, ['awaiting_approval'], '只能要求修改等待审批的节点');
-      assertNote(event.note);
-      node.status = 'pending';
-      const afterRequestedChanges = invalidateDependents(next, nodeId, 'approval changes requested');
-      addEvent(afterRequestedChanges, 'request_changes', nodeId, { actor: event.actor, note: event.note });
-      evaluateIfDependenciesCompleted(afterRequestedChanges, nodeId);
-      return TaskSchema.parse(deriveTaskStatus(afterRequestedChanges));
-    }
-    case 'revise': {
-      if (node.status === 'awaiting_approval') {
-        throw new TaskTransitionError('等待审批节点必须使用 request_changes');
-      }
-      assertStatus(node, ['pending', 'ready', 'failed', 'invalidated', 'completed'], '当前节点不能修订');
-      assertNote(event.note);
-      node.status = 'pending';
-      const afterRevision = invalidateDependents(next, nodeId, 'node revised');
-      addEvent(afterRevision, 'revise', nodeId, { actor: event.actor, note: event.note });
-      evaluateIfDependenciesCompleted(afterRevision, nodeId);
-      return TaskSchema.parse(deriveTaskStatus(afterRevision));
-    }
     case 'rebind_skill': {
-      assertStatus(node, ['pending', 'ready', 'failed', 'invalidated'], '只能重新绑定待执行或失效节点的技能');
+      assertStatus(node, ['pending', 'ready', 'failed'], '只能重新绑定待执行或可重试节点的技能');
       assertNote(event.note);
       const previousSkill = node.skill;
       node.skill = event.skill;
@@ -122,6 +99,21 @@ export function invalidateDependents(task: Task, upstreamNodeId: string, reason:
     }
   }
 
+  return TaskSchema.parse(deriveTaskStatus(next));
+}
+
+/** A source snapshot is the only mutable input. Its change restarts the downstream flow from the first affected node. */
+export function restartDependentsForSourceChange(task: Task, upstreamNodeId: string, reason: string): Task {
+  const next = invalidateDependents(task, upstreamNodeId, reason);
+  for (const node of Object.values(next.nodes)) {
+    if (node.status === 'invalidated') node.status = 'pending';
+  }
+  for (const [nodeId, node] of Object.entries(next.nodes)) {
+    if (node.status === 'pending' && dependenciesCompleted(next, node)) {
+      node.status = 'ready';
+      addEvent(next, 'evaluate', nodeId, { reason: 'source changed' });
+    }
+  }
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
@@ -177,14 +169,6 @@ function unlockDependents(task: Task, upstreamNodeId: string): void {
       node.status = 'ready';
       addEvent(task, 'evaluate', nodeId);
     }
-  }
-}
-
-function evaluateIfDependenciesCompleted(task: Task, nodeId: string): void {
-  const node = getNode(task, nodeId);
-  if (node.status === 'pending' && dependenciesCompleted(task, node)) {
-    node.status = 'ready';
-    addEvent(task, 'evaluate', nodeId);
   }
 }
 
