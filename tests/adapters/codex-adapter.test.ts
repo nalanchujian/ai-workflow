@@ -120,6 +120,7 @@ describe('CodexAdapter', () => {
     expect(context).toContain('artifacts/decision-register.yaml');
     expect(context).toContain('选项、取舍、明确的 `effect` 与 AI 推荐');
     expect(context).toContain('决策登记的每个 item 必须额外提供 `detail`');
+    expect(context).toContain('一次人工选择只能解决一个独立业务结论');
     expect(context).toContain('aiw.decision-register/v1');
   });
 

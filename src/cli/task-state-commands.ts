@@ -15,6 +15,7 @@ import { TaskCancellationService } from '../services/task-cancellation-service.j
 import { materializeImplementationWork, readWorkBreakdown, validatePlanAcceptanceCoverage } from '../services/implementation-work-planner.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
 import { AcceptanceResultsSchema, deliveryStatusFromAcceptanceResults } from '../domain/acceptance-results.js';
+import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
 import { type ProgressReporter } from './progress-reporter.js';
 import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js';
@@ -37,6 +38,8 @@ type ClarifyDecisionSelection = {
   unblockCondition?: string;
   manualNote?: string;
 };
+
+type AcceptanceDetail = { id: string; title: string; description: string };
 
 export class TaskStateCommands {
   constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; cancellation?: TaskCancellationService; decisionService?: TaskDecisionService }) {}
@@ -61,6 +64,13 @@ export class TaskStateCommands {
         return `${labels[disposition]}：${items.length === 0 ? '无' : items.join('、')}`;
       }),
     };
+  }
+
+  async acceptanceDetails(taskId: string): Promise<Map<string, AcceptanceDetail>> {
+    const task = await this.deps.taskStore.load(taskId);
+    const content = await readFile(join(this.deps.taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'utf8');
+    const catalog = AcceptanceCatalogSchema.parse(parse(content));
+    return new Map(catalog.items.map((item) => [item.id, item]));
   }
 
   async uncommittedTaskPaths(taskId: string): Promise<string[]> {
@@ -254,7 +264,8 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     if (options.confirm === true && decisions.length > 0) {
       throw new Error('存在待确认事项时不能使用 --confirm；请逐项执行 task review');
     }
-    const selections = options.confirm === true ? [] : await promptClarifyReview(taskId, decisions, prompter, deps.stdout);
+    const acceptanceDetails = await optionalAcceptanceDetails(deps.commands, taskId);
+    const selections = options.confirm === true ? [] : await promptClarifyReview(taskId, decisions, prompter, deps.stdout, acceptanceDetails);
     const task = await deps.commands.reviewClarify(taskId, selections, options);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '需求澄清已确认', 'chore(aiw): review clarify'));
   }));
@@ -365,6 +376,14 @@ async function optionalDecisions(commands: TaskStateCommands, taskId: string): P
   }
 }
 
+async function optionalAcceptanceDetails(commands: TaskStateCommands, taskId: string): Promise<Map<string, AcceptanceDetail>> {
+  try {
+    return await commands.acceptanceDetails(taskId);
+  } catch {
+    return new Map();
+  }
+}
+
 function clarifyDecisionSection(
   waiting: [string, TaskNode] | undefined,
   decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>>,
@@ -404,6 +423,7 @@ async function promptClarifyReview(
   decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>>,
   prompter: ReviewPrompter,
   stdout: NodeJS.WritableStream,
+  acceptanceDetails: Map<string, AcceptanceDetail>,
 ): Promise<ClarifyDecisionSelection[]> {
   stdout.write(`需求澄清 · 待确认 ${decisions.length} 项\n按序号选择；不理解问题时可先选择“查看问题详情”。\n\n`);
   const selections: ClarifyDecisionSelection[] = [];
@@ -427,7 +447,7 @@ async function promptClarifyReview(
     while (true) {
       answer = await askNumber(prompter, `请输入选择（1-${customChoice}）：`, customChoice);
       if (answer !== detailChoice) break;
-      writeDecisionDetail(item, stdout);
+      writeDecisionDetail(item, acceptanceDetails, stdout);
     }
     if (answer === customChoice) {
       const manualNote = await askRequiredText(prompter, '请输入结论：');
@@ -465,6 +485,7 @@ async function promptClarifyReview(
 
 function writeDecisionDetail(
   item: Awaited<ReturnType<TaskStateCommands['listDecisions']>>[number]['item'],
+  acceptanceDetails: Map<string, AcceptanceDetail>,
   stdout: NodeJS.WritableStream,
 ): void {
   const detail = item.detail;
@@ -472,12 +493,21 @@ function writeDecisionDetail(
   if (detail !== undefined) {
     stdout.write(`  需要确认：${detail.question}\n`);
     stdout.write(`  当前情况：${detail.background}\n`);
-    stdout.write(`  不确认的影响：${detail.impact}\n\n`);
-    return;
+    stdout.write(`  不确认的影响：${detail.impact}\n`);
+  } else {
+    stdout.write(`  需要确认：${item.title}\n`);
+    stdout.write(`  当前情况：${item.recommendation.rationale}\n`);
+    stdout.write(`  不确认的影响：${item.affects.acceptanceRefs.join('、')} 的验收与 ${item.affects.workUnits.join('、')} 的实施边界无法可靠确定。\n`);
   }
-  stdout.write(`  需要确认：${item.title}\n`);
-  stdout.write(`  当前情况：${item.recommendation.rationale}\n`);
-  stdout.write(`  不确认的影响：${item.affects.acceptanceRefs.join('、')} 的验收与 ${item.affects.workUnits.join('、')} 的实施边界无法可靠确定。\n\n`);
+  const references = item.affects.acceptanceRefs.map((id) => acceptanceDetails.get(id));
+  if (references.some((item) => item !== undefined)) {
+    stdout.write('  关联验收：\n');
+    for (const acceptance of references) {
+      if (acceptance === undefined) continue;
+      stdout.write(`    - ${acceptance.id}：${acceptance.title}\n      验收标准：${acceptance.description}\n`);
+    }
+  }
+  stdout.write('\n');
 }
 
 async function askNumber(prompter: ReviewPrompter, prompt: string, maximum: number): Promise<number> {
