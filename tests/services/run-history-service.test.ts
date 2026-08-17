@@ -20,7 +20,10 @@ describe('RunHistoryService', () => {
       taskId: 'refund-123',
       runId: 'run-1',
       status: 'succeeded',
-      context: { nodeId: 'clarify', nodeRevision: 1, fileCount: 2, roles: ['source', 'task'], estimatedTokens: 42, maxTokens: 12_000 },
+      context: {
+        nodeId: 'clarify', nodeRevision: 1, fileCount: 2, roles: ['source', 'task'], estimatedTokens: 42, maxTokens: 12_000,
+        breakdown: expect.arrayContaining([{ category: 'source', label: 'sources/requirements/r1/snapshot.md', estimatedTokens: 30 }]),
+      },
     });
     expect(result.logs).toContainEqual({ kind: 'stdout', path: join(fixture.runtimeRoot, 'refund-123', 'run-1', 'stdout.log'), available: true });
     expect(JSON.stringify(result)).not.toContain('这是完整上下文正文');
@@ -68,7 +71,14 @@ async function createRunFixture(directories: string[], runId: string) {
     skillProfile: { name: 'standard-web-feature', version: '1.0.0', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash },
     files: [{ role: 'task', path: 'task.md', sha256: hash }, { role: 'source', path: 'sources/requirements/r1/snapshot.md', sha256: hash, sourceId: 'requirements', sourceRevision: 1 }],
     skill: { name: 'requirements-clarification', version: '1.0.0', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash, methodSources: [] },
-    budget: { maxTokens: 12_000, estimatedTokens: 42 },
+    budget: {
+      maxTokens: 12_000,
+      estimatedTokens: 42,
+      breakdown: [
+        { category: 'task-fact', label: 'task.md', estimatedTokens: 12 },
+        { category: 'source', label: 'sources/requirements/r1/snapshot.md', estimatedTokens: 30 },
+      ],
+    },
   }), 'utf8');
   await writeFile(join(localDirectory, 'context.md'), '这是完整上下文正文', 'utf8');
   await writeFile(join(localDirectory, 'stdout.log'), 'stdout', 'utf8');

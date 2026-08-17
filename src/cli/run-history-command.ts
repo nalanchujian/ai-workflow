@@ -28,7 +28,16 @@ export function createRunHistoryCommand(deps: { history: RunHistoryService; prog
           ...(result.context.fileCount === undefined ? [] : [{ label: '上下文', value: `${result.context.fileCount} 个文件，约 ${result.context.estimatedTokens}/${result.context.maxTokens} tokens` }]),
           ...(result.error === undefined ? [] : [{ label: '失败原因', value: result.error.message }]),
         ],
-        sections: [{ title: '本机日志', lines: result.logs.map((log) => `${log.kind}：${log.available ? log.path : '未生成'}`) }],
+        sections: [
+          ...(result.context.breakdown === undefined || result.context.breakdown.length === 0 ? [] : [{
+            title: '上下文构成',
+            lines: result.context.breakdown
+              .filter((entry) => entry.estimatedTokens > 0)
+              .sort((left, right) => right.estimatedTokens - left.estimatedTokens)
+              .map((entry) => `${contextBudgetCategoryLabel(entry.category)}：${entry.label}（约 ${entry.estimatedTokens} tokens）`),
+          }]),
+          { title: '本机日志', lines: result.logs.map((log) => `${log.kind}：${log.available ? log.path : '未生成'}`) },
+        ],
       });
     }));
   command.addCommand(new Command('prune')
@@ -51,6 +60,20 @@ export function createRunHistoryCommand(deps: { history: RunHistoryService; prog
       });
     }));
   return command;
+}
+
+function contextBudgetCategoryLabel(category: string): string {
+  return ({
+    'task-fact': '任务事实',
+    source: '需求来源',
+    handoff: '结构化交接',
+    'revision-request': '修改说明',
+    additional: '附加文件',
+    'node-instruction': '节点指令',
+    skill: '阶段技能',
+    'method-source': '通用方法论',
+    'runtime-overhead': '运行约束与提示词结构',
+  } as Record<string, string>)[category] ?? category;
 }
 
 function runStatusLabel(status: string): string {

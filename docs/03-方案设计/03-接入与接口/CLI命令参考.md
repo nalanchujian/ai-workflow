@@ -54,7 +54,7 @@ aiw doctor --project /workspace/shop --lark-url https://<tenant>.larksuite.com/w
 aiw run show refund-123 run_01JABC --project .
 ```
 
-返回运行状态、开始/结束时间、产物哈希、失败摘要，以及 Context Manifest 的节点、revision、文件数量、角色、估算 token 与预算。共享 `result.json` 或 `context-manifest.json` 缺失、无效或与请求任务不一致时命令失败，不猜测或重建运行记录。
+返回运行状态、开始/结束时间、产物哈希、失败摘要，以及 Context Manifest 的节点、revision、文件数量、角色、最终 Prompt 的估算 token、预算和分项构成。共享 `result.json` 或 `context-manifest.json` 缺失、无效或与请求任务不一致时命令失败，不猜测或重建运行记录。
 
 ### `aiw run prune [--older-than <days>d] [--apply]`
 

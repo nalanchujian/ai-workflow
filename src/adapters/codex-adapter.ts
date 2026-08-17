@@ -14,7 +14,7 @@ export class CodexAdapter {
     const request = RunRequestSchema.parse(input);
     const startedAt = new Date().toISOString();
     await mkdir(request.runDirectory, { recursive: true });
-    const context = renderContext(request);
+    const context = this.renderPrompt(request);
     await writeFile(join(request.runDirectory, 'context.md'), context, 'utf8');
     await writeFile(join(request.runDirectory, 'request.json'), JSON.stringify(runtimeRequestSummary(request), null, 2) + '\n', 'utf8');
 
@@ -56,6 +56,10 @@ export class CodexAdapter {
       }
       throw error;
     }
+  }
+
+  renderPrompt(input: RunRequest): string {
+    return renderContext(RunRequestSchema.parse(input));
   }
 }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { ContextBudgetEntrySchema } from './context.js';
 import { OutputRecordSchema } from './task.js';
 
 const RunLogSchema = z.object({
@@ -26,6 +27,7 @@ export const RunHistorySchema = z.object({
     roles: z.array(z.string().min(1)),
     estimatedTokens: z.number().int().nonnegative(),
     maxTokens: z.number().int().positive(),
+    breakdown: z.array(ContextBudgetEntrySchema),
   }),
 });
 

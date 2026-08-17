@@ -8,7 +8,7 @@ describe('run history command', () => {
     let output = '';
     const command = createRunHistoryCommand({
       history: {
-        async show(input: unknown) { received.push(['show', input]); return { schemaVersion: 'aiw.run-history/v1', taskId: 'refund-123', runId: 'run-1', status: 'succeeded', logs: [], context: {} }; },
+        async show(input: unknown) { received.push(['show', input]); return { schemaVersion: 'aiw.run-history/v1', taskId: 'refund-123', runId: 'run-1', status: 'succeeded', logs: [], context: { breakdown: [{ category: 'source', label: 'requirements.md', estimatedTokens: 900 }] } }; },
         async prune(input: unknown) { received.push(['prune', input]); return { schemaVersion: 'aiw.run-prune/v1', apply: true, olderThanDays: 30, candidates: [], deleted: [] }; },
       } as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
@@ -23,6 +23,8 @@ describe('run history command', () => {
     ]);
     expect(output).toContain('运行记录：已完成');
     expect(output).toContain('运行 ID：run-1');
+    expect(output).toContain('上下文构成：');
+    expect(output).toContain('需求来源：requirements.md（约 900 tokens）');
     expect(output).not.toContain('"schemaVersion"');
   });
 });

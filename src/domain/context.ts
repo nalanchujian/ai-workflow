@@ -5,6 +5,26 @@ import { SkillLockSchema, WorkflowProfileLockSchema } from './task.js';
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
+export const ContextBudgetCategorySchema = z.enum([
+  'task-fact',
+  'source',
+  'handoff',
+  'revision-request',
+  'additional',
+  'node-instruction',
+  'skill',
+  'method-source',
+  'runtime-overhead',
+]);
+
+export type ContextBudgetCategory = z.infer<typeof ContextBudgetCategorySchema>;
+
+export const ContextBudgetEntrySchema = z.object({
+  category: ContextBudgetCategorySchema,
+  label: z.string().min(1),
+  estimatedTokens: z.number().int().nonnegative(),
+});
+
 export const ContextFileSchema = z.object({
   role: z.enum(['task', 'source', 'artifact', 'handoff', 'revision-request', 'additional']),
   path: z.string().regex(relativePathPattern),
@@ -24,6 +44,7 @@ export const ContextManifestSchema = z.object({
   budget: z.object({
     maxTokens: z.number().int().positive(),
     estimatedTokens: z.number().int().nonnegative(),
+    breakdown: z.array(ContextBudgetEntrySchema).min(1),
   }),
 });
 

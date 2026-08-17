@@ -82,10 +82,11 @@ export class TaskRunner {
       nodeId: input.nodeId,
       includes: input.includes,
       budgetInputs: [
-        { label: '节点指令', content: node.title },
-        { label: `技能：${skill.name}@${skill.version}`, content: skill.body },
-        ...methods.map((method) => ({ label: `方法论：${method.source.id}`, content: method.content })),
+        { category: 'node-instruction', label: '节点指令', content: node.title },
+        { category: 'skill', label: `技能：${skill.name}@${skill.version}`, content: skill.body },
+        ...methods.map((method) => ({ category: 'method-source' as const, label: `方法论：${method.source.id}`, content: method.content })),
       ],
+      enforceBudget: false,
     });
     await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: await committedPaths(this.deps.taskStore.projectDirectory(), task, this.deps.taskStore, input.nodeId, manifest) });
     if (!input.dryRun) {
@@ -96,18 +97,6 @@ export class TaskRunner {
     const runDirectory = join(this.deps.runtimeRoot, task.id, runId);
     const scope = input.dryRun ? undefined : await this.changeScope(task, input.nodeId, runId);
     const contextManifestFactPath = `runs/${runId}/context-manifest.json`;
-    await this.deps.taskStore.createFact(task.id, contextManifestFactPath, JSON.stringify(manifest, null, 2) + '\n');
-    const baseline: ChangeBaseline = {
-      path: `runs/${runId}/change-baseline.json`,
-      changedPaths: [],
-      outputs: input.dryRun ? [] : await outputBaseline(task, this.deps.taskStore, input.nodeId, outputPaths),
-      ...(input.dryRun ? {} : { git: await this.deps.changeInspector.revision({ projectRoot: this.deps.taskStore.projectDirectory() }) }),
-    };
-    if (!input.dryRun) {
-      await this.deps.taskStore.createFact(task.id, baseline.path, JSON.stringify({
-        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: baseline.changedPaths, outputs: baseline.outputs, ...(baseline.git === undefined ? {} : { git: baseline.git }),
-      }, null, 2) + '\n');
-    }
     const request: RunRequest = {
       schemaVersion: 'aiw.run/v1',
       runId,
@@ -124,9 +113,25 @@ export class TaskRunner {
         files: await loadContextFiles(task, this.deps.taskStore, manifest),
       },
     };
+    const finalizedManifest = this.deps.contextBuilder.finalizePromptBudget({
+      manifest,
+      prompt: this.deps.adapter.renderPrompt(request),
+    });
+    await this.deps.taskStore.createFact(task.id, contextManifestFactPath, JSON.stringify(finalizedManifest, null, 2) + '\n');
+    const baseline: ChangeBaseline = {
+      path: `runs/${runId}/change-baseline.json`,
+      changedPaths: [],
+      outputs: input.dryRun ? [] : await outputBaseline(task, this.deps.taskStore, input.nodeId, outputPaths),
+      ...(input.dryRun ? {} : { git: await this.deps.changeInspector.revision({ projectRoot: this.deps.taskStore.projectDirectory() }) }),
+    };
+    if (!input.dryRun) {
+      await this.deps.taskStore.createFact(task.id, baseline.path, JSON.stringify({
+        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: baseline.changedPaths, outputs: baseline.outputs, ...(baseline.git === undefined ? {} : { git: baseline.git }),
+      }, null, 2) + '\n');
+    }
 
     if (input.dryRun) {
-      const result = RunResultSchema.parse({ ...(await this.deps.adapter.run(request)), contextManifest: manifest });
+      const result = RunResultSchema.parse({ ...(await this.deps.adapter.run(request)), contextManifest: finalizedManifest });
       await this.writeResult(task.id, runId, result);
       return result;
     }
@@ -137,7 +142,7 @@ export class TaskRunner {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少变更范围');
     }
     await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
-    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline)), contextManifest: manifest });
+    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline)), contextManifest: finalizedManifest });
     await this.writeResult(task.id, runId, result);
     const next = result.status === 'succeeded'
       ? transitionNode(startedTask, input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })

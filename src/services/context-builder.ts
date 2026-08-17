@@ -2,14 +2,23 @@ import { createHash } from 'node:crypto';
 import { access, readFile, realpath } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 
-import { ContextManifestSchema, type ContextFile, type ContextManifest } from '../domain/context.js';
+import {
+  ContextManifestSchema,
+  type ContextBudgetCategory,
+  type ContextFile,
+  type ContextManifest,
+} from '../domain/context.js';
 import { handoffPath } from '../domain/handoff.js';
 import type { Task } from '../domain/task.js';
 
 const DEFAULT_TOKEN_BUDGET = 12_000;
 
 export class ContextBuilderError extends Error {
-  constructor(readonly code: 'CONTEXT_BUDGET_EXCEEDED' | 'CONTEXT_INVALID', message: string, readonly paths: string[] = []) {
+  constructor(
+    readonly code: 'CONTEXT_BUDGET_EXCEEDED' | 'CONTEXT_INVALID',
+    message: string,
+    readonly paths: string[] = [],
+  ) {
     super(message);
     this.name = 'ContextBuilderError';
   }
@@ -22,7 +31,13 @@ export class ContextBuilder {
     maxTokens?: number;
   }) {}
 
-  async build(input: { task: Task; nodeId: string; includes: string[]; budgetInputs?: ContextBudgetInput[] }): Promise<ContextManifest> {
+  async build(input: {
+    task: Task;
+    nodeId: string;
+    includes: string[];
+    budgetInputs?: ContextBudgetInput[];
+    enforceBudget?: boolean;
+  }): Promise<ContextManifest> {
     const node = input.task.nodes[input.nodeId];
     if (node === undefined || node.phase === 'intake' || node.skill === undefined) {
       throw new ContextBuilderError('CONTEXT_INVALID', '当前节点不能创建上下文');
@@ -41,16 +56,12 @@ export class ContextBuilder {
       ...(file.sourceId === undefined ? {} : { sourceId: file.sourceId }),
       ...(file.sourceRevision === undefined ? {} : { sourceRevision: file.sourceRevision }),
     }));
-    const budgetInputs = [
-      ...deduplicated.map((file) => ({ label: file.path, content: file.content })),
+    const budgetInputs: ContextBudgetInput[] = [
+      ...deduplicated.map((file) => ({ category: budgetCategoryForFile(file), label: file.path, content: file.content })),
       ...(input.budgetInputs ?? []),
     ];
-    const estimatedTokens = budgetInputs.reduce((total, entry) => total + estimateTokens(entry.content), 0);
     const maxTokens = this.deps.maxTokens ?? DEFAULT_TOKEN_BUDGET;
-    if (estimatedTokens > maxTokens) {
-      throw new ContextBuilderError('CONTEXT_BUDGET_EXCEEDED', '上下文超过预算，未截断任何内容', budgetInputs.map((entry) => entry.label));
-    }
-    return ContextManifestSchema.parse({
+    const manifest = ContextManifestSchema.parse({
       schemaVersion: 'aiw.context/v1',
       taskId: input.task.id,
       nodeId: input.nodeId,
@@ -58,8 +69,44 @@ export class ContextBuilder {
       skillProfile: input.task.skillProfile,
       files: contextFiles,
       skill: node.skill,
-      budget: { maxTokens, estimatedTokens },
+      budget: budgetFromInputs(maxTokens, budgetInputs),
     });
+    if (input.enforceBudget !== false) this.assertWithinBudget(manifest);
+    return manifest;
+  }
+
+  finalizePromptBudget(input: { manifest: ContextManifest; prompt: string }): ContextManifest {
+    const withoutRuntimeOverhead = input.manifest.budget.breakdown.filter((entry) => entry.category !== 'runtime-overhead');
+    const knownTokens = withoutRuntimeOverhead.reduce((total, entry) => total + entry.estimatedTokens, 0);
+    const promptTokens = estimateTokens(input.prompt);
+    const runtimeOverhead = Math.max(0, promptTokens - knownTokens);
+    const manifest = ContextManifestSchema.parse({
+      ...input.manifest,
+      budget: {
+        maxTokens: input.manifest.budget.maxTokens,
+        estimatedTokens: promptTokens,
+        breakdown: [
+          ...withoutRuntimeOverhead,
+          { category: 'runtime-overhead', label: '运行约束与提示词结构', estimatedTokens: runtimeOverhead },
+        ],
+      },
+    });
+    this.assertWithinBudget(manifest);
+    return manifest;
+  }
+
+  private assertWithinBudget(manifest: ContextManifest): void {
+    if (manifest.budget.estimatedTokens <= manifest.budget.maxTokens) return;
+    const breakdown = [...manifest.budget.breakdown]
+      .filter((entry) => entry.estimatedTokens > 0)
+      .sort((left, right) => right.estimatedTokens - left.estimatedTokens);
+    const labels = breakdown.map((entry) => entry.label);
+    const details = breakdown.map((entry) => `- ${budgetCategoryLabel(entry.category)}：${entry.label}（约 ${entry.estimatedTokens} tokens）`).join('\n');
+    throw new ContextBuilderError(
+      'CONTEXT_BUDGET_EXCEEDED',
+      `上下文超过预算：约 ${manifest.budget.estimatedTokens} / ${manifest.budget.maxTokens} tokens。\n构成：\n${details}\n建议：${budgetSuggestion(breakdown[0]?.category)}`,
+      labels,
+    );
   }
 
   private async defaultFiles(task: Task, nodeId: string, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>, taskDirectory: string): Promise<ContextFileWithContent[]> {
@@ -122,7 +169,8 @@ interface ContextFileWithContent extends ContextFile {
   content: string;
 }
 
-interface ContextBudgetInput {
+export interface ContextBudgetInput {
+  category?: ContextBudgetCategory;
   label: string;
   content: string;
 }
@@ -185,6 +233,58 @@ function sha256(content: string): string {
 
 function estimateTokens(content: string): number {
   return Math.ceil(Buffer.byteLength(content, 'utf8') / 4);
+}
+
+function budgetFromInputs(maxTokens: number, inputs: ContextBudgetInput[]) {
+  const breakdown = inputs.map((entry) => ({
+    category: entry.category ?? 'task-fact',
+    label: entry.label,
+    estimatedTokens: estimateTokens(entry.content),
+  }));
+  return {
+    maxTokens,
+    estimatedTokens: breakdown.reduce((total, entry) => total + entry.estimatedTokens, 0),
+    breakdown,
+  };
+}
+
+function budgetCategoryForFile(file: ContextFileWithContent): ContextBudgetCategory {
+  return ({
+    task: 'task-fact',
+    source: 'source',
+    artifact: 'task-fact',
+    handoff: 'handoff',
+    'revision-request': 'revision-request',
+    additional: 'additional',
+  } as const)[file.role];
+}
+
+function budgetCategoryLabel(category: ContextBudgetCategory): string {
+  return ({
+    'task-fact': '任务事实',
+    source: '需求来源',
+    handoff: '结构化交接',
+    'revision-request': '修改说明',
+    additional: '附加文件',
+    'node-instruction': '节点指令',
+    skill: '阶段技能',
+    'method-source': '通用方法论',
+    'runtime-overhead': '运行约束与提示词结构',
+  } as const)[category];
+}
+
+function budgetSuggestion(category: ContextBudgetCategory | undefined): string {
+  return ({
+    source: '缩小需求章节范围，或先在澄清节点形成更聚焦的结构化交接。',
+    handoff: '退回上游节点精简交接包，或将实施计划拆分为更小的工作单元。',
+    'task-fact': '检查任务事实是否包含重复或不再需要的内容；不要删除已批准原文。',
+    additional: '移除不必要的 --include 文件，必要时只提供相关章节。',
+    skill: '精简当前阶段技能的重复说明，或将通用规则下沉到固定运行约束。',
+    'method-source': '精简当前阶段引用的方法论，只保留本节点必需的方法。',
+    'runtime-overhead': '当前阶段固定约束过大；应精简重复的产物契约，而非压缩任务事实。',
+    'revision-request': '将修改说明限定为本次变更范围，避免重复粘贴历史需求。',
+    'node-instruction': '将节点目标收敛为可执行的单一工作单元。',
+  } as Record<ContextBudgetCategory, string>)[category ?? 'task-fact'];
 }
 
 function isMissingFile(error: unknown): error is NodeJS.ErrnoException {

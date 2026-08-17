@@ -27,6 +27,8 @@ describe('TaskRunner', () => {
     expect(result.status).toBe('succeeded');
     expect(fixture.processCalls).toHaveLength(0);
     expect(await readFile(join(result.runDirectory, 'context.md'), 'utf8')).toContain('<method-source id="superpowers:brainstorming" trust="lower-priority-guidance">');
+    const manifest = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'context-manifest.json'), 'utf8')) as { budget: { breakdown: Array<{ category: string; label: string }> } };
+    expect(manifest.budget.breakdown).toContainEqual(expect.objectContaining({ category: 'runtime-overhead', label: '运行约束与提示词结构' }));
     expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('ready');
   });
 
@@ -67,6 +69,17 @@ describe('TaskRunner', () => {
 
     await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: true, includes: [] }))
       .rejects.toMatchObject({ code: 'CONTEXT_BUDGET_EXCEEDED' });
+  });
+
+  it('counts the final rendered prompt overhead instead of only the task files', async () => {
+    const fixture = await createRunnerFixture({ maxTokens: 800 });
+
+    await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: true, includes: [] }))
+      .rejects.toMatchObject({
+        code: 'CONTEXT_BUDGET_EXCEEDED',
+        message: expect.stringContaining('运行约束与提示词结构'),
+      });
+    expect(fixture.processCalls).toHaveLength(0);
   });
 
   it('rejects a blocked downstream node before invoking Codex', async () => {

@@ -47,6 +47,7 @@ export class RunHistoryService {
         roles: [...new Set(manifest.files.map((file) => file.role))].sort(),
         estimatedTokens: manifest.budget.estimatedTokens,
         maxTokens: manifest.budget.maxTokens,
+        breakdown: manifest.budget.breakdown,
       },
     });
   }

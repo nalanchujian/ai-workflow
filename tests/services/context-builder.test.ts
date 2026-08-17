@@ -178,6 +178,32 @@ describe('ContextBuilder', () => {
       .rejects.toMatchObject({ code: 'CONTEXT_BUDGET_EXCEEDED', paths: expect.arrayContaining(['节点指令']) });
   });
 
+  it('records a classified budget breakdown so an oversized context can be diagnosed', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+    await writeHandoff(directory, task, 'solution');
+    task.nodes.plan.skill!.methodSources = [{ id: 'superpowers:writing-plans', source: 'bundled:superpowers', version: '6.2.0', revision: 'd'.repeat(40), sha256: 'd'.repeat(64) }];
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory }).build({
+      task,
+      nodeId: 'plan',
+      includes: [],
+      budgetInputs: [
+        { category: 'node-instruction', label: '节点指令', content: '制定可执行实施计划' },
+        { category: 'skill', label: '技能：implementation-planning@1.0.0', content: 'x'.repeat(80) },
+        { category: 'method-source', label: '方法论：superpowers:writing-plans', content: 'x'.repeat(40) },
+      ],
+    });
+
+    expect(manifest.budget.breakdown).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'handoff', label: handoffPath('solution', 0) }),
+      expect.objectContaining({ category: 'task-fact', label: 'task.yaml' }),
+      expect.objectContaining({ category: 'node-instruction', label: '节点指令' }),
+      expect.objectContaining({ category: 'skill' }),
+      expect.objectContaining({ category: 'method-source' }),
+    ]));
+  });
+
   it('includes the next revision instruction only for the node being rerun', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
