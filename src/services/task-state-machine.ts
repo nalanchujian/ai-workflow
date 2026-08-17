@@ -170,7 +170,9 @@ function unlockDependents(task: Task, upstreamNodeId: string): void {
 function resetForOverwrite(task: Task, nodeId: string): void {
   const affected = [nodeId, ...downstreamNodeIds(task, nodeId)];
   const affectedSet = new Set(affected);
-  const generatedImplementationIds = affected.filter((id) => id !== nodeId && task.nodes[id]?.phase === 'implement' && task.nodes[id]?.generatedFromPlanRevision !== undefined);
+  // `implement` is the permanent workflow anchor. A one-unit plan may have marked it
+  // as generated, but a later split plan must still be able to rebuild from its skill.
+  const generatedImplementationIds = affected.filter((id) => id !== nodeId && id !== 'implement' && task.nodes[id]?.phase === 'implement' && task.nodes[id]?.generatedFromPlanRevision !== undefined);
 
   for (const id of generatedImplementationIds) delete task.nodes[id];
 

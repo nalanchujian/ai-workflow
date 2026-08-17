@@ -148,6 +148,7 @@ describe('task state machine', () => {
     task.nodes.solution.status = 'completed';
     task.nodes.plan.status = 'completed';
     task.nodes.implement.status = 'superseded';
+    task.nodes.implement.generatedFromPlanRevision = 1;
     task.nodes['implement-export'] = {
       ...task.nodes.implement,
       title: '导出能力',
