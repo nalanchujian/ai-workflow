@@ -9,7 +9,7 @@ import {
   type ContextManifest,
 } from '../domain/context.js';
 import { handoffPath } from '../domain/handoff.js';
-import type { Task } from '../domain/task.js';
+import { registeredDecisionFactPaths, type Task } from '../domain/task.js';
 
 const DEFAULT_TOKEN_BUDGET = 12_000;
 
@@ -127,6 +127,7 @@ export class ContextBuilder {
     if (phase === 'solution' || phase === 'plan') {
       const decisionRegister = await this.optionalTaskFact(taskDirectory, 'artifacts/decision-register.yaml');
       if (decisionRegister !== undefined) files.push(decisionRegister);
+      files.push(...await Promise.all(registeredDecisionFactPaths(task).map((path) => this.requiredTaskFact(taskDirectory, path))));
     }
     return files;
   }
@@ -140,6 +141,12 @@ export class ContextBuilder {
       if (error instanceof ContextBuilderError && error.message === `上下文文件不存在：${path}`) return undefined;
       throw error;
     }
+  }
+
+  private async requiredTaskFact(taskDirectory: string, path: string): Promise<ContextFileWithContent> {
+    const absolutePath = await resolveInside(taskDirectory, path);
+    const content = await readFile(absolutePath, 'utf8');
+    return { role: 'artifact', path, sha256: sha256(content), absolutePath, content };
   }
 
   private async additionalFile(path: string, projectRoot: string): Promise<ContextFileWithContent> {

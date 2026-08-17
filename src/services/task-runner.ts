@@ -5,7 +5,7 @@ import { join, relative } from 'node:path';
 import type { CodexAdapter } from '../adapters/codex-adapter.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import type { ContextManifest } from '../domain/context.js';
-import type { OutputRecord, SkillLock, Task } from '../domain/task.js';
+import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
 import { handoffPath, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
 import { hasTestExecutionEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
@@ -423,6 +423,7 @@ function handoffEvidencePaths(task: Task, nodeId: string): string[] {
   const upstream = dependencyClosure(task, nodeId).flatMap((dependency) => task.nodes[dependency]?.outputs ?? []);
   return [...new Set([
     ...Object.values(task.sources).flatMap((source) => [source.snapshotPath, source.metaPath]),
+    ...registeredDecisionFactPaths(task),
     ...upstream,
     ...node.outputs,
   ])];

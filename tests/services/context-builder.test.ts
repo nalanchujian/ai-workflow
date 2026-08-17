@@ -83,6 +83,23 @@ describe('ContextBuilder', () => {
     expect(manifest.files.some((file) => file.path === 'artifacts/solution.md')).toBe(false);
   });
 
+  it('passes registered decision facts to solution and plan as traceable context', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+    task.decisions = [{
+      id: 'DEC-API-01', revision: 1, status: 'resolved', optionId: 'use-api', actor: 'tester',
+      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r1.yaml',
+    }];
+    await writeHandoff(directory, task, 'clarify');
+    await mkdir(join(directory, 'decisions', 'DEC-API-01'), { recursive: true });
+    await writeFile(join(directory, 'decisions', 'DEC-API-01', 'r1.yaml'), 'schemaVersion: aiw.decision/v1\n', 'utf8');
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'solution', includes: [] });
+
+    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'decisions/DEC-API-01/r1.yaml' }));
+  });
+
   it('uses the plan handoff instead of the current implementation work unit Markdown', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();

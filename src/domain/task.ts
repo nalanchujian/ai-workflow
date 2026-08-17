@@ -205,6 +205,11 @@ export type NodeStatus = z.infer<typeof NodeStatusSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type DeliveryStatus = z.infer<typeof DeliveryStatusSchema>;
 export type DecisionResolution = z.infer<typeof DecisionResolutionSchema>;
+
+/** Returns only decision facts explicitly registered in the immutable task record. */
+export function registeredDecisionFactPaths(task: Pick<Task, 'decisions'>): string[] {
+  return [...new Set(task.decisions.map((decision) => decision.factPath))];
+}
 export type SkillLock = z.infer<typeof SkillLockSchema>;
 export type OutputRecord = z.infer<typeof OutputRecordSchema>;
 export type SourceKind = z.infer<typeof SourceKindSchema>;

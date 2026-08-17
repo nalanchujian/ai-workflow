@@ -5,7 +5,7 @@ import { join, relative } from 'node:path';
 import { stringify } from 'yaml';
 
 import type { RunRequest, RunResult } from '../domain/run.js';
-import { TaskSchema, type Phase, type Task } from '../domain/task.js';
+import { registeredDecisionFactPaths, TaskSchema, type Phase, type Task } from '../domain/task.js';
 import { handoffPath, validateHandoff } from '../domain/handoff.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { TaskFactGuard } from './task-fact-guard.js';
@@ -181,6 +181,7 @@ function handoffExpectation(task: Task, nodeId: string): Parameters<typeof valid
     taskId: task.id, nodeId, phase: node.phase, revision: node.revision,
     evidencePaths: [...new Set([
       ...Object.values(task.sources).flatMap((source) => [source.snapshotPath, source.metaPath]),
+      ...registeredDecisionFactPaths(task),
       ...dependencyClosure(task, nodeId).flatMap((dependency) => task.nodes[dependency]?.outputs ?? []),
       ...node.outputs,
     ])],
