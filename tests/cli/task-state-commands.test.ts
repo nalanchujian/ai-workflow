@@ -212,6 +212,22 @@ describe('TaskStateCommands', () => {
     expect(output).toContain('2. aiw task run refund-123 plan');
   });
 
+  it('guides a waiting approval through review, commit, and approval in task status', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'awaiting_approval';
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: { async status() { return task; } } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'status', 'refund-123']);
+
+    expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/brief.md');
+    expect(output).toContain('2. 若尚未提交当前产物和状态：git add .aiw && git commit -m "chore(aiw): record clarify result"');
+    expect(output).toContain('3. aiw task approve refund-123 clarify --note "<审批说明>"');
+  });
+
   it('guides users to commit migrated handoffs before continuing the ready node', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';

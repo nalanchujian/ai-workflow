@@ -368,6 +368,8 @@ function renderTaskOutput(task: Task, headline: string, commitMessage?: string):
   const ready = Object.entries(task.nodes).find(([, node]) => node.status === 'ready');
   const waiting = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');
   const blocked = Object.entries(task.nodes).filter(([, node]) => node.status === 'blocked');
+  const failed = Object.entries(task.nodes).find(([, node]) => node.status === 'failed');
+  const invalidated = Object.entries(task.nodes).find(([, node]) => node.status === 'invalidated');
   return {
     headline,
     details: [
@@ -377,13 +379,25 @@ function renderTaskOutput(task: Task, headline: string, commitMessage?: string):
       { label: '交付状态', value: deliveryStatusLabel(task.deliveryStatus) },
     ],
     sections: [{ title: '节点', lines: Object.entries(task.nodes).map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) }],
-    nextSteps: ready === undefined && waiting === undefined && blocked.length === 0 ? undefined : [
+    nextSteps: ready === undefined && waiting === undefined && blocked.length === 0 && failed === undefined && invalidated === undefined ? undefined : [
       ...(commitMessage === undefined ? [] : [`git add .aiw && git commit -m "${commitMessage}"`]),
-      ...(waiting === undefined ? [] : [`aiw task approve ${task.id} ${waiting[0]} --note "<审批说明>"`]),
+      ...(waiting === undefined ? [] : approvalNextSteps(task, waiting[0], waiting[1])),
       ...(ready === undefined ? [] : [`aiw task run ${task.id} ${ready[0]}`]),
       ...(blocked.length === 0 ? [] : [`aiw task decision list ${task.id}`]),
+      ...(failed === undefined ? [] : [`修正失败原因后：aiw task revise ${task.id} ${failed[0]} --note "<修改说明>"`]),
+      ...(invalidated === undefined ? [] : [`上游已变更，请先更新结论：aiw task revise ${task.id} ${invalidated[0]} --note "根据上游变更重新执行"`]),
     ],
   };
+}
+
+function approvalNextSteps(task: Task, nodeId: string, node: TaskNode): string[] {
+  const taskDirectory = `.aiw/tasks/${task.id}`;
+  const outputPaths = node.outputs.map((path) => `${taskDirectory}/${path}`);
+  return [
+    `查看待审批产物：${outputPaths.join('、')}`,
+    `若尚未提交当前产物和状态：git add .aiw && git commit -m "chore(aiw): record ${nodeId} result"`,
+    `aiw task approve ${task.id} ${nodeId} --note "<审批说明>"`,
+  ];
 }
 
 function taskStatusLabel(status: Task['status']): string {
