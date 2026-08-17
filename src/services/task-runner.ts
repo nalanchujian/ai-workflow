@@ -67,7 +67,7 @@ export class TaskRunner {
       await this.deps.taskStore.update(recovered);
       throw new TaskRunnerError('RUN_RECOVERED', '上次运行未正常结束，节点已自动标记失败；提交失败证据后可直接再次执行 task run 重试');
     }
-    const canOverwrite = node !== undefined && node.phase !== 'intake' && ['completed', 'awaiting_approval'].includes(node.status);
+    const canOverwrite = node !== undefined && node.phase !== 'intake' && ['completed', 'awaiting_approval', 'cancelled'].includes(node.status);
     if (node === undefined || node.phase === 'intake' || (!['ready', 'failed'].includes(node.status) && !canOverwrite) || node.skill === undefined) {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪、可重试、已完成或待审批节点');
     }

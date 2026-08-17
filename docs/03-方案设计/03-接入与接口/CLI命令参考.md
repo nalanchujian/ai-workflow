@@ -136,7 +136,7 @@ aiw task init --project . --source ./requirements.md
 aiw task init --project /workspace/shop --source https://example.com/requirements
 aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token>
 aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token> --section "订单退款流程"
-aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@4.0.0
+aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@5.0.0
 aiw task init --project . --source ./requirements.md --force-new
 ```
 
@@ -175,7 +175,7 @@ aiw task source refresh refund-123 requirements
 | `<task-id>` | 必填。目标任务。 |
 | `<source-id>` | 必填。任务中的来源标识。 |
 
-若正文哈希不变，命令返回“未变化”，不创建新 revision，也不改变任务状态。若正文变化，命令在 `sources/<source-id>/r<revision>/` 创建新快照和元数据，保留旧 revision，更新 `intake` 的当前输出，并从 `clarify` 重新排队受影响流程。调用者必须提交新 revision 与状态变化，才能运行新的 `clarify`。
+若正文哈希不变，命令返回“未变化”，不创建新 revision，也不改变任务状态。若正文变化，命令在 `sources/<source-id>/r<revision>/` 创建新快照和元数据，保留旧 revision，更新 `intake` 的当前输出，并从 `clarify` 重新排队受影响流程。旧 `decisions/**` 与 `approvals/**` 文件继续保留审计，但不再被 `task.yaml` 视为当前决策或当前审批；新的 `clarify` 必须重新确认。调用者必须提交新 revision 与状态变化，才能运行新的 `clarify`。
 
 来源不存在、公共 URL 不符合安全规则、匹配连接器不可用或无权限、正文为空或超限时，命令失败且不改变已有快照或任务状态。
 
@@ -192,7 +192,7 @@ aiw task status refund-123 --json
 
 ### `aiw task review <task-id> [--actor <name>] [--note <text>] [--confirm]`
 
-日常确认需求澄清的唯一入口。仅用于处于 `awaiting_approval` 的 `clarify` 节点；AIW 按顺序以“问题 → 原因 → 影响 → 推荐 → 备选”的短卡片展示每项待决策事项，使用者只输入序号。最后一项固定为“自定义结论”，人工输入原文以 `manual` 决策事实保存。若选择名称或标识为“等待”的方案，AIW 仅额外询问负责团队（可直接回车，记录为“待指定”），并把该事项标记为外部等待；全部选择后，再确认一次即可同时写入各项决策事实和澄清审批事实。
+日常确认需求澄清的唯一入口。仅用于处于 `awaiting_approval` 的 `clarify` 节点；AIW 按顺序以“问题 → 原因 → 影响 → 推荐 → 备选”的短卡片展示每项待决策事项，使用者只输入序号。每个选项都声明了固定结果：继续实施、等待外部条件、拆至后续范围或接受风险；AIW 按声明写入决策状态，不根据选项名称猜测。最后一项固定为“自定义结论”，人工输入原文以 `manual` 决策事实保存。选择等待方案时，AIW 额外询问负责团队（可直接回车，记录为“待指定”）；选择拆期或风险豁免时必须填写说明。全部选择后，再确认一次即可同时写入各项决策事实和澄清审批事实。
 
 ```bash
 aiw task review refund-123
@@ -215,7 +215,7 @@ aiw task decision resolve refund-123 DEC-API-01 --note "后端接口已发布并
 
 ### `aiw task run <task-id> <node-id> [--project <path>] [--dry-run] [--include <relative-path>]`
 
-使用节点已锁定的技能运行一个已就绪、可重试、已完成或待审批节点。对已完成或待审批节点再次运行时，AIW 直接覆盖该节点及下游节点的当前任务产物。`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
+使用节点已锁定的技能运行一个已就绪、可重试、已取消、已完成或待审批节点。对已取消、已完成或待审批节点再次运行时，AIW 直接覆盖该节点及下游节点的当前任务产物；取消对应的历史运行证据仍会保留。`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
 
 ```bash
 aiw task run refund-123 clarify
@@ -230,7 +230,7 @@ aiw task run refund-123 implement --include docs/api-contract.md
 | `--dry-run` | 可选。不启动 Codex，只生成 `context.md`、manifest 和预演结果。 |
 | `--include <relative-path>` | 可重复。可显式加入项目根目录内的文件；每项必须记录到 manifest。 |
 
-节点通常在 `ready` 或 `failed` 且任务模板/技能锁定已提交时可运行；已完成或待审批的非 `intake` 节点也可直接再次运行。覆盖式重跑会删除当前节点及下游节点的任务产物、Handoff、审批和动态实施单元，随后从当前节点重新生成；需求快照、业务代码和 `runs/` 调试记录不会被删除。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。
+节点通常在 `ready` 或 `failed` 且任务模板/技能锁定已提交时可运行；已取消、已完成或待审批的非 `intake` 节点也可直接再次运行。取消后应先提交取消记录，再使用同一条 `task run` 重试。覆盖式重跑会删除当前节点及下游节点的任务产物、Handoff、审批和动态实施单元，随后从当前节点重新生成；需求快照、业务代码和 `runs/` 调试记录不会被删除。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。
 
 运行前，Runner 必须确认所有默认上游产物、审批文件与状态变化已经提交到当前 Git 分支；否则拒绝运行并列出待提交路径。执行模式还要求业务工作树干净，并记录当前 Git 提交与分支；执行期间发生提交、重置或切换分支时，节点失败并保留证据。`task run` 不自动执行 Git 操作。共享 `runs/` 写入 manifest、允许范围、变更路径、允许范围内未跟踪文件的补丁及去敏结果；完整提示词与原始日志位于 `~/.aiw/runtime/<task-id>/<run-id>/`。
 
@@ -238,7 +238,7 @@ aiw task run refund-123 implement --include docs/api-contract.md
 
 ### `aiw task cancel <task-id> <node-id> --note <text>`
 
-正式取消正在运行的节点。命令先写入本机取消请求；若已记录 Codex 子进程，则发送终止信号。当前运行结束后，AIW 保留日志和变更证据，并将节点置为 `cancelled`，不会解锁下游节点。
+正式取消正在运行的节点。命令先写入本机取消请求；若已记录 Codex 子进程，则发送终止信号。当前运行结束后，AIW 保留日志和变更证据，并将节点置为 `cancelled`，不会解锁下游节点。提交取消记录后，可直接重新执行同一节点；无需额外恢复命令。
 
 ```bash
 aiw task cancel refund-123 implement --note "需求暂停"
@@ -283,7 +283,7 @@ aiw task source refresh refund-123 requirements
 git add .aiw && git commit -m "chore(aiw): refresh requirement source"
 ```
 
-来源刷新会固化新的需求快照、保留旧事实，并将流程重新排队到 `clarify`；不得修改既有方案、计划、实现或测试产物。
+来源刷新会固化新的需求快照、保留旧事实，并将流程重新排队到 `clarify`；旧决策与审批文件只作为历史证据，不能沿用为新来源的当前结论；不得修改既有方案、计划、实现或测试产物。
 
 ## 命令与任务状态
 

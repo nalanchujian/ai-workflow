@@ -27,7 +27,7 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       }
       break;
     case 'start':
-      if (node.phase !== 'intake' && ['completed', 'awaiting_approval'].includes(node.status)) {
+      if (node.phase !== 'intake' && ['completed', 'awaiting_approval', 'cancelled'].includes(node.status)) {
         resetForOverwrite(next, nodeId);
       } else {
         assertStatus(node, ['ready', 'failed'], '只能启动已就绪、可重试、已完成或待审批节点');
@@ -99,6 +99,7 @@ export function invalidateDependents(task: Task, upstreamNodeId: string, reason:
 /** A source snapshot is the only mutable input. Its change restarts the downstream flow from the first affected node. */
 export function restartDependentsForSourceChange(task: Task, upstreamNodeId: string, reason: string): Task {
   const next = invalidateDependents(task, upstreamNodeId, reason);
+  const affected = [upstreamNodeId, ...downstreamNodeIds(next, upstreamNodeId)];
   for (const node of Object.values(next.nodes)) {
     if (node.status === 'invalidated') node.status = 'pending';
   }
@@ -108,6 +109,11 @@ export function restartDependentsForSourceChange(task: Task, upstreamNodeId: str
       addEvent(next, 'evaluate', nodeId, { reason: 'source changed' });
     }
   }
+  // Files remain immutable audit history, but no prior decision or approval may be
+  // treated as current after its upstream source snapshot changes.
+  next.decisions = [];
+  next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((nodeId) => path.startsWith(`approvals/${nodeId}/`)));
+  if (affected.includes('test')) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
@@ -263,7 +269,7 @@ export function deriveTaskStatus(task: Task): Task {
     return task;
   }
   const canProgress = statuses.some((status) => ['ready', 'running', 'awaiting_approval'].includes(status));
-  const hasBlockedWork = statuses.some((status) => ['blocked', 'failed', 'invalidated'].includes(status));
+  const hasBlockedWork = statuses.some((status) => ['blocked', 'failed', 'invalidated', 'cancelled'].includes(status));
   task.status = hasBlockedWork ? (canProgress ? 'partially_blocked' : 'blocked') : 'active';
   return task;
 }

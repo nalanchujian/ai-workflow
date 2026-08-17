@@ -32,7 +32,7 @@ const ApprovalFactSchema = z.object({
 type ClarifyDecisionSelection = {
   decisionId: string;
   optionId: string;
-  status?: 'resolved' | 'waiting_external';
+  status?: 'resolved' | 'waiting_external' | 'deferred' | 'waived';
   owner?: string;
   unblockCondition?: string;
   manualNote?: string;
@@ -248,7 +248,7 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
             `影响工作单元：${item.affects.workUnits.join('、')}`,
             `AI 推荐：${item.recommendation.optionId}（${item.recommendation.rationale}）`,
             `当前选择：${resolution === undefined ? '待选择' : `${resolution.optionId}（${resolution.status}）`}`,
-            ...item.options.map((option) => `- ${option.id}：${option.title}；${option.tradeoffs}`),
+            ...item.options.map((option) => `- ${option.id}：${option.title}；${option.tradeoffs}；结果：${decisionEffectLabel(option.effect)}`),
           ],
         })),
       });
@@ -287,6 +287,7 @@ function renderTaskOutput(
   const waiting = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');
   const blocked = Object.entries(task.nodes).filter(([, node]) => node.status === 'blocked');
   const failed = Object.entries(task.nodes).find(([, node]) => node.status === 'failed');
+  const cancelled = Object.entries(task.nodes).find(([, node]) => node.status === 'cancelled');
   const invalidated = Object.entries(task.nodes).find(([, node]) => node.status === 'invalidated');
   return {
     headline,
@@ -300,7 +301,7 @@ function renderTaskOutput(
       ...nodeSections(task),
       ...clarifyDecisionSection(waiting, decisions),
     ],
-    nextSteps: ready.length === 0 && waiting === undefined && blocked.length === 0 && failed === undefined && invalidated === undefined ? undefined : [
+    nextSteps: ready.length === 0 && waiting === undefined && blocked.length === 0 && failed === undefined && cancelled === undefined && invalidated === undefined ? undefined : [
       ...(commitMessage === undefined ? [] : [`git add .aiw && git commit -m "${commitMessage}"`]),
       ...(waiting === undefined ? [] : reviewOrApprovalNextSteps(task, waiting, decisions, uncommittedTaskPaths)),
       ...(ready.length === 0 ? [] : ready.length === 1 ? [`aiw task run ${task.id} ${ready[0]![0]}`] : ready.map(([nodeId, node]) => `执行「${node.title}」：aiw task run ${task.id} ${nodeId}`)),
@@ -308,6 +309,10 @@ function renderTaskOutput(
       ...(failed === undefined ? [] : [
         ...(uncommittedTaskPaths === undefined || uncommittedTaskPaths.length > 0 ? [`git add .aiw && git commit -m "chore(aiw): record ${failed[0]} failure"`] : []),
         `重试「${failed[1].title}」：aiw task run ${task.id} ${failed[0]}`,
+      ]),
+      ...(cancelled === undefined ? [] : [
+        ...(uncommittedTaskPaths === undefined || uncommittedTaskPaths.length > 0 ? [`git add .aiw && git commit -m "chore(aiw): record ${cancelled[0]} cancellation"`] : []),
+        `重新执行「${cancelled[1].title}」：aiw task run ${task.id} ${cancelled[0]}`,
       ]),
       ...(invalidated === undefined ? [] : sourceRefreshNextSteps(task)),
     ],
@@ -384,10 +389,10 @@ async function promptClarifyReview(
     stdout.write(`[${index + 1}/${decisions.length}] ${item.title}\n`);
     stdout.write(`  原因：${item.recommendation.rationale}\n`);
     stdout.write(`  影响：${item.affects.acceptanceRefs.join('、')} · ${item.affects.workUnits.join('、')}\n`);
-    stdout.write(`  推荐\n    1. ${recommendation.title}\n       取舍：${recommendation.tradeoffs}\n`);
+    stdout.write(`  推荐\n    1. ${recommendation.title}\n       取舍：${recommendation.tradeoffs}\n       结果：${decisionEffectLabel(recommendation.effect)}\n`);
     if (alternatives.length > 0) {
       stdout.write('  备选\n');
-      alternatives.forEach((option, optionIndex) => stdout.write(`    ${optionIndex + 2}. ${option.title}\n       取舍：${option.tradeoffs}\n`));
+      alternatives.forEach((option, optionIndex) => stdout.write(`    ${optionIndex + 2}. ${option.title}\n       取舍：${option.tradeoffs}\n       结果：${decisionEffectLabel(option.effect)}\n`));
     }
     stdout.write(`    ${alternatives.length + 2}. 自定义结论\n`);
     const choices = [recommendation, ...alternatives];
@@ -399,18 +404,22 @@ async function promptClarifyReview(
       continue;
     }
     const choice = choices[answer - 1]!;
-    if (isExternalWaitOption(choice)) {
+    if (choice.effect === 'waiting_external') {
       stdout.write('该方案需要等待外部信息。请输入负责团队（直接回车可稍后补充）：\n');
       const owner = (await prompter.ask('等待对象：')).trim() || '待指定';
       selections.push({
         decisionId: item.id,
         optionId: choice.id,
-        status: 'waiting_external',
+        status: choice.effect,
         owner,
         unblockCondition: `已确认：${item.title}`,
       });
+    } else if (choice.effect === 'deferred' || choice.effect === 'waived') {
+      const label = choice.effect === 'deferred' ? '拆期说明' : '风险豁免说明';
+      const manualNote = await askRequiredText(prompter, `请输入${label}：`);
+      selections.push({ decisionId: item.id, optionId: choice.id, status: choice.effect, manualNote });
     } else {
-      selections.push({ decisionId: item.id, optionId: choice.id });
+      selections.push({ decisionId: item.id, optionId: choice.id, status: choice.effect });
     }
     stdout.write('\n');
   }
@@ -422,14 +431,19 @@ async function promptClarifyReview(
   return selections;
 }
 
-function isExternalWaitOption(option: { id: string; title: string }): boolean {
-  return option.id.startsWith('wait-') || /等待/.test(option.title);
-}
-
 async function askNumber(prompter: ReviewPrompter, prompt: string, maximum: number): Promise<number> {
   while (true) {
     const answer = Number((await prompter.ask(prompt)).trim());
     if (Number.isInteger(answer) && answer >= 1 && answer <= maximum) return answer;
+  }
+}
+
+function decisionEffectLabel(effect: 'resolved' | 'waiting_external' | 'deferred' | 'waived'): string {
+  switch (effect) {
+    case 'resolved': return '本期继续实施';
+    case 'waiting_external': return '等待外部条件，仅阻塞关联实施单元';
+    case 'deferred': return '拆至后续范围，移除关联实施单元';
+    case 'waived': return '接受已知风险，继续实施';
   }
 }
 

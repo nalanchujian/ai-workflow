@@ -52,6 +52,15 @@ describe('TaskDecisionService', () => {
     expect(task.nodes.implement.status).toBe('superseded');
     expect(task.nodes.verify.dependsOn).toEqual([]);
   });
+
+  it('derives the decision status from the selected option instead of accepting a conflicting status', async () => {
+    const { service } = await fixture();
+
+    await expect(service.choose({
+      taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'defer-scope', actor: 'product-owner',
+      status: 'resolved', note: '接口能力拆至下个版本。',
+    })).rejects.toThrow('决策选项的处理结果必须为：deferred');
+  });
 });
 
 async function fixture(): Promise<{ store: TaskStore; service: TaskDecisionService }> {
@@ -62,6 +71,6 @@ async function fixture(): Promise<{ store: TaskStore; service: TaskDecisionServi
   await store.create(task);
   const artifacts = join(store.taskDirectory(task.id), 'artifacts');
   await mkdir(artifacts, { recursive: true });
-  await writeFile(join(artifacts, 'decision-register.yaml'), `schemaVersion: aiw.decision-register/v1\nitems:\n  - id: DEC-API-01\n    title: 详情趋势数据来源\n    type: external-contract\n    affects:\n      acceptanceRefs: [AC-07]\n      workUnits: [performance-overview]\n    status: proposed\n    options:\n      - id: wait-api\n        title: 等待正式 API\n        tradeoffs: 交付依赖后端排期，但数据口径一致。\n      - id: defer-scope\n        title: 拆至后续版本\n        tradeoffs: 当前范围缩小，需要后续跟踪。\n    recommendation:\n      optionId: wait-api\n      rationale: 当前仓库没有可信详情与趋势接口。\n`, 'utf8');
+  await writeFile(join(artifacts, 'decision-register.yaml'), `schemaVersion: aiw.decision-register/v1\nitems:\n  - id: DEC-API-01\n    title: 详情趋势数据来源\n    type: external-contract\n    affects:\n      acceptanceRefs: [AC-07]\n      workUnits: [performance-overview]\n    status: proposed\n    options:\n      - id: wait-api\n        title: 等待正式 API\n        tradeoffs: 交付依赖后端排期，但数据口径一致。\n        effect: waiting_external\n      - id: defer-scope\n        title: 拆至后续版本\n        tradeoffs: 当前范围缩小，需要后续跟踪。\n        effect: deferred\n    recommendation:\n      optionId: wait-api\n      rationale: 当前仓库没有可信详情与趋势接口。\n`, 'utf8');
   return { store, service: new TaskDecisionService({ taskStore: store }) };
 }

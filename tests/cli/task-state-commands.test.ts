@@ -212,8 +212,8 @@ describe('TaskStateCommands', () => {
               id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
               affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
               options: [
-                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。' },
-                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。' },
+                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。', effect: 'waiting_external' },
+                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。', effect: 'resolved' },
               ],
               recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情与趋势接口。' },
             },
@@ -246,7 +246,7 @@ describe('TaskStateCommands', () => {
             item: {
               id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
               affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
-              options: [{ id: 'wait-api', title: '等待正式 API', tradeoffs: '依赖后端排期。' }, { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '不能完成端到端验收。' }],
+              options: [{ id: 'wait-api', title: '等待正式 API', tradeoffs: '依赖后端排期。', effect: 'waiting_external' }, { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '不能完成端到端验收。', effect: 'resolved' }],
               recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情接口。' },
             },
           }];
@@ -283,6 +283,25 @@ describe('TaskStateCommands', () => {
     expect(output).not.toContain('若尚未提交');
   });
 
+  it('guides a cancelled node through committing evidence and rerunning the same command', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'cancelled';
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return task; },
+        async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/task.yaml']; },
+        async listDecisions() { return []; },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'status', 'refund-123']);
+
+    expect(output).toContain('git add .aiw && git commit -m "chore(aiw): record clarify cancellation"');
+    expect(output).toContain('重新执行「澄清需求」：aiw task run refund-123 clarify');
+  });
+
   it('guides users through every clarify decision and confirms them together', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'awaiting_approval';
@@ -298,8 +317,8 @@ describe('TaskStateCommands', () => {
               id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
               affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
               options: [
-                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。' },
-                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。' },
+                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。', effect: 'waiting_external' },
+                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。', effect: 'resolved' },
               ],
               recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情与趋势接口。' },
             },
@@ -320,7 +339,9 @@ describe('TaskStateCommands', () => {
     expect(output).toContain('[1/1] 详情趋势数据来源');
     expect(output).toContain('原因：当前仓库没有可信详情与趋势接口。');
     expect(output).toContain('推荐\n    1. 等待正式 API');
+    expect(output).toContain('结果：等待外部条件，仅阻塞关联实施单元');
     expect(output).toContain('备选\n    2. 使用 Mock 验证界面');
+    expect(output).toContain('结果：本期继续实施');
     expect(output).toContain('取舍：交付依赖后端排期，但数据口径一致。');
     expect(output).toContain('取舍：可以提前验证界面，但不能完成端到端验收。');
     expect(output).toContain('3. 自定义结论');
@@ -329,6 +350,46 @@ describe('TaskStateCommands', () => {
       decisionId: 'DEC-API-01',
       optionId: 'manual',
       manualNote: '详情页先复用现有聚合接口，趋势和导出等待下一期。',
+    }]);
+  });
+
+  it('records the declared deferred effect and requires a scope-splitting note', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'awaiting_approval';
+    let selections: unknown;
+    const prompts: string[] = [];
+    const answers = ['2', '详情趋势能力拆至下一期，本期不纳入验收。', '1'];
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return task; },
+        async listDecisions() {
+          return [{
+            item: {
+              id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
+              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
+              options: [
+                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。', effect: 'waiting_external' },
+                { id: 'defer-scope', title: '拆至后续版本', tradeoffs: '当前范围缩小，需要后续跟踪。', effect: 'deferred' },
+              ],
+              recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情与趋势接口。' },
+            },
+          }];
+        },
+        async reviewClarify(_taskId: string, received: unknown) {
+          selections = received;
+          return task;
+        },
+      } as never,
+      reviewPrompter: { async ask(prompt: string) { prompts.push(prompt); return answers.shift() ?? ''; } },
+      stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'review', 'refund-123']);
+
+    expect(prompts).toContain('请输入拆期说明：');
+    expect(selections).toEqual([{
+      decisionId: 'DEC-API-01', optionId: 'defer-scope', status: 'deferred',
+      manualNote: '详情趋势能力拆至下一期，本期不纳入验收。',
     }]);
   });
 
@@ -414,9 +475,11 @@ items:
       - id: wait-api
         title: 等待正式 API
         tradeoffs: 交付依赖后端排期，但数据口径一致。
+        effect: waiting_external
       - id: mock-ui
         title: 使用 Mock 验证界面
         tradeoffs: 可以提前验证界面，但不能完成端到端验收。
+        effect: resolved
     recommendation:
       optionId: wait-api
       rationale: 当前仓库没有可信详情与趋势接口。

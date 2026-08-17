@@ -206,6 +206,21 @@ describe('TaskRunner', () => {
     expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('cancelled');
   });
 
+  it('allows a cancelled node to be run again with a new current result', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+    });
+    const cancelled = await fixture.taskStore.load('refund-123');
+    cancelled.nodes.clarify.status = 'cancelled';
+    await fixture.taskStore.update(cancelled);
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result.status).toBe('succeeded');
+    expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('awaiting_approval');
+  });
+
   it('rejects an empty or structurally invalid declared artifact', async () => {
     const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']], writeArtifact: 'done\n' });
 

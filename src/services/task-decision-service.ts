@@ -32,8 +32,12 @@ export class TaskDecisionService {
     const register = await this.readRegister(task);
     const proposal = this.findProposal(register, input.decisionId);
     const manual = input.optionId === 'manual';
-    if (!manual && !proposal.options.some((option) => option.id === input.optionId)) {
+    const option = proposal.options.find((candidate) => candidate.id === input.optionId);
+    if (!manual && option === undefined) {
       throw new Error(`决策项不存在选项：${input.optionId}`);
+    }
+    if (option !== undefined && option.effect !== input.status) {
+      throw new Error(`决策选项的处理结果必须为：${option.effect}`);
     }
     if (manual && (input.note === undefined || input.note.trim().length === 0)) {
       throw new Error('人工输入的决策结论不能为空');

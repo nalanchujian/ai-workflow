@@ -16,7 +16,7 @@ describe('LocalInitializer', () => {
 
     await expect(initializer.init()).resolves.toEqual({ schemaVersion: 'aiw.init/v1', status: 'created', configPath: join(directory, 'config.yaml') });
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('connectors: {}');
-    await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('defaultProfile: standard-web-feature@4.0.0');
+    await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('defaultProfile: standard-web-feature@5.0.0');
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.not.toContain('methodSources:');
     await expect(initializer.init()).resolves.toEqual({ schemaVersion: 'aiw.init/v1', status: 'already-initialized', configPath: join(directory, 'config.yaml') });
   });

@@ -117,6 +117,18 @@ describe('task state machine', () => {
     expect(next.events).toContainEqual(expect.objectContaining({ type: 'start', nodeId: 'solution', runId: 'retry-run' }));
   });
 
+  it('allows a cancelled node to be started again and restores a runnable task state', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'cancelled';
+
+    const next = transitionNode(task, 'solution', { type: 'start', runId: 'retry-cancelled-run' });
+
+    expect(next.nodes.solution.status).toBe('running');
+    expect(next.status).toBe('active');
+    expect(next.events).toContainEqual(expect.objectContaining({ type: 'start', nodeId: 'solution', runId: 'retry-cancelled-run' }));
+  });
+
   it('allows a completed stage to be run again and resets all active downstream state', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';

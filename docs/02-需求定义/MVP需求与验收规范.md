@@ -49,7 +49,7 @@
 - `--section` 仅适用于支持章节读取的文档连接器：按唯一标题截取该标题及子标题内容，并锁定实际标题、起止块 ID 与截取内容哈希。空标题、不存在、重名、空章节、未启用连接器章节工具或来源不支持章节读取时必须拒绝初始化；后续刷新必须沿用锁定章节。
 - 快照元数据记录来源类型、来源、revision、获取时间、内容 SHA-256 与提取器版本；不得记录本机绝对路径、Cookie、令牌或授权头。
 - 需要团队审批的来源快照必须可由业务仓库读者访问，并通过 Git 提交；敏感来源必须先形成脱敏快照。
-- `aiw task source refresh <task-id> <source-id>` 重新读取指定来源；正文哈希未变化时不创建 revision、不改变任务状态；哈希变化时创建新 revision、保留旧快照，并从首个受影响节点重新开始下游流程。
+- `aiw task source refresh <task-id> <source-id>` 重新读取指定来源；正文哈希未变化时不创建 revision、不改变任务状态；哈希变化时创建新 revision、保留旧快照，并从首个受影响节点重新开始下游流程。旧决策与审批文件保留为历史证据，但不得继续作为当前决策或当前审批引用；新的 `clarify` 必须重新形成并确认当前结论。
 
 ### FR-4：默认任务图与状态机
 
@@ -59,12 +59,12 @@
 - 执行模式必须在 Codex 启动前拒绝业务工作树中的未提交变更，并记录 Git 提交与分支基线；执行后采集 Git 变更路径、允许范围内未跟踪文件补丁及 Git 状态。超范围变更或 Git 历史/分支变化必须写入运行证据、将当前节点标记失败且不得解锁下游节点。实施节点缺少结构化 `allowedPaths` 范围时必须拒绝执行。
 - 需要审批的 `clarify`、`plan`、`test` 节点，在运行成功后进入 `awaiting_approval`；`solution` 可由高风险任务模板额外设置审批。
 - `aiw task approve <task-id> <node-id> [--actor <name>] [--note <text>]` 仅可批准当前 revision 的 `awaiting_approval` 节点；待审产物和当前状态均已提交时，写入绑定全部输出哈希的审批文件并将节点置为 `completed`。未提供 `--actor` 时必须读取 Git 用户名，否则失败。MVP 的 `actor` 仅用于留痕，不验证身份、角色或权限；同一操作者可以代表不同责任角色执行提审、审批和决策命令。
-- `clarify` 必须生成 `artifacts/decision-register.yaml`：每个无法由现有事实确定、且影响验收或实施范围的事项必须含至少两个选项、取舍和 AI 推荐。存在未处理事项时，普通 `task approve ... clarify` 必须拒绝；`aiw task review <task-id>` 必须逐项展示建议、选项和人工输入入口，并在最终确认后一次性写入选择与澄清审批事实。人工输入会以保留原文的 `manual` 决策事实写入任务；选择名称或标识为“等待”的方案时，`review` 记录外部等待并仅阻塞关联工作单元。澄清确认后不允许修改决策结论；仅在外部条件已满足时允许使用 `aiw task decision resolve` 解除对应等待。
+- `clarify` 必须生成 `artifacts/decision-register.yaml`：每个无法由现有事实确定、且影响验收或实施范围的事项必须含至少两个选项、取舍、AI 推荐和明确的 `effect`。`effect` 只能是 `resolved`（本期继续）、`waiting_external`（等待外部条件）、`deferred`（拆至后续范围）或 `waived`（接受风险继续）。存在未处理事项时，普通 `task approve ... clarify` 必须拒绝；`aiw task review <task-id>` 必须逐项展示建议、选项和人工输入入口，并按选项声明的结果一次性写入选择与澄清审批事实。人工输入会以保留原文的 `manual` 决策事实写入任务；选择等待方案时，`review` 记录外部等待并仅阻塞关联工作单元；选择拆期或风险豁免时必须说明原因。澄清确认后不允许修改决策结论；仅在外部条件已满足时允许使用 `aiw task decision resolve` 解除对应等待。
 - `work-breakdown.yaml` 的工作单元可使用 `blockedBy: [DEC-...]`。未决或外部等待决策仅阻塞关联单元；解决或豁免后解锁；拆期后从当前验证汇合移除。
 - 测试节点必须输出 `artifacts/acceptance-results.yaml`。普通 `task approve <task-id> test` 只接受全部验收项为 `passed`、`deferred` 或 `waived` 的结果；存在 `failed` 或 `blocked` 时必须拒绝。`task close-with-risk <task-id> --owner --reason --expires-at` 是唯一风险关闭入口，必须写入风险接受事实并将交付状态标为 `risk_accepted`。
 - 阶段产物一旦形成不提供人工修订或退回入口。需求变更必须更新原始来源并执行 `aiw task source refresh`；来源产生新 revision 后，AIW 从 `clarify` 重新开始受影响的下游流程。任一非 `intake` 节点均可直接再次执行：AIW 覆盖该节点及下游的当前任务产物、审批和状态，但不删除需求快照、业务代码或运行记录。
 - `aiw task status <task-id>` 默认显示任务、交付和节点状态摘要；使用 `--json` 时输出完整任务事实，其中包含依赖、revision、审批与失效原因。
-- `aiw task cancel <task-id> <node-id> --note <text>` 仅用于 `running` 节点；写入本机取消请求并终止已记录的 Codex 子进程。运行收尾时必须保留证据并将节点置为 `cancelled`。
+- `aiw task cancel <task-id> <node-id> --note <text>` 仅用于 `running` 节点；写入本机取消请求并终止已记录的 Codex 子进程。运行收尾时必须保留证据并将节点置为 `cancelled`。提交取消记录后，使用同一条 `aiw task run <task-id> <node-id>` 可重新执行该非 `intake` 节点；取消不解锁下游节点，也不删除历史运行证据。
 
 ### FR-5：上下文包与运行预演
 

@@ -81,7 +81,9 @@ async function nextStepsForRun(
 
 function commitSteps(uncommitted: string[], businessPaths: string[], nodeId: string, resultStatus: string): string[] {
   if (uncommitted.length === 0) return [];
-  const message = resultStatus === 'succeeded' ? `record ${nodeId} result` : `record ${nodeId} failure`;
+  const message = resultStatus === 'succeeded'
+    ? `record ${nodeId} result`
+    : resultStatus === 'cancelled' ? `record ${nodeId} cancellation` : `record ${nodeId} failure`;
   if (businessPaths.length === 0) return [`git add .aiw && git commit -m "chore(aiw): ${message}"`];
   const paths = businessPaths.map(shellQuote).join(' ');
   return [

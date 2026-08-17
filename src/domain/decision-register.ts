@@ -7,6 +7,7 @@ const DecisionOptionSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,40}$/, '决策选项 ID 格式无效'),
   title: z.string().min(1),
   tradeoffs: z.string().min(8),
+  effect: z.enum(['resolved', 'waiting_external', 'deferred', 'waived']),
 }).strict();
 
 const ResolutionSchema = z.object({

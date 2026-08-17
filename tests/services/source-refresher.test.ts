@@ -27,7 +27,17 @@ describe('SourceRefresher', () => {
     const first = await intake.snapshot({ sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123' });
     const reference = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
     task.sources.requirements = reference;
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+    task.nodes.plan.status = 'completed';
+    task.decisions = [{
+      id: 'DEC-API-01', revision: 1, status: 'resolved', optionId: 'mock-only', actor: 'tech-lead',
+      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r1.yaml',
+    }];
+    task.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml'];
     await store.create(task);
+    await store.createFact(task.id, 'decisions/DEC-API-01/r1.yaml', '历史决策证据\n');
+    await store.createFact(task.id, 'approvals/clarify/r1.yaml', '历史审批证据\n');
     connector.content = '# Refund v2';
     const refresher = new SourceRefresher({ intake, taskStore: store });
 
@@ -36,6 +46,10 @@ describe('SourceRefresher', () => {
     expect(result).toMatchObject({ changed: true, revision: 2 });
     expect(result.task.nodes.clarify.status).toBe('ready');
     expect(result.task.nodes.solution.status).toBe('pending');
+    expect(result.task.decisions).toEqual([]);
+    expect(result.task.approvalRefs).toEqual([]);
+    await expect(readFile(join(store.taskDirectory(task.id), 'decisions', 'DEC-API-01', 'r1.yaml'), 'utf8')).resolves.toBe('历史决策证据\n');
+    await expect(readFile(join(store.taskDirectory(task.id), 'approvals', 'clarify', 'r1.yaml'), 'utf8')).resolves.toBe('历史审批证据\n');
     await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'intake', 'r2.yaml'), 'utf8')).resolves.toContain('revision: 2');
   });
 
