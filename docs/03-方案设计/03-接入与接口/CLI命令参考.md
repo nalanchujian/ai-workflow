@@ -198,7 +198,7 @@ aiw task status refund-123 --json
 aiw task review refund-123
 ```
 
-执行前必须先提交本次 `clarify` 的产物、`decision-register.yaml` 与任务状态；成功后必须提交新产生的 `.aiw` 决策和审批记录。仍有未处理决策时，`task approve refund-123 clarify` 会拒绝执行并提示使用本命令。
+执行前必须先提交本次 `clarify` 的产物、`decision-register.yaml` 与任务状态；成功后必须提交新产生的 `.aiw` 决策和审批记录。`clarify` 不使用 `task approve`，无论是否存在待决事项均通过本命令确认。
 
 ### `aiw task decision <list|choose|wait|defer|waive|resolve>`
 

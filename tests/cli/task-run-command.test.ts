@@ -21,6 +21,7 @@ describe('task run command', () => {
           };
         },
         async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/task.yaml']; },
+        async runBusinessPaths() { return []; },
       } as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });

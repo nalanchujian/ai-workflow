@@ -57,6 +57,16 @@ export class TaskStateCommands {
     });
   }
 
+  async runBusinessPaths(taskId: string, runId: string): Promise<string[]> {
+    try {
+      const content = await readFile(join(this.deps.taskStore.taskDirectory(taskId), 'runs', runId, 'change-diff.json'), 'utf8');
+      const record = z.object({ changedPaths: z.array(z.string()) }).parse(JSON.parse(content));
+      return record.changedPaths.filter((path) => !path.startsWith('.aiw/'));
+    } catch {
+      return [];
+    }
+  }
+
   async migrateHandoffs(taskId: string): Promise<{ task: Task; migration: HandoffMigrationResult }> {
     if (this.deps.handoffMigrator === undefined) throw new Error('当前环境不支持历史交接包迁移');
     const migration = await this.deps.handoffMigrator.migrate({ taskId });
@@ -99,6 +109,9 @@ export class TaskStateCommands {
   }
 
   async approve(taskId: string, nodeId: string, options: { actor?: string; note?: string }): Promise<Task> {
+    if (nodeId === 'clarify') {
+      throw new Error(`需求澄清请使用 aiw task review ${taskId}`);
+    }
     return this.decide(taskId, nodeId, 'approved', options);
   }
 
@@ -229,9 +242,6 @@ export class TaskStateCommands {
       throw new Error('只能审批等待审批的节点');
     }
     const note = options.note?.trim();
-    if (decision === 'approved' && nodeId === 'clarify') {
-      await this.assertClarifyDecisionsReviewed(taskId);
-    }
     const completionBundle = await loadRunCompletionBundle(task, this.deps.taskStore, nodeId);
     if (!internal.skipCommittedCheck) {
       await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...completionBundle.paths] });
@@ -287,15 +297,6 @@ export class TaskStateCommands {
     });
   }
 
-  private async assertClarifyDecisionsReviewed(taskId: string): Promise<void> {
-    if (this.deps.decisionService === undefined) return;
-    const pending = (await this.deps.decisionService.list(taskId))
-      .filter(({ resolution }) => resolution === undefined)
-      .map(({ item }) => item.id);
-    if (pending.length > 0) {
-      throw new Error(`需求澄清仍有待确认项：${pending.join('、')}；请运行 aiw task review ${taskId}`);
-    }
-  }
 }
 
 export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdout: NodeJS.WriteStream; progress?: ProgressReporter; reviewPrompter?: ReviewPrompter }): Command {
@@ -435,7 +436,7 @@ function renderTaskOutput(
   decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>> = [],
   uncommittedTaskPaths?: string[],
 ): HumanOutput {
-  const ready = Object.entries(task.nodes).find(([, node]) => node.status === 'ready');
+  const ready = Object.entries(task.nodes).filter(([, node]) => node.status === 'ready');
   const waiting = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');
   const blocked = Object.entries(task.nodes).filter(([, node]) => node.status === 'blocked');
   const failed = Object.entries(task.nodes).find(([, node]) => node.status === 'failed');
@@ -449,15 +450,18 @@ function renderTaskOutput(
       { label: '交付状态', value: deliveryStatusLabel(task.deliveryStatus) },
     ],
     sections: [
-      { title: '节点', lines: Object.entries(task.nodes).map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) },
+      ...nodeSections(task),
       ...clarifyDecisionSection(waiting, decisions),
     ],
-    nextSteps: ready === undefined && waiting === undefined && blocked.length === 0 && failed === undefined && invalidated === undefined ? undefined : [
+    nextSteps: ready.length === 0 && waiting === undefined && blocked.length === 0 && failed === undefined && invalidated === undefined ? undefined : [
       ...(commitMessage === undefined ? [] : [`git add .aiw && git commit -m "${commitMessage}"`]),
       ...(waiting === undefined ? [] : reviewOrApprovalNextSteps(task, waiting, decisions, uncommittedTaskPaths)),
-      ...(ready === undefined ? [] : [`aiw task run ${task.id} ${ready[0]}`]),
+      ...(ready.length === 0 ? [] : ready.length === 1 ? [`aiw task run ${task.id} ${ready[0]![0]}`] : ready.map(([nodeId, node]) => `执行「${node.title}」：aiw task run ${task.id} ${nodeId}`)),
       ...(blocked.length === 0 ? [] : [`aiw task decision list ${task.id}`]),
-      ...(failed === undefined ? [] : [`提交失败证据：git add .aiw && git commit -m "chore(aiw): record ${failed[0]} failure"`, `重试当前节点：aiw task run ${task.id} ${failed[0]}`]),
+      ...(failed === undefined ? [] : [
+        ...(uncommittedTaskPaths === undefined || uncommittedTaskPaths.length > 0 ? [`git add .aiw && git commit -m "chore(aiw): record ${failed[0]} failure"`] : []),
+        `重试「${failed[1].title}」：aiw task run ${task.id} ${failed[0]}`,
+      ]),
       ...(invalidated === undefined ? [] : sourceRefreshNextSteps(task)),
     ],
   };
@@ -465,6 +469,16 @@ function renderTaskOutput(
 
 function sourceRefreshNextSteps(task: Task): string[] {
   return Object.keys(task.sources).map((sourceId) => `需求来源变更后：aiw task source refresh ${task.id} ${sourceId}`);
+}
+
+function nodeSections(task: Task): Array<NonNullable<HumanOutput['sections']>[number]> {
+  const units = Object.entries(task.nodes).filter(([, node]) => node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.status !== 'superseded');
+  const split = units.length > 1;
+  const ordinary = Object.entries(task.nodes).filter(([nodeId, node]) => !split || (node.phase !== 'implement' && nodeId !== 'implement'));
+  return [
+    { title: '节点', lines: ordinary.map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) },
+    ...(split ? [{ title: `实施单元（${units.length}）`, lines: units.map(([nodeId, node]) => `${node.title}：${nodeStatusLabel(node.status)}（${nodeId}）`) }] : []),
+  ];
 }
 
 async function optionalDecisions(commands: TaskStateCommands, taskId: string): Promise<Awaited<ReturnType<TaskStateCommands['listDecisions']>>> {
@@ -497,7 +511,7 @@ function reviewOrApprovalNextSteps(
   decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>>,
   uncommittedTaskPaths?: string[],
 ): string[] {
-  if (waiting[0] === 'clarify' && decisions.some(({ resolution }) => resolution === undefined)) {
+  if (waiting[0] === 'clarify') {
     return [
       `查看待审批产物：${waiting[1].outputs.map((path) => `.aiw/tasks/${task.id}/${path}`).join('、')}`,
       ...(uncommittedTaskPaths === undefined || uncommittedTaskPaths.length > 0

@@ -35,12 +35,13 @@ describe('ImplementationWorkPlanner', () => {
 
     const second = await materializeImplementationWork(await store.load(task.id), store);
 
+    expect(second.task.nodes['implement-page'].status).toBe('superseded');
     expect(second.task.nodes['implement-export'].status).toBe('superseded');
     expect(second.task.nodes['implement-export-r2']).toMatchObject({
       contextPath: 'artifacts/work-units/r2/implement-export-r2.md',
       allowedPaths: ['src/services/export-v2.ts'],
     });
-    expect(second.task.nodes.verify.dependsOn).toEqual(['implement', 'implement-export-r2']);
+    expect(second.task.nodes.verify.dependsOn).toEqual(['implement-page-r2', 'implement-export-r2']);
   });
 
   it('keeps a work unit visible but blocked when its decision is waiting for an external condition', async () => {
@@ -80,7 +81,7 @@ describe('ImplementationWorkPlanner', () => {
     const materialized = await materializeImplementationWork(await store.load(task.id), store);
 
     expect(materialized.task.nodes['implement-export'].status).toBe('superseded');
-    expect(materialized.task.nodes.verify.dependsOn).toEqual(['implement']);
+    expect(materialized.task.nodes.verify.dependsOn).toEqual(['implement-page']);
   });
 });
 

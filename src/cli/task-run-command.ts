@@ -6,7 +6,7 @@ import type { TaskStateCommands } from './task-state-commands.js';
 import { writeCommandResult } from './output.js';
 import { TerminalProgressReporter, type ProgressReporter } from './progress-reporter.js';
 
-type TaskStateReader = Pick<TaskStateCommands, 'status' | 'uncommittedTaskPaths'>;
+type TaskStateReader = Pick<TaskStateCommands, 'status' | 'uncommittedTaskPaths' | 'runBusinessPaths'>;
 
 export function createTaskRunCommand(deps: { runner: TaskRunner; taskState: TaskStateReader; progress?: ProgressReporter; stdout: NodeJS.WriteStream }): Command {
   return new Command('run')
@@ -44,7 +44,7 @@ export function createTaskRunCommand(deps: { runner: TaskRunner; taskState: Task
           ...(result.artifacts === undefined || result.artifacts.length === 0 ? [] : [{ label: '产物', value: result.artifacts.map((artifact) => artifact.path).join('、') }]),
           ...(result.error === undefined ? [] : [{ label: '原因', value: result.error.message }]),
         ],
-        nextSteps: await nextStepsForRun(deps.taskState, taskId, nodeId, result.status),
+        nextSteps: await nextStepsForRun(deps.taskState, taskId, nodeId, result.runId, result.status),
       });
     });
 }
@@ -53,13 +53,13 @@ async function nextStepsForRun(
   taskState: TaskStateReader,
   taskId: string,
   nodeId: string,
+  runId: string,
   resultStatus: string,
 ): Promise<string[] | undefined> {
   const task = await taskState.status(taskId);
   const uncommitted = await taskState.uncommittedTaskPaths(taskId);
-  const commit = uncommitted.length === 0
-    ? []
-    : [`git add .aiw && git commit -m "chore(aiw): record ${nodeId} ${resultStatus === 'succeeded' ? 'result' : 'failure'}"`];
+  const businessPaths = await taskState.runBusinessPaths(taskId, runId);
+  const commit = commitSteps(uncommitted, businessPaths, nodeId, resultStatus);
 
   if (resultStatus !== 'succeeded') {
     return [...commit, `aiw task run ${taskId} ${nodeId}`];
@@ -77,6 +77,21 @@ async function nextStepsForRun(
 
   if (task.status === 'completed') return commit.length === 0 ? undefined : commit;
   return [...commit, `aiw task status ${taskId}`];
+}
+
+function commitSteps(uncommitted: string[], businessPaths: string[], nodeId: string, resultStatus: string): string[] {
+  if (uncommitted.length === 0) return [];
+  const message = resultStatus === 'succeeded' ? `record ${nodeId} result` : `record ${nodeId} failure`;
+  if (businessPaths.length === 0) return [`git add .aiw && git commit -m "chore(aiw): ${message}"`];
+  const paths = businessPaths.map(shellQuote).join(' ');
+  return [
+    `检查本次业务改动：git diff -- ${paths}`,
+    `git add ${paths} .aiw && git commit -m "chore(aiw): ${message}"`,
+  ];
+}
+
+function shellQuote(value: string): string {
+  return /[^A-Za-z0-9_./-]/.test(value) ? JSON.stringify(value) : value;
 }
 
 function approvalOrReviewStep(task: Task, nodeId: string): string {

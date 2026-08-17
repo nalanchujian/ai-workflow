@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { parse } from 'yaml';
 
 import { createTaskStateCommand, TaskStateCommands } from '../../src/cli/task-state-commands.js';
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
@@ -28,22 +27,18 @@ describe('TaskStateCommands', () => {
     expect(command.commands.map((item) => item.name())).not.toContain('request-changes');
   });
 
-  it('writes an approval bound to the current output hashes before unlocking the downstream node', async () => {
-    const { store, directory } = await createApprovalTask('clarify');
+  it('requires clarify to use the review command', async () => {
+    const { store } = await createApprovalTask('clarify');
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
     });
 
-    await commands.approve('refund-123', 'clarify', { note: '验收标准完整' });
-
-    const approval = parse(await readFile(join(directory, 'approvals', 'clarify', 'r1.yaml'), 'utf8'));
-    expect(approval).toMatchObject({ decision: 'approved', actor: 'tech-lead', nodeId: 'clarify', nodeRevision: 1 });
-    expect(approval.artifactHashes).toMatchObject({ 'artifacts/brief.md': `sha256:${createHash('sha256').update('# artifacts/brief.md\n').digest('hex')}` });
-    expect((await store.load('refund-123')).nodes.solution.status).toBe('ready');
+    await expect(commands.approve('refund-123', 'clarify', { note: '验收标准完整' }))
+      .rejects.toThrow('需求澄清请使用 aiw task review refund-123');
   });
 
-  it('rejects approval when the node has no complete run evidence package', async () => {
+  it('rejects direct clarify approval before checking its run bundle', async () => {
     const { store } = await createApprovalTask('clarify', { completionBundle: false });
     const commands = new TaskStateCommands({
       taskStore: store,
@@ -51,10 +46,10 @@ describe('TaskStateCommands', () => {
     });
 
     await expect(commands.approve('refund-123', 'clarify', { note: '验收标准完整' }))
-      .rejects.toThrow('缺少可提交的完成运行包');
+      .rejects.toThrow('需求澄清请使用 aiw task review refund-123');
   });
 
-  it('requires outstanding clarify decisions to be reviewed before approval', async () => {
+  it('rejects direct clarify approval when decisions are outstanding', async () => {
     const { store, directory } = await createApprovalTask('clarify');
     await writeDecisionRegister(directory);
     const commands = new TaskStateCommands({
@@ -64,7 +59,7 @@ describe('TaskStateCommands', () => {
     });
 
     await expect(commands.approve('refund-123', 'clarify', { note: '需求澄清确认' }))
-      .rejects.toThrow('需求澄清仍有待确认项：DEC-API-01；请运行 aiw task review refund-123');
+      .rejects.toThrow('需求澄清请使用 aiw task review refund-123');
   });
 
   it('records every clarify decision and approval in one review', async () => {
@@ -227,10 +222,11 @@ describe('TaskStateCommands', () => {
 
     const updated = await commands.approve('refund-123', 'plan', { note: '计划确认' });
 
-    expect(updated.nodes.implement).toMatchObject({
+    expect(updated.nodes.implement).toMatchObject({ status: 'superseded' });
+    expect(updated.nodes['implement-page']).toMatchObject({
       title: '实现页面筛选',
       allowedPaths: ['src/pages/links/**'],
-      contextPath: 'artifacts/work-units/r1/implement.md',
+      contextPath: 'artifacts/work-units/r1/implement-page.md',
       status: 'ready',
     });
     expect(updated.nodes['implement-export']).toMatchObject({
@@ -239,7 +235,7 @@ describe('TaskStateCommands', () => {
       contextPath: 'artifacts/work-units/r1/implement-export.md',
       status: 'ready',
     });
-    expect(updated.nodes.verify.dependsOn).toEqual(['implement', 'implement-export']);
+    expect(updated.nodes.verify.dependsOn).toEqual(['implement-page', 'implement-export']);
     await expect(readFile(join(directory, 'artifacts', 'work-units', 'r1', 'implement-export.md'), 'utf8'))
       .resolves.toContain('src/services/export.ts');
   });

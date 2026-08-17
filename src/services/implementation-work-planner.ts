@@ -88,9 +88,14 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
     next.nodes[nodeId]!.status = 'superseded';
     next.events.push({ type: 'supersede', nodeId, at: new Date().toISOString(), reason: `已由计划 r${planRevision} 重新生成` });
   }
-  verify.dependsOn = verify.dependsOn.filter((nodeId) => !generatedNodeIds.includes(nodeId));
+  const split = breakdown.units.length > 1;
+  verify.dependsOn = verify.dependsOn.filter((nodeId) => nodeId !== 'implement' && !generatedNodeIds.includes(nodeId));
+  if (split) {
+    next.nodes.implement = { ...implementation, status: 'superseded' };
+    next.events.push({ type: 'supersede', nodeId: 'implement', at: new Date().toISOString(), reason: `计划 r${planRevision} 已拆分为 ${breakdown.units.length} 个实施单元` });
+  }
 
-  const nodeIds = new Map(breakdown.units.map((unit, index) => [unit.id, index === 0 ? 'implement' : nextNodeId(next, `implement-${unit.id}`, planRevision)]));
+  const nodeIds = new Map(breakdown.units.map((unit, index) => [unit.id, !split && index === 0 ? 'implement' : nextNodeId(next, `implement-${unit.id}`, planRevision)]));
   const facts: Array<{ path: string; content: string }> = [];
   const taskDirectory = taskStore.taskDirectory(task.id);
   const planHash = createHash('sha256').update(await readFile(join(taskDirectory, 'artifacts', 'implementation-plan.md'))).digest('hex');
