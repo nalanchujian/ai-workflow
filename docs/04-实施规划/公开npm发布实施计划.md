@@ -33,7 +33,7 @@
   "scripts": {
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "pack:check": "pnpm build && npm pack --dry-run",
-    "publish:public": "npm publish --access public --registry=https://registry.npmjs.org"
+    "publish:public": "node scripts/assert-release-ready.mjs && npm publish --access public --registry=https://registry.npmjs.org && node scripts/commit-published-package.mjs"
   }
 }
 ```
@@ -53,7 +53,7 @@
 - README 以 `npm install -g @nalanchujian/ai-workflow` 作为默认安装方式；本地链接仅用于开发。
 - 文档说明升级和卸载命令，以及安装后运行 `aiw doctor`。
 - 开发指南说明版本递增、`npm login`、`pnpm pack:check`、`npm publish --access public --registry=https://registry.npmjs.org` 的人工发布顺序。
-- 明确 npm 令牌、`~/.aiw/config.yaml`、Lark/Codex 凭据不得写入仓库或包中。
+- 明确 npm 令牌、`~/.aiw/config.yaml`、文档连接器/Codex 凭据不得写入仓库或包中。
 
 ## 验证与提交
 
@@ -67,5 +67,7 @@ git commit -m "chore: prepare public npm distribution"
 
 ```bash
 npm login --registry=https://registry.npmjs.org
-npm publish --access public --registry=https://registry.npmjs.org
+pnpm publish:public
 ```
+
+`publish:public` 先执行发布前工作树断言，再调用 npm 发布；发布成功后仅提交本次版本变更后的 `package.json`。它不会保存 npm 凭据，也不会替发布者登录。

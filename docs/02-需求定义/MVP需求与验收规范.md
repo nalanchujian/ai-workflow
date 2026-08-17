@@ -65,7 +65,7 @@
 - 测试节点必须输出 `artifacts/acceptance-results.yaml`。普通 `task approve <task-id> test` 只接受全部验收项为 `passed`、`deferred` 或 `waived` 的结果；存在 `failed` 或 `blocked` 时必须拒绝。`task close-with-risk <task-id> --owner --reason --expires-at` 是唯一风险关闭入口，必须写入风险接受事实并将交付状态标为 `risk_accepted`。
 - `aiw task revise <task-id> <node-id> --note <text>` 写入修改说明并递归将所有已开始下游节点置为 `invalidated`；当前节点随后重新评估，全部依赖已完成时置为 `ready`，否则保持 `pending`。
 - `aiw task request-changes <task-id> <node-id> --note <text> [--actor <name>]` 仅用于 `awaiting_approval` 节点。它写入 `decision: changes_requested` 的审批事实、下一 revision 的修改说明并使已开始下游节点失效；当前节点随后按依赖状态重新评估为 `ready` 或 `pending`，不得用 `task revise` 代替该审批决定。
-- `aiw task status <task-id>` 显示全部节点状态、依赖、revision、审批与失效原因。
+- `aiw task status <task-id>` 默认显示任务、交付和节点状态摘要；使用 `--json` 时输出完整任务事实，其中包含依赖、revision、审批与失效原因。
 - `aiw task cancel <task-id> <node-id> --note <text>` 仅用于 `running` 节点；写入本机取消请求并终止已记录的 Codex 子进程。运行收尾时必须保留证据并将节点置为 `cancelled`。
 
 ### FR-5：上下文包与运行预演
@@ -76,7 +76,7 @@
 - 单次上下文预算默认 12,000 tokens；估算超限必须失败并列出超限文件，不得静默截断。
 - `--include <relative-path>` 允许显式增加项目内文件，必须写入 manifest；任务目录外和项目根目录外的路径必须拒绝。
 - 下游节点运行前，Runner 必须拒绝未提交的上游产物、审批文件或状态变化；`aiw` 不自动执行 Git 提交、推送或 PR 操作。
-- dry-run 输出符合 `aiw.run-result/v1` 的 `RunResult`，状态为 `succeeded`，并列出将传递给 Codex 的参数与上下文文件。
+- dry-run 输出符合 `aiw.run-result/v1` 的 `RunResult`，状态为 `succeeded`；上下文文件和最终 Prompt 预算见共享 `context-manifest.json`，将调用的 Codex 参数仅保留在本机 `request.json`。
 
 ### FR-6：Codex Adapter 执行接口
 
@@ -100,7 +100,7 @@
 |---|---|---|
 | AC-1 | 安装有效技能与工作流模板仓库 | Registry 记录 revision；`skills list` 和 `skills profiles list` 显示对应元数据。 |
 | AC-2 | 安装不含有效技能或工作流模板的仓库 | 命令非零退出，Registry 未新增条目。 |
-| AC-3 | 从本地 Markdown 建立任务 | 创建七阶段默认 DAG；`intake` 已完成、`clarify` 已就绪；快照含 SHA-256 元数据。 |
+| AC-3 | 从项目内本地文件建立任务 | 创建七阶段默认 DAG；`intake` 已完成、`clarify` 已就绪；快照含 SHA-256 元数据。 |
 | AC-4 | URL 初始地址或重定向地址解析到 `127.0.0.1` 或私网 | 请求在连接前被拒绝，任务目录不创建来源快照。 |
 | AC-5 | 未批准澄清节点时运行方案 | 命令失败，提示 `solution` 节点尚未 `ready`。 |
 | AC-6 | 批准澄清后修订澄清 | `solution` 至 `test` 被标记 `invalidated`，旧产物保留。 |
@@ -112,8 +112,8 @@
 | AC-12 | 审批当前澄清 revision | 生成含审批人和全部产物 SHA-256 的审批文件；待审批状态或审批文件未提交时 `solution` 不可运行。 |
 | AC-13 | 敏感来源未脱敏 | 命令拒绝将正文写入共享 `.aiw/`。 |
 | AC-14 | `.aiw/` 被 Git 忽略或项目不是 Git 工作树 | 初始化失败，不创建任务目录。 |
-| AC-15 | 从已配置 Lark MCP 读取需求 | 可读取 Lark docx，或先解析 Wiki 节点为 docx 后读取；生成 `lark-mcp/v1` Markdown 快照与不含凭据的元数据；`intake` 完成。 |
-| AC-16 | Lark MCP 未配置、无权限、超时、正文超限或返回无效正文 | 命令失败，不创建或覆盖快照，不泄露 MCP 配置或令牌。 |
+| AC-15 | 从已配置的文档连接器读取需求（当前为 Lark MCP） | 可读取 Lark docx，或先解析 Wiki 节点为 docx 后读取；生成 `lark-mcp/v1` Markdown 快照与不含凭据的元数据；`intake` 完成。 |
+| AC-16 | 文档连接器未配置、无权限、超时、正文超限或返回无效正文（当前为 Lark MCP） | 命令失败，不创建或覆盖快照，不泄露 MCP 配置或令牌。 |
 | AC-17 | 刷新 Lark 来源且正文未变化 | 不创建新 revision，任务状态与下游节点不变。 |
 | AC-18 | 刷新 Lark 来源且正文变化 | 保留旧快照，创建新 revision；`clarify` 至 `test` 的已开始节点失效。 |
 | AC-19 | 本地来源为目录、设备文件或符号链接逃逸 | 初始化失败，不创建来源快照。 |

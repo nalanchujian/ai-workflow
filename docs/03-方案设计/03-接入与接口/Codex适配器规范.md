@@ -18,7 +18,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
   },
   "instruction": "为退款功能生成实施计划。",
   "contextManifestPath": "/absolute/path/to/repository/.aiw/tasks/refund-123/runs/run_01JABC/context-manifest.json",
-  "runDirectory": "/absolute/path/to/user-home/.aiw/runtime/run_01JABC",
+  "runDirectory": "/absolute/path/to/user-home/.aiw/runtime/refund-123/run_01JABC",
   "mode": "execute",
   "artifacts": ["artifacts/implementation-plan.md"]
 }
@@ -74,7 +74,7 @@ allowedPaths:
 
 除非用户任务明确要求其他语言，Adapter 要求所有 Markdown 任务产物使用简体中文；代码标识、命令、路径、API 名称和必须保留的原文保持原始语言。上游方法论可以是英文，但不能改变该产物语言约束。
 
-`dry-run` 只执行第 1、2 步并输出将要执行的 Codex 调用，绝不启动 Codex。
+`dry-run` 只执行第 1、2 步，生成本机 `context.md`、`request.json` 和共享 Context Manifest，绝不启动 Codex。默认 CLI 仅展示预演结果摘要；完整调用参数只保留在本机 `request.json`。
 
 ## Codex CLI 调用（MVP）
 

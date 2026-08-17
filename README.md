@@ -66,7 +66,7 @@ git add .aiw && git commit -m "chore(aiw): approve test"
 
 ## 当前状态
 
-**MVP 核心链路已可运行。** `aiw` 已组合技能安装、任务初始化、来源刷新、阶段审批与修订、`task run` 和 Codex Adapter；顶层 CLI 在开发者本机创建实际 Git、网络、Lark MCP 和 Codex 适配器，测试通过确定性替身覆盖完整七阶段主流程。
+**MVP 核心链路已可运行。** `aiw` 已组合技能安装、任务初始化、通用来源路由与刷新、阶段审批与修订、决策门禁、`task run` 和 Codex Adapter；顶层 CLI 在开发者本机创建实际 Git、网络、文档连接器（当前含 Lark MCP）和 Codex 适配器，测试通过确定性替身覆盖完整七阶段主流程。
 
 真实使用前仍需准备 Git、兼容的 Node.js、与需求来源匹配的文档连接器（如使用受控在线文档）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、已安装的内置方法与文档连接器配置；需要验证某份在线文档时，显式传入 `--source <文档地址>`。CLI 只接收通用来源地址，内部再按地址路由到对应连接器；当前内置连接器支持 Lark 文档。
 
@@ -126,7 +126,7 @@ pnpm run unlink:global
 
 若不希望全局安装，可始终使用 `pnpm dev <command>`，例如 `pnpm dev doctor`。
 
-标准团队技能包把所需的 Superpowers 方法随版本安装并锁定；不需要额外的本机方法来源配置。如需读取 Lark 文档，再在 `aiw init` 生成的文件中配置 `connectors.lark`；完整字段见 [Lark来源连接器规范](docs/03-方案设计/03-接入与接口/Lark来源连接器规范.md)。可通过 `AIW_HOME` 覆盖默认的 `~/.aiw` 本机目录，便于隔离测试或多套配置。
+标准团队技能包把所需的 Superpowers 方法随版本安装并锁定；不需要额外的本机方法来源配置。`aiw init` 会尝试发现 Codex 中唯一兼容的文档 MCP，并仅保存不含凭据的本机映射；当前内置实现支持 Lark。连接器的供应商字段仅供维护者排障，普通使用者直接向 `--source` 传入文档地址即可；详见 [Lark来源连接器规范](docs/03-方案设计/03-接入与接口/Lark来源连接器规范.md)。可通过 `AIW_HOME` 覆盖默认的 `~/.aiw` 本机目录，便于隔离测试或多套配置。
 
 ## 文档
 
@@ -172,7 +172,7 @@ pnpm run unlink:global
 
 ### 06 测试验证
 
-- [MVP验收记录](docs/06-测试验证/验收记录.md)：AC-1 至 AC-25 的自动化测试证据与执行命令。
+- [MVP验收记录](docs/06-测试验证/验收记录.md)：AC-1 至 AC-28 的自动化测试证据与执行命令。
 
 ### 07 发布运营
 

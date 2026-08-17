@@ -32,7 +32,7 @@
 
 ### `aiw doctor [--project <path>] [--source <source>]`
 
-只读检查本机研发环境，返回 Git CLI、目标项目 Git 状态、Codex CLI、本机配置、已安装的内置方法和 Lark MCP 的诊断结果。每项结果包含 `passed`、`warning` 或 `failed`、原因及可执行修复建议；`--json` 时输出单个 `aiw.doctor/v1` JSON 对象。该命令不创建任务、不写入快照、不调用 Codex 执行任务。
+只读检查本机研发环境，返回 Git CLI、目标项目 Git 状态、Codex CLI、本机配置、已安装的内置方法和文档连接器的诊断结果。每项结果包含 `passed`、`warning` 或 `failed`、原因及可执行修复建议；`--json` 时输出单个 `aiw.doctor/v1` JSON 对象。该命令不创建任务、不写入快照、不调用 Codex 执行任务。
 
 ```bash
 aiw doctor --project .
@@ -136,7 +136,7 @@ aiw task init --project . --source ./requirements.md
 aiw task init --project /workspace/shop --source https://example.com/requirements
 aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token>
 aiw task init --project . --source https://<tenant>.larksuite.com/wiki/<node-token> --section "订单退款流程"
-aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@2.0.0
+aiw task init --project . --source ./requirements.md --skill-profile standard-web-feature@4.0.0
 aiw task init --project . --source ./requirements.md --force-new
 ```
 
@@ -144,11 +144,11 @@ aiw task init --project . --source ./requirements.md --force-new
 |---|---|
 | `--project <path>` | 必填。业务项目根目录。 |
 | `--source <source>` | 必填。需求来源地址或本地文件路径。系统依次路由到已配置文档连接器、公开 HTTP(S) 读取器或本地文件读取器；当前文档连接器支持 Lark `docx` / `wiki` URL。 |
-| `--section <title>` | 可选。选择一个标题唯一的章节及全部子标题内容，减少快照和后续上下文体积；仅支持由匹配连接器声明章节读取能力的来源。 |
+| `--section <title>` | 可选。选择一个标题唯一的章节及全部子标题内容，减少快照和后续上下文体积；仅适用于能被已配置连接器识别的在线文档，本地文件和公开 URL 会明确拒绝。 |
 | `--skill-profile <name[@version]>` | 可选。省略时使用 `~/.aiw/config.yaml` 的默认模板；显式传入时覆盖默认值。模板一次锁定 `clarify` 至 `test` 的六阶段技能。 |
 | `--force-new` | 可选。默认发现同一仓库、同一规范化需求来源和章节存在未完成任务时拒绝创建；仅在确需另建任务时显式使用。 |
 
-命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID，并在输出中返回 `taskId`；调用者不得指定 ID。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。在线文档会由匹配连接器读取；例如 Lark Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
+命令以 UTC 日期时间自动生成 `task-YYYYMMDD-HHmmss-SSS` 形式的任务 ID；调用者不得指定 ID。默认输出显示任务 ID、锁定工作流、任务状态和下一步提交命令；加 `--json` 时才返回 `taskId` 字段。成功后创建 `.aiw/config.yaml`（首次）、`.aiw/tasks/<task-id>/`、`task.yaml`、`task.md` 和 `sources/<source-id>/r1/snapshot.md`，并原子锁定所选模板和六个节点的技能。在线文档会由匹配连接器读取；例如 Lark Wiki 链接会先解析为 docx，任务元数据保留原始 Wiki 节点 ID 和解析后的文档 ID。指定 `--section` 时，来源元数据额外锁定实际标题、起止文档块 ID 和截取内容哈希，后续刷新仍使用该标题。MCP 配置、令牌和原始响应不写入任务目录。这些任务事实必须由调用者按既有 Git 流程提交后，才可作为后续节点的共享依据。默认节点为：
 
 `--project` 也可用于后续的 `task status`、`task run`、`task approve`、`task revise`、`task request-changes`、`task fail`、`task cancel`、`task source refresh`、`task skill rebind`、`task decision` 与 `task close-with-risk`。AIW 会在该目录执行命令；因此任务事实不保存本机绝对路径，其他成员在自己的仓库目录或显式传入 `--project` 均可继续同一任务。
 
@@ -162,7 +162,7 @@ intake → clarify → solution → plan → implement → verify → test
 
 失败情形包括：自动生成的任务 ID 与现有任务冲突、同一需求已有未完成任务、模板不存在/版本不唯一/阶段不匹配/引用技能不可用、项目路径无效或不是 Git 工作树、`.aiw/` 被 Git 忽略、来源是目录、URL 不符合协议或 IP 安全限制、匹配连接器未配置或无权限、来源类型不受支持，以及章节参数用于不支持章节读取的来源、章节为空、不存在或重名。失败不得留下不完整来源快照或任务目录。
 
-### `aiw task source refresh <task-id> <source-id>`
+### `aiw task source refresh <task-id> <source-id> [--project <path>]`
 
 显式重新读取一个已有来源；MVP 不轮询或订阅在线文档变化。
 
@@ -179,9 +179,9 @@ aiw task source refresh refund-123 requirements
 
 来源不存在、公共 URL 不符合安全规则、匹配连接器不可用或无权限、正文为空或超限时，命令失败且不改变已有快照或任务状态。
 
-### `aiw task status <task-id>`
+### `aiw task status <task-id> [--project <path>]`
 
-显示流程状态、交付状态、节点依赖、revision、审批记录和失效原因。流程已闭环不等于可发布；交付状态为 `可发布`、`不可发布` 或 `风险已接受`。
+默认显示流程状态、交付状态和各节点状态。使用 `--json` 可读取完整任务事实，其中包括节点依赖、revision、审批记录和失效原因。流程已闭环不等于可发布；交付状态为 `可发布`、`不可发布` 或 `风险已接受`。
 
 ```bash
 aiw task status refund-123
@@ -207,7 +207,7 @@ aiw task decision resolve refund-123 DEC-API-01 --note "后端接口已发布并
 - `choose` 记录已选择方案；`wait` 还必须记录责任人和解除条件；`defer`、`waive` 必须记录原因；`resolve` 只能解除已处于外部等待的事项。
 - 命令成功后必须提交 `.aiw`。`proposed` 或 `waiting_external` 的决策使对应 `blockedBy` 工作单元等待；`resolve` 或豁免只解锁相关单元；`defer` 将相关单元从当前验证汇合中移除。
 
-### `aiw task migrate-handoffs <task-id>`
+### `aiw task migrate-handoffs <task-id> [--project <path>]`
 
 为 Handoff 上线前创建、且已有已完成节点的旧任务补齐结构化交接包。它不重跑节点、不修改业务代码、不改变节点 revision 或审批决定。
 
@@ -249,7 +249,7 @@ aiw task subtask add task-20260813-111606-115 implement-export \
   --requires-approval
 ```
 
-### `aiw task run <task-id> <node-id> [--dry-run] [--include <relative-path>]`
+### `aiw task run <task-id> <node-id> [--project <path>] [--dry-run] [--include <relative-path>]`
 
 使用节点已锁定的技能运行一个已就绪节点；`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
 
@@ -266,9 +266,9 @@ aiw task run refund-123 implement --include docs/api-contract.md
 | `--dry-run` | 可选。不启动 Codex，只生成 `context.md`、manifest 和预演结果。 |
 | `--include <relative-path>` | 可重复。可显式加入项目根目录内的文件；每项必须记录到 manifest。 |
 
-节点仅在 `ready` 且任务模板/技能锁定已提交时可运行。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变任何共享任务事实。
+节点仅在 `ready` 且任务模板/技能锁定已提交时可运行。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。
 
-运行前，Runner 必须确认所有默认上游产物、审批文件与状态变化已经提交到当前 Git 分支；否则拒绝运行并列出待提交路径。它还会记录当前 Git 提交与分支；执行期间发生提交、重置或切换分支时，节点失败并保留证据。`task run` 不自动执行 Git 操作。共享 `runs/` 写入 manifest、允许范围、变更路径、允许范围内未跟踪文件的补丁及去敏结果；完整提示词与原始日志位于 `~/.aiw/runtime/`。
+运行前，Runner 必须确认所有默认上游产物、审批文件与状态变化已经提交到当前 Git 分支；否则拒绝运行并列出待提交路径。执行模式还要求业务工作树干净，并记录当前 Git 提交与分支；执行期间发生提交、重置或切换分支时，节点失败并保留证据。`task run` 不自动执行 Git 操作。共享 `runs/` 写入 manifest、允许范围、变更路径、允许范围内未跟踪文件的补丁及去敏结果；完整提示词与原始日志位于 `~/.aiw/runtime/<task-id>/<run-id>/`。
 
 失败情形包括：节点不存在或未 `ready`、任务模板/技能锁定未提交或哈希不匹配、任务产物未获批准、附加路径越出项目根目录、上下文超出预算、Codex 不可用或执行失败。
 
