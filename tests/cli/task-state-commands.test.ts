@@ -251,6 +251,7 @@ describe('TaskStateCommands', () => {
     const command = createTaskStateCommand({
       commands: {
         async status() { return task; },
+        async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/task.yaml']; },
         async listDecisions() {
           return [{
             item: {
@@ -271,11 +272,61 @@ describe('TaskStateCommands', () => {
     await command.parseAsync(['node', 'task', 'status', 'refund-123']);
 
     expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/brief.md');
-    expect(output).toContain('2. 若尚未提交当前产物和状态：git add .aiw && git commit -m "chore(aiw): record clarify result"');
+    expect(output).toContain('2. git add .aiw && git commit -m "chore(aiw): record clarify result"');
     expect(output).toContain('需求澄清待确认（1 项）');
     expect(output).toContain('DEC-API-01：详情趋势数据来源；AI 建议：等待正式 API');
     expect(output).toContain('3. aiw task review refund-123');
     expect(output).not.toContain('aiw task approve refund-123 clarify');
+  });
+
+  it('does not suggest a Git commit when pending clarify facts are already committed', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'awaiting_approval';
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return task; },
+        async uncommittedTaskPaths() { return []; },
+        async listDecisions() {
+          return [{
+            item: {
+              id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
+              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
+              options: [{ id: 'wait-api', title: '等待正式 API', tradeoffs: '依赖后端排期。' }, { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '不能完成端到端验收。' }],
+              recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情接口。' },
+            },
+          }];
+        },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'status', 'refund-123']);
+
+    expect(output).toContain('1. 查看待审批产物');
+    expect(output).toContain('2. aiw task review refund-123');
+    expect(output).not.toContain('git add .aiw');
+  });
+
+  it('does not suggest a Git commit when a pending non-clarify approval is already committed', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.plan.status = 'awaiting_approval';
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return task; },
+        async uncommittedTaskPaths() { return []; },
+        async listDecisions() { return []; },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'status', 'refund-123']);
+
+    expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/implementation-plan.md');
+    expect(output).toContain('2. aiw task approve refund-123 plan --note "<审批说明>"');
+    expect(output).not.toContain('git add .aiw');
+    expect(output).not.toContain('若尚未提交');
   });
 
   it('guides users through every clarify decision and confirms them together', async () => {
@@ -328,6 +379,7 @@ describe('TaskStateCommands', () => {
   it('does not prompt again when clarify was already approved', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'ready';
     let output = '';
     const command = createTaskStateCommand({
       commands: {
@@ -341,7 +393,8 @@ describe('TaskStateCommands', () => {
     await command.parseAsync(['node', 'task', 'review', 'refund-123']);
 
     expect(output).toContain('需求澄清已确认，无需再次操作');
-    expect(output).toContain('aiw task status refund-123');
+    expect(output).toContain('aiw task run refund-123 solution');
+    expect(output).not.toContain('aiw task status refund-123');
   });
 
   it('guides users to commit migrated handoffs before continuing the ready node', async () => {

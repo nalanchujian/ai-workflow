@@ -27,7 +27,7 @@ export function createProgram(deps: CliDependencies): Command {
     .addHelpText('after', `
 
 日常使用：
-  aiw init → aiw doctor → aiw task init → aiw task status → aiw task run
+  aiw init → aiw doctor → aiw task init → aiw task run
   节点待审批时使用 aiw task approve；AI 提出疑问时使用 aiw task decision。
 
 高级与维护：技能升级、运行记录清理和历史任务迁移。
@@ -51,8 +51,8 @@ export function createProgram(deps: CliDependencies): Command {
   const task = new Command('task').description('管理研发任务和阶段执行');
   task.addCommand(createTaskInitCommand({ initializer: runtime.initializer, defaultSkillProfile: async () => (await runtime.localConfig.defaultWorkflow()).defaultProfile, progress, stdout }));
   task.addCommand(new Command('source').description('管理任务来源').addCommand(createTaskSourceRefreshCommand({ refresher: runtime.sourceRefresher, progress, stdout })));
-  task.addCommand(createTaskRunCommand({ runner: runtime.taskRunner, progress, stdout }));
   const state = createTaskStateCommand({ commands: runtime.stateCommands, progress, stdout });
+  task.addCommand(createTaskRunCommand({ runner: runtime.taskRunner, taskState: runtime.stateCommands, progress, stdout }));
   for (const command of state.commands) {
     task.addCommand(command);
   }

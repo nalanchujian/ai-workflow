@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { Command } from 'commander';
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
@@ -45,6 +45,16 @@ export class TaskStateCommands {
 
   async status(taskId: string): Promise<Task> {
     return this.deps.taskStore.load(taskId);
+  }
+
+  async uncommittedTaskPaths(taskId: string): Promise<string[]> {
+    const task = await this.deps.taskStore.load(taskId);
+    const taskDirectory = relative(this.deps.taskStore.projectDirectory(), this.deps.taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
+    return this.deps.taskFactGuard.uncommittedPaths({
+      task,
+      projectRoot: this.deps.taskStore.projectDirectory(),
+      paths: [taskDirectory],
+    });
   }
 
   async migrateHandoffs(taskId: string): Promise<{ task: Task; migration: HandoffMigrationResult }> {
@@ -292,17 +302,21 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   const command = new Command('task').description('查询任务状态并处理审批');
   command.addCommand(new Command('status').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
     const task = await deps.commands.status(taskId);
+    const uncommittedTaskPaths = await deps.commands.uncommittedTaskPaths(taskId);
     const decisions = await optionalDecisions(deps.commands, taskId);
-    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '任务状态', undefined, decisions));
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '任务状态', undefined, decisions, uncommittedTaskPaths));
   }));
   command.addCommand(new Command('review').description('逐项确认需求澄清中的待决策事项，并完成澄清审批').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>', '本次澄清确认说明').action(async (taskId: string, options: { actor?: string; note?: string }, current: Command) => {
     const currentTask = await deps.commands.status(taskId);
     const clarifyStatus = currentTask.nodes.clarify?.status;
     if (clarifyStatus === 'completed') {
+      const ready = Object.entries(currentTask.nodes).filter(([, node]) => node.status === 'ready');
       writeCommandResult(currentTask, current, deps.stdout, {
         headline: '需求澄清已确认，无需再次操作',
         details: [{ label: '任务 ID', value: currentTask.id }],
-        nextSteps: [`aiw task status ${currentTask.id}`],
+        nextSteps: ready.length === 1
+          ? [`aiw task run ${currentTask.id} ${ready[0]![0]}`]
+          : ready.length > 1 ? [`aiw task status ${currentTask.id}`] : undefined,
       });
       return;
     }
@@ -414,7 +428,13 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   return command;
 }
 
-function renderTaskOutput(task: Task, headline: string, commitMessage?: string, decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>> = []): HumanOutput {
+function renderTaskOutput(
+  task: Task,
+  headline: string,
+  commitMessage?: string,
+  decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>> = [],
+  uncommittedTaskPaths?: string[],
+): HumanOutput {
   const ready = Object.entries(task.nodes).find(([, node]) => node.status === 'ready');
   const waiting = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');
   const blocked = Object.entries(task.nodes).filter(([, node]) => node.status === 'blocked');
@@ -434,7 +454,7 @@ function renderTaskOutput(task: Task, headline: string, commitMessage?: string, 
     ],
     nextSteps: ready === undefined && waiting === undefined && blocked.length === 0 && failed === undefined && invalidated === undefined ? undefined : [
       ...(commitMessage === undefined ? [] : [`git add .aiw && git commit -m "${commitMessage}"`]),
-      ...(waiting === undefined ? [] : reviewOrApprovalNextSteps(task, waiting, decisions)),
+      ...(waiting === undefined ? [] : reviewOrApprovalNextSteps(task, waiting, decisions, uncommittedTaskPaths)),
       ...(ready === undefined ? [] : [`aiw task run ${task.id} ${ready[0]}`]),
       ...(blocked.length === 0 ? [] : [`aiw task decision list ${task.id}`]),
       ...(failed === undefined ? [] : [`提交失败证据：git add .aiw && git commit -m "chore(aiw): record ${failed[0]} failure"`, `重试当前节点：aiw task run ${task.id} ${failed[0]}`]),
@@ -475,15 +495,18 @@ function reviewOrApprovalNextSteps(
   task: Task,
   waiting: [string, TaskNode],
   decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>>,
+  uncommittedTaskPaths?: string[],
 ): string[] {
   if (waiting[0] === 'clarify' && decisions.some(({ resolution }) => resolution === undefined)) {
     return [
       `查看待审批产物：${waiting[1].outputs.map((path) => `.aiw/tasks/${task.id}/${path}`).join('、')}`,
-      '若尚未提交当前产物和状态：git add .aiw && git commit -m "chore(aiw): record clarify result"',
+      ...(uncommittedTaskPaths === undefined || uncommittedTaskPaths.length > 0
+        ? ['git add .aiw && git commit -m "chore(aiw): record clarify result"']
+        : []),
       `aiw task review ${task.id}`,
     ];
   }
-  return approvalNextSteps(task, waiting[0], waiting[1]);
+  return approvalNextSteps(task, waiting[0], waiting[1], uncommittedTaskPaths);
 }
 
 async function promptClarifyReview(
@@ -554,12 +577,14 @@ async function askRequiredText(prompter: ReviewPrompter, prompt: string): Promis
   }
 }
 
-function approvalNextSteps(task: Task, nodeId: string, node: TaskNode): string[] {
+function approvalNextSteps(task: Task, nodeId: string, node: TaskNode, uncommittedTaskPaths?: string[]): string[] {
   const taskDirectory = `.aiw/tasks/${task.id}`;
   const outputPaths = node.outputs.map((path) => `${taskDirectory}/${path}`);
   return [
     `查看待审批产物：${outputPaths.join('、')}`,
-    `若尚未提交当前产物和状态：git add .aiw && git commit -m "chore(aiw): record ${nodeId} result"`,
+    ...(uncommittedTaskPaths === undefined || uncommittedTaskPaths.length > 0
+      ? [`git add .aiw && git commit -m "chore(aiw): record ${nodeId} result"`]
+      : []),
     `aiw task approve ${task.id} ${nodeId} --note "<审批说明>"`,
   ];
 }

@@ -1,10 +1,14 @@
 import { Command } from 'commander';
 
+import type { Task } from '../domain/task.js';
 import type { TaskRunner } from '../services/task-runner.js';
+import type { TaskStateCommands } from './task-state-commands.js';
 import { writeCommandResult } from './output.js';
 import { TerminalProgressReporter, type ProgressReporter } from './progress-reporter.js';
 
-export function createTaskRunCommand(deps: { runner: TaskRunner; progress?: ProgressReporter; stdout: NodeJS.WriteStream }): Command {
+type TaskStateReader = Pick<TaskStateCommands, 'status' | 'uncommittedTaskPaths'>;
+
+export function createTaskRunCommand(deps: { runner: TaskRunner; taskState: TaskStateReader; progress?: ProgressReporter; stdout: NodeJS.WriteStream }): Command {
   return new Command('run')
     .description('运行任务节点')
     .argument('<task-id>')
@@ -40,11 +44,45 @@ export function createTaskRunCommand(deps: { runner: TaskRunner; progress?: Prog
           ...(result.artifacts === undefined || result.artifacts.length === 0 ? [] : [{ label: '产物', value: result.artifacts.map((artifact) => artifact.path).join('、') }]),
           ...(result.error === undefined ? [] : [{ label: '原因', value: result.error.message }]),
         ],
-        nextSteps: result.status === 'succeeded'
-          ? [`git add .aiw && git commit -m "chore(aiw): record ${nodeId} result"`, `aiw task status ${taskId}`]
-          : [`git add .aiw && git commit -m "chore(aiw): record ${nodeId} failure"`, `aiw task run ${taskId} ${nodeId}`],
+        nextSteps: await nextStepsForRun(deps.taskState, taskId, nodeId, result.status),
       });
     });
+}
+
+async function nextStepsForRun(
+  taskState: TaskStateReader,
+  taskId: string,
+  nodeId: string,
+  resultStatus: string,
+): Promise<string[] | undefined> {
+  const task = await taskState.status(taskId);
+  const uncommitted = await taskState.uncommittedTaskPaths(taskId);
+  const commit = uncommitted.length === 0
+    ? []
+    : [`git add .aiw && git commit -m "chore(aiw): record ${nodeId} ${resultStatus === 'succeeded' ? 'result' : 'failure'}"`];
+
+  if (resultStatus !== 'succeeded') {
+    return [...commit, `aiw task run ${taskId} ${nodeId}`];
+  }
+
+  const waiting = Object.entries(task.nodes).filter(([, node]) => node.status === 'awaiting_approval');
+  if (waiting.length === 1) {
+    return [...commit, approvalOrReviewStep(task, waiting[0]![0])];
+  }
+
+  const ready = Object.entries(task.nodes).filter(([, node]) => node.status === 'ready');
+  if (ready.length === 1) {
+    return [...commit, `aiw task run ${taskId} ${ready[0]![0]}`];
+  }
+
+  if (task.status === 'completed') return commit.length === 0 ? undefined : commit;
+  return [...commit, `aiw task status ${taskId}`];
+}
+
+function approvalOrReviewStep(task: Task, nodeId: string): string {
+  return nodeId === 'clarify'
+    ? `aiw task review ${task.id}`
+    : `aiw task approve ${task.id} ${nodeId} --note "<审批说明>"`;
 }
 
 function runStatusLabel(status: string): string {

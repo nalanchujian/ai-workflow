@@ -24,10 +24,7 @@ function guidanceFor(message: string, args: string[]): string[] {
     ];
   }
   if (message.includes('上下文超过预算')) {
-    const taskId = taskIdFrom(args);
-    return taskId === undefined
-      ? []
-      : [`aiw task status ${taskId}`, '精简上游交接包或将实施计划拆为更小的工作单元后再运行。'];
+    return ['精简上游交接包，或将实施计划拆为更小的工作单元后重试当前节点。'];
   }
   if (message === '当前任务已有节点正在运行') {
     const taskId = taskIdFrom(args);
