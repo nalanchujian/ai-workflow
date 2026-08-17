@@ -273,8 +273,8 @@ describe('TaskStateCommands', () => {
 
     expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/brief.md');
     expect(output).toContain('2. git add .aiw && git commit -m "chore(aiw): record clarify result"');
-    expect(output).toContain('需求澄清待确认（1 项）');
-    expect(output).toContain('DEC-API-01：详情趋势数据来源；AI 建议：等待正式 API');
+    expect(output).toContain('待确认事项（1 项）');
+    expect(output).toContain('DEC-API-01：详情趋势数据来源（建议：等待正式 API）');
     expect(output).toContain('3. aiw task review refund-123');
     expect(output).not.toContain('aiw task approve refund-123 clarify');
   });
@@ -362,13 +362,15 @@ describe('TaskStateCommands', () => {
 
     await command.parseAsync(['node', 'task', 'review', 'refund-123']);
 
-    expect(output).toContain('需求澄清需要确认（1 项）');
-    expect(output).toContain('AI 建议：等待正式 API');
-    expect(output).toContain('为什么需要确认：当前仓库没有可信详情与趋势接口。');
+    expect(output).toContain('需求澄清 · 待确认 1 项');
+    expect(output).toContain('[1/1] 详情趋势数据来源');
+    expect(output).toContain('原因：当前仓库没有可信详情与趋势接口。');
+    expect(output).toContain('推荐\n    1. 等待正式 API');
+    expect(output).toContain('备选\n    2. 使用 Mock 验证界面');
     expect(output).toContain('取舍：交付依赖后端排期，但数据口径一致。');
     expect(output).toContain('取舍：可以提前验证界面，但不能完成端到端验收。');
-    expect(output).toContain('3. 输入其他处理结论');
-    expect(output).toContain('是否确认本次需求澄清并进入技术方案阶段？');
+    expect(output).toContain('3. 自定义结论');
+    expect(output).toContain('全部事项已处理。是否确认并进入技术方案？');
     expect(selections).toEqual([{
       decisionId: 'DEC-API-01',
       optionId: 'manual',

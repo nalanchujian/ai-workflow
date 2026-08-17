@@ -483,10 +483,10 @@ function clarifyDecisionSection(
   const outstanding = decisions.filter(({ resolution }) => resolution === undefined);
   if (outstanding.length === 0) return [];
   return [{
-    title: `需求澄清待确认（${outstanding.length} 项）`,
+    title: `待确认事项（${outstanding.length} 项）`,
     lines: outstanding.map(({ item }) => {
       const recommendation = item.options.find((option) => option.id === item.recommendation.optionId)!;
-      return `${item.id}：${item.title}；AI 建议：${recommendation.title}`;
+      return `${item.id}：${item.title}（建议：${recommendation.title}）`;
     }),
   }];
 }
@@ -515,22 +515,24 @@ async function promptClarifyReview(
   prompter: ReviewPrompter,
   stdout: NodeJS.WritableStream,
 ): Promise<ClarifyDecisionSelection[]> {
-  stdout.write(`需求澄清需要确认（${decisions.length} 项）\n\n`);
+  stdout.write(`需求澄清 · 待确认 ${decisions.length} 项\n按序号选择；“自定义结论”可输入补充说明。\n\n`);
   const selections: ClarifyDecisionSelection[] = [];
   for (const [index, { item }] of decisions.entries()) {
     const recommendation = item.options.find((option) => option.id === item.recommendation.optionId)!;
     const alternatives = item.options.filter((option) => option.id !== recommendation.id);
-    stdout.write(`[${index + 1}/${decisions.length}] 需要确认：${item.title}\n`);
-    stdout.write(`为什么需要确认：${item.recommendation.rationale}\n`);
-    stdout.write(`影响范围：验收项 ${item.affects.acceptanceRefs.join('、')}；工作单元 ${item.affects.workUnits.join('、')}\n`);
-    stdout.write(`AI 建议：${recommendation.title}\n`);
-    stdout.write(`1. 接受 AI 建议：${recommendation.title}\n   取舍：${recommendation.tradeoffs}\n`);
-    alternatives.forEach((option, optionIndex) => stdout.write(`${optionIndex + 2}. ${option.title}\n   取舍：${option.tradeoffs}\n`));
-    stdout.write(`${alternatives.length + 2}. 输入其他处理结论\n`);
+    stdout.write(`[${index + 1}/${decisions.length}] ${item.title}\n`);
+    stdout.write(`  原因：${item.recommendation.rationale}\n`);
+    stdout.write(`  影响：${item.affects.acceptanceRefs.join('、')} · ${item.affects.workUnits.join('、')}\n`);
+    stdout.write(`  推荐\n    1. ${recommendation.title}\n       取舍：${recommendation.tradeoffs}\n`);
+    if (alternatives.length > 0) {
+      stdout.write('  备选\n');
+      alternatives.forEach((option, optionIndex) => stdout.write(`    ${optionIndex + 2}. ${option.title}\n       取舍：${option.tradeoffs}\n`));
+    }
+    stdout.write(`    ${alternatives.length + 2}. 自定义结论\n`);
     const choices = [recommendation, ...alternatives];
     const answer = await askNumber(prompter, `请输入选择（1-${choices.length + 1}）：`, choices.length + 1);
     if (answer === choices.length + 1) {
-      const manualNote = await askRequiredText(prompter, '请输入处理结论：');
+      const manualNote = await askRequiredText(prompter, '请输入结论：');
       selections.push({ decisionId: item.id, optionId: 'manual', manualNote });
       stdout.write('\n');
       continue;
@@ -551,10 +553,10 @@ async function promptClarifyReview(
     }
     stdout.write('\n');
   }
-  stdout.write('是否确认本次需求澄清并进入技术方案阶段？\n1. 确认\n2. 返回修改\n');
+  stdout.write('全部事项已处理。是否确认并进入技术方案？\n1. 确认\n2. 暂不确认\n');
   const confirmation = await askNumber(prompter, '请输入选择（1-2）：', 2);
   if (confirmation !== 1) {
-    throw new Error(`已取消需求澄清确认；可继续查看或修改任务 ${taskId} 的产物。`);
+    throw new Error(`已取消本次需求澄清确认；本次选择未保存。可重新执行 aiw task review ${taskId}。`);
   }
   return selections;
 }
