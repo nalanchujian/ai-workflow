@@ -23,7 +23,16 @@ export function createProgram(deps: CliDependencies): Command {
     .name('aiw')
     .description('Git 原生的 AI 研发变更治理 CLI')
     .version(deps.version)
-    .option('--json', '以单个 JSON 文档输出结果');
+    .option('--json', '以单个 JSON 文档输出结果')
+    .addHelpText('after', `
+
+日常使用：
+  aiw init → aiw doctor → aiw task init → aiw task status → aiw task run
+  节点待审批时使用 aiw task approve；AI 提出疑问时使用 aiw task decision。
+
+高级与维护：技能升级、运行记录清理和历史任务迁移。
+  分别查看 aiw skills --help、aiw run --help、aiw task --help。
+`);
   if (deps.runtime === undefined) {
     return program
       .addCommand(new Command('doctor').description('检查本机研发环境与可执行修复建议'))
