@@ -237,7 +237,7 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     const task = await deps.commands.reviewClarify(taskId, selections, options);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '需求澄清已确认', 'chore(aiw): review clarify'));
   }));
-  command.addCommand(new Command('decision').description('查看 AI 提出的决策项，或解除已满足的外部等待')
+  command.addCommand(new Command('decision').description('高级：查看决策项，或解除已满足的外部等待')
     .addCommand(new Command('list').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').action(async (taskId: string, _options: unknown, current: Command) => {
       const decisions = await deps.commands.listDecisions(taskId);
       writeCommandResult(decisions, current, deps.stdout, {
@@ -253,7 +253,7 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
         })),
       });
     }))
-    .addCommand(new Command('resolve').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { note: string; actor?: string }, current: Command) => {
+    .addCommand(new Command('resolve').description('例外：外部等待条件满足后解除阻塞').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { note: string; actor?: string }, current: Command) => {
       const task = await deps.commands.resolveDecision(taskId, decisionId, options);
       writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `决策「${decisionId}」已解除阻塞`, `chore(aiw): resolve ${decisionId}`));
     })));
@@ -261,11 +261,11 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     const task = await deps.commands.approve(taskId, nodeId, options);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已批准`, `chore(aiw): approve ${nodeId}`));
   }));
-  command.addCommand(new Command('close-with-risk').description('明确接受未通过验收项的风险并关闭测试节点').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--owner <name>').requiredOption('--reason <text>').requiredOption('--expires-at <datetime>').option('--actor <name>').action(async (taskId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }, current: Command) => {
+  command.addCommand(new Command('close-with-risk').description('例外：接受未通过验收项的风险并关闭测试节点').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--owner <name>').requiredOption('--reason <text>').requiredOption('--expires-at <datetime>').option('--actor <name>').action(async (taskId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }, current: Command) => {
     const task = await deps.commands.closeWithRisk(taskId, options);
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '测试节点已按风险接受关闭', 'chore(aiw): close test with risk'));
   }));
-  command.addCommand(new Command('cancel').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { note: string }, current: Command) => {
+  command.addCommand(new Command('cancel').description('例外：取消正在运行的节点').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { note: string }, current: Command) => {
     const result = await deps.commands.cancel(taskId, nodeId, options);
     writeCommandResult(result, current, deps.stdout, {
       headline: result.status === 'signalled' ? `已向「${nodeId}」发送取消信号` : `已记录「${nodeId}」的取消请求`,

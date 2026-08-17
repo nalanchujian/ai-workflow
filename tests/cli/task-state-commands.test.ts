@@ -27,10 +27,15 @@ describe('TaskStateCommands', () => {
     expect(command.commands.map((item) => item.name())).not.toContain('fail');
 
     const decision = command.commands.find((item) => item.name() === 'decision');
+    expect(decision?.description()).toContain('高级：');
     expect(decision?.commands.map((item) => item.name())).not.toContain('choose');
     expect(decision?.commands.map((item) => item.name())).not.toContain('wait');
     expect(decision?.commands.map((item) => item.name())).not.toContain('defer');
     expect(decision?.commands.map((item) => item.name())).not.toContain('waive');
+    expect(decision?.commands.find((item) => item.name() === 'resolve')?.description()).toContain('例外：');
+
+    expect(command.commands.find((item) => item.name() === 'close-with-risk')?.description()).toContain('例外：');
+    expect(command.commands.find((item) => item.name() === 'cancel')?.description()).toContain('例外：');
   });
 
   it('requires clarify to use the review command', async () => {

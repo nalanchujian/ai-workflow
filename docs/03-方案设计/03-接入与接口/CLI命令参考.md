@@ -46,24 +46,24 @@ aiw doctor --project /workspace/shop --source https://<tenant>.larksuite.com/wik
 
 未传 `--source` 时，命令仅检查已配置文档连接器及对应 MCP Server 定义是否可解析，并将在线文档授权标记为未验证；不得将此状态误报为已授权。传入地址后，命令先按来源路由；对于可由已配置连接器处理的地址，读取一次指定文档并仅报告成功或失败，不输出令牌、MCP 参数或文档正文。当前 Lark Connector 是可选能力；未配置时显示警告，只有显式请求验证 Lark 文档时才成为失败项。
 
-### `aiw run show <task-id> <run-id> [--project <path>]`
+### `aiw history show <task-id> <run-id> [--project <path>]`
 
 查看一次已完成或失败运行的共享结果、本机日志路径和上下文摘要。完整 `context.md`、标准输出、标准错误和请求文件均不写入 stdout；命令只报告它们在本机是否存在以及可查看路径。
 
 ```bash
-aiw run show refund-123 run_01JABC --project .
+aiw history show refund-123 run_01JABC --project .
 ```
 
 返回运行状态、开始/结束时间、产物哈希、失败摘要，以及 Context Manifest 的节点、revision、文件数量、角色、最终 Prompt 的估算 token、预算和分项构成。共享 `result.json` 或 `context-manifest.json` 缺失、无效或与请求任务不一致时命令失败，不猜测或重建运行记录。
 
-### `aiw run prune [--older-than <days>d] [--apply]`
+### `aiw history prune [--older-than <days>d] [--apply]`
 
 安全清理本机 `~/.aiw/runtime/<task-id>/<run-id>/` 目录。默认保留期为 30 天，且默认只预览候选目录，不删除任何文件。
 
 ```bash
-aiw run prune
-aiw run prune --older-than 60d
-aiw run prune --older-than 30d --apply
+aiw history prune
+aiw history prune --older-than 60d
+aiw history prune --older-than 30d --apply
 ```
 
 | 参数 | 说明 |

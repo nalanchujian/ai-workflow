@@ -14,8 +14,8 @@ describe('run history command', () => {
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });
 
-    await command.parseAsync(['node', 'run', 'show', 'refund-123', 'run-1', '--project', '/repo']);
-    await command.parseAsync(['node', 'run', 'prune', '--older-than', '30d', '--apply']);
+    await command.parseAsync(['node', 'history', 'show', 'refund-123', 'run-1', '--project', '/repo']);
+    await command.parseAsync(['node', 'history', 'prune', '--older-than', '30d', '--apply']);
 
     expect(received).toEqual([
       ['show', { projectRoot: '/repo', taskId: 'refund-123', runId: 'run-1' }],

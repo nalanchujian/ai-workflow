@@ -6,7 +6,7 @@ import { writeCommandResult } from './output.js';
 import { TerminalProgressReporter, withProgress, type ProgressReporter } from './progress-reporter.js';
 
 export function createSkillsCommand(deps: { installer: SkillInstaller; registry: SkillRegistry; config: LocalConfig; progress?: ProgressReporter; stdout: NodeJS.WriteStream }): Command {
-  const command = new Command('skills').description('管理团队技能和工作流模板');
+  const command = new Command('skills').description('高级：管理团队技能和工作流模板');
   command.addCommand(new Command('install')
     .description('安装技能包和工作流模板')
     .argument('<git-url>')

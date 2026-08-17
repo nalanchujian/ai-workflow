@@ -5,7 +5,7 @@ import { writeCommandResult } from './output.js';
 import { TerminalProgressReporter, withProgress, type ProgressReporter } from './progress-reporter.js';
 
 export function createRunHistoryCommand(deps: { history: RunHistoryService; progress?: ProgressReporter; stdout: NodeJS.WriteStream }): Command {
-  const command = new Command('run').description('查看和清理本机运行记录');
+  const command = new Command('history').description('查看和清理本机运行记录');
   command.addCommand(new Command('show')
     .argument('<task-id>')
     .argument('<run-id>')
@@ -56,7 +56,7 @@ export function createRunHistoryCommand(deps: { history: RunHistoryService; prog
         headline: result.apply ? `已清理 ${result.deleted.length} 个过期运行目录` : `发现 ${result.candidates.length} 个过期运行目录`,
         details: [{ label: '保留期', value: `${result.olderThanDays} 天` }],
         sections: result.candidates.length === 0 ? undefined : [{ title: '候选记录', lines: result.candidates.map((candidate) => `${candidate.taskId}/${candidate.runId}`) }],
-        nextSteps: result.apply || result.candidates.length === 0 ? undefined : [`aiw run prune --older-than ${result.olderThanDays}d --apply`],
+        nextSteps: result.apply || result.candidates.length === 0 ? undefined : [`aiw history prune --older-than ${result.olderThanDays}d --apply`],
       });
     }));
   return command;

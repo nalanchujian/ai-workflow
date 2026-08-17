@@ -26,19 +26,22 @@ export function createProgram(deps: CliDependencies): Command {
     .option('--json', '以单个 JSON 文档输出结果')
     .addHelpText('after', `
 
-日常使用：
-  aiw init → aiw doctor → aiw task init → aiw task run
-  节点待审批时使用 aiw task approve；AI 提出疑问时使用 aiw task decision。
+首次使用：
+  aiw init → aiw doctor
 
-高级与维护：技能升级、运行记录清理。
-  分别查看 aiw skills --help、aiw run --help、aiw task --help。
+日常使用：
+  aiw task init → aiw task run
+  节点待审批时使用 aiw task approve；AI 提出疑问时使用 aiw task review。
+
+高级与例外场景：团队技能管理、运行记录清理、外部等待解除、风险关闭和任务取消。
+  分别查看 aiw skills --help、aiw history --help、aiw task --help。
 `);
   if (deps.runtime === undefined) {
     return program
       .addCommand(new Command('doctor').description('检查本机研发环境与可执行修复建议'))
       .addCommand(new Command('init').description('初始化本机 AI Workflow 配置模板'))
-      .addCommand(new Command('run').description('查看和清理本机运行记录'))
-      .addCommand(new Command('skills').description('管理团队技能和工作流模板'))
+      .addCommand(new Command('history').description('查看和清理本机运行记录'))
+      .addCommand(new Command('skills').description('高级：管理团队技能和工作流模板'))
       .addCommand(new Command('task').description('管理研发任务和阶段执行'));
   }
   const runtime = deps.runtime;
