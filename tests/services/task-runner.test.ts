@@ -242,12 +242,17 @@ describe('TaskRunner', () => {
       .resolves.toContain('src/unapproved.ts');
     await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-scope.json'), 'utf8'))
       .resolves.toContain('"businessFilePolicy": "unrestricted"');
+    await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-scope.json'), 'utf8'))
+      .resolves.toContain('"agentWritableTaskPaths"');
+    await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-scope.json'), 'utf8'))
+      .resolves.toContain('"platformOwnedTaskPaths"');
   });
 
-  it('still rejects writes to task facts outside the current task and node outputs', async () => {
+  it('rejects Codex writes to task facts outside the current node outputs', async () => {
     const fixture = await createRunnerFixture({
       changeSnapshots: [[], ['.aiw/config.yaml', '.aiw/tasks/refund-123/artifacts/brief.md']],
       writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+      writeTaskFacts: [{ path: '.aiw/config.yaml', content: 'connector: forged\n' }],
     });
 
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
@@ -258,9 +263,29 @@ describe('TaskRunner', () => {
     });
   });
 
+  it('rejects Codex writes to task.yaml and the current run evidence directory', async () => {
+    const fixture = await createRunnerFixture({
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+      writeTaskFacts: [
+        { path: '.aiw/tasks/refund-123/task.yaml', content: 'schemaVersion: forged\n' },
+        { path: '.aiw/tasks/refund-123/runs/run-1/change-scope.json', content: '{"forged":true}\n' },
+      ],
+    });
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { code: 'TASK_FACT_WRITE_VIOLATION', message: expect.stringContaining('.aiw/tasks/refund-123/task.yaml') },
+    });
+    await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8'))
+      .resolves.toContain('.aiw/tasks/refund-123/runs/run-1/change-scope.json');
+  });
+
   it('explains the target revision when a re-run writes an old handoff path', async () => {
     const fixture = await createRunnerFixture({
       changeSnapshots: [[], ['.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
+      writeTaskFacts: [{ path: '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml', content: 'schemaVersion: aiw.handoff/v1\n' }],
     });
     const task = await fixture.taskStore.load('refund-123');
     task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', revision: 1 };
@@ -499,6 +524,7 @@ async function createRunnerFixture(options: {
   writeArtifact?: string;
   writeHandoff?: string;
   decisionRegister?: string;
+  writeTaskFacts?: Array<{ path: string; content: string }>;
 }) {
   const projectRoot = await temporaryDirectory();
   const taskStore = new TaskStore(projectRoot);
@@ -570,6 +596,11 @@ async function createRunnerFixture(options: {
           await writeFile(artifact('decision-register.yaml'), options.decisionRegister ?? 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
           await writeHandoff(taskStore, task.id, options.writeHandoff);
         }
+        for (const fact of options.writeTaskFacts ?? []) {
+          const path = join(projectRoot, fact.path);
+          await mkdir(join(path, '..'), { recursive: true });
+          await writeFile(path, fact.content, 'utf8');
+        }
         return { exitCode: options.exitCode ?? 0, signal: options.signal ?? null, stdout: '', stderr: '', timedOut: false };
       },
     },
@@ -588,14 +619,26 @@ async function createRunnerFixture(options: {
     changeInspector: {
       async changedPaths() {
         const paths = options.changeSnapshots?.shift() ?? [];
-        const current = await taskStore.load(task.id);
-        const clarify = current.nodes.clarify!;
+        let clarify = task.nodes.clarify!;
+        try {
+          clarify = (await taskStore.load(task.id)).nodes.clarify!;
+        } catch {
+          // A malicious test agent may overwrite task.yaml. Ownership
+          // validation must still report that write instead of masking it with
+          // a fake Git adapter load failure.
+        }
         return paths.map((path) => mapLegacyArtifactPath(path, task.id, clarify));
       },
       async diff() { return 'diff --git a/src/example.ts b/src/example.ts\n'; },
       async untrackedPaths() {
-        const current = await taskStore.load(task.id);
-        return (options.untrackedPaths ?? []).map((path) => mapLegacyArtifactPath(path, task.id, current.nodes.clarify!));
+        let clarify = task.nodes.clarify!;
+        try {
+          clarify = (await taskStore.load(task.id)).nodes.clarify!;
+        } catch {
+          // See changedPaths: a forged task.yaml must be reported by the
+          // ownership guard rather than breaking the fake Git adapter.
+        }
+        return (options.untrackedPaths ?? []).map((path) => mapLegacyArtifactPath(path, task.id, clarify));
       },
       async revision() { return options.gitRevisions?.shift() ?? { head: 'base-commit', branch: 'main' }; },
     },

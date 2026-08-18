@@ -53,9 +53,9 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提
 
 Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业务仓库 `.aiw/tasks/<id>/runs/<run-id>/`；完整请求、`context.md`、标准输出、标准错误和最后消息不得进入共享任务目录。
 
-每次执行还会写入 `change-scope.json`（执行前的任务事实写入边界与业务文件策略）、`change-diff.json`（执行后实际变更路径及非法任务事实写入）、`change.patch`（全部未跟踪文本文件的补丁）和 `change-evidence.json`（Git 基线与文件哈希）。实施节点可以修改完成当前目标所需的任意业务代码和测试；计划与工作单元应说明目标、验收、依赖、步骤和验证方式，而不是穷举文件路径。
+每次执行还会写入 `change-scope.json`（执行前的 Agent 可写产物与平台专属事实边界）、`agent-task-fact-baseline.json`（交给 Codex 前的 `.aiw/` 哈希快照）、`change-diff.json`（执行后实际变更路径及非法任务事实写入）、`change.patch`（全部未跟踪文本文件的补丁）和 `change-evidence.json`（Git 基线、文件哈希及 Agent 实际改写的 `.aiw/` 路径）。实施节点可以修改完成当前目标所需的任意业务代码和测试；计划与工作单元应说明目标、验收、依赖、步骤和验证方式，而不是穷举文件路径。
 
-Adapter 传递给 Codex 的任务产物地址必须是相对于业务仓库根目录的完整、版本化路径，例如 `.aiw/tasks/<task-id>/artifacts/clarify/r1/brief.md`，不得仅传递逻辑名 `artifacts/brief.md`。同一运行的版本化 `artifacts/<node-id>/r<revision>/...` 与 `handoffs/<node-id>/r<revision>.yaml` 是唯一可写事实；Codex 不得修改 `.aiw/` 中其他任务、其他节点、旧 revision 交接包或项目配置。违反时节点失败并保留运行证据。
+Adapter 传递给 Codex 的任务产物地址必须是相对于业务仓库根目录的完整、版本化路径，例如 `.aiw/tasks/<task-id>/artifacts/clarify/r1/brief.md`，不得仅传递逻辑名 `artifacts/brief.md`。同一运行中，只有版本化 `artifacts/<node-id>/r<revision>/...`（排除 AIW 专属的 `test-results.yaml`）与 `handoffs/<node-id>/r<revision>.yaml` 可由 Codex 写入；`task.yaml`、`runs/<run-id>/`、`test-results.yaml`、审批、决策事实和项目配置均只由 AIW 写入。Runner 在启动 Codex 后对整个 `.aiw/` 建立哈希快照；任何越权写入均会使节点失败并保留运行证据。
 
 除非用户任务明确要求其他语言，Adapter 要求所有 Markdown 任务产物使用简体中文；代码标识、命令、路径、API 名称和必须保留的原文保持原始语言。上游方法论可以是英文，但不能改变该产物语言约束。
 

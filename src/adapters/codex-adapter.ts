@@ -88,7 +88,12 @@ function renderContext(request: RunRequest): string {
   const methods = request.context.methodSources.map((method) => `<method-source id="${escapeAttribute(method.id)}" trust="lower-priority-guidance">\n${method.content}\n</method-source>`).join('\n\n');
   const files = request.context.files.map((file) => `<task-fact role="${file.role}" path="${escapeAttribute(file.path)}" trust="untrusted-data">\n${file.content}\n</task-fact>`).join('\n\n');
   const taskRoot = `.aiw/tasks/${request.task.id}`;
-  const allowedOutputs = request.artifacts.map((path) => `- ${taskRoot}/${path}`).join('\n');
+  // `test-results.yaml` is a declared node output, but it is created after
+  // Codex exits by AIW's canonical test executor. Never present it as an
+  // agent-writable output.
+  const allowedOutputs = request.artifacts
+    .filter((path) => path !== 'artifacts/test-results.yaml')
+    .map((path) => `- ${taskRoot}/${path}`).join('\n');
   const outputPath = (name: string): string | undefined => request.artifacts.find((path) => path === `artifacts/${name}` || path.endsWith('/' + name));
   const planPath = outputPath('implementation-plan.md');
   const workBreakdownPath = outputPath('work-breakdown.yaml');

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import type { CodexAdapter } from '../adapters/codex-adapter.js';
@@ -165,7 +166,21 @@ export class TaskRunner {
     await this.deps.taskStore.update(startedTask);
     if (scope === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少任务事实写入边界');
     await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
-    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline, finalizedManifest)), contextManifest: finalizedManifest });
+    const agentFactBaselinePath = `runs/${runId}/agent-task-fact-baseline.json`;
+    const recordedAgentFactBaseline = await snapshotAiWorkflowFacts(this.deps.taskStore.projectDirectory());
+    await this.deps.taskStore.createFact(task.id, agentFactBaselinePath, JSON.stringify({
+      schemaVersion: 'aiw.agent-task-fact-baseline/v1',
+      taskId: task.id,
+      nodeId: input.nodeId,
+      runId,
+      capturedAt: new Date().toISOString(),
+      facts: recordedAgentFactBaseline,
+    }, null, 2) + '\n');
+    // Capture again after persisting the baseline record itself. This is the
+    // exact file state handed to Codex; any later .aiw/ mutation is therefore
+    // attributable to the agent, not to runner setup.
+    const agentFactBaseline = await snapshotAiWorkflowFacts(this.deps.taskStore.projectDirectory());
+    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline, finalizedManifest, agentFactBaseline)), contextManifest: finalizedManifest });
     await this.writeResult(task.id, runId, result);
     const next = result.status === 'succeeded'
       ? transitionNode(startedTask, input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
@@ -183,6 +198,7 @@ export class TaskRunner {
     scope: TaskFactWriteScope,
     baseline: ChangeBaseline,
     manifest: ContextManifest,
+    agentFactBaseline: TaskFactSnapshot,
   ): Promise<RunResult> {
     if (await cancellationRequested(request.runDirectory)) {
       return cancelledResult(request, '已收到取消请求，未启动 Codex');
@@ -200,9 +216,22 @@ export class TaskRunner {
     if (await cancellationRequested(request.runDirectory)) {
       result = cancelledResult(request, '已取消当前 Codex 运行');
     }
+    const agentTaskFacts = await inspectAgentTaskFactChanges(this.deps.taskStore.projectDirectory(), agentFactBaseline, scope);
+    if (agentTaskFacts.violations.length > 0) {
+      const expectedHandoff = request.artifacts.find((path) => path.startsWith(`handoffs/${nodeId}/`) && path.endsWith('.yaml'));
+      const staleHandoffs = agentTaskFacts.violations.filter((path) => path.startsWith(`.aiw/tasks/${task.id}/handoffs/${nodeId}/`));
+      const message = staleHandoffs.length === 0
+        ? `检测到不允许写入的任务事实：${agentTaskFacts.violations.join(', ')}`
+        : `检测到写入旧交接包：${staleHandoffs.join(', ')}。本次运行只允许写入 ${expectedHandoff ?? '当前 revision 的交接包'}；请勿根据节点的历史 revision 重写旧文件。`;
+      await this.persistChangeEvidence(task, {
+        ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts)),
+        failure: failureEvidence('task-facts', 'TASK_FACT_WRITE_VIOLATION', message),
+      });
+      return failedResult(request, 'TASK_FACT_WRITE_VIOLATION', message);
+    }
     if (result.status !== 'succeeded') {
       await this.persistChangeEvidence(task, {
-        ...(await this.recordChangeEvidence(task, request, scope, result, baseline)),
+        ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts)),
         failure: failureEvidence(result.status === 'cancelled' ? 'cancelled' : 'adapter', result.error?.code ?? 'CODEX_EXECUTION_ERROR', result.error?.message ?? `运行未完成：${result.status}`),
       });
       return result;
@@ -222,20 +251,11 @@ export class TaskRunner {
           projectRoot: this.deps.taskStore.projectDirectory(),
         });
       }
-      evidence = await this.recordChangeEvidence(task, request, scope, result, baseline);
+      evidence = await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts);
       if (evidence.git.historyChanged) {
         const message = '检测到 Codex 修改了 Git 提交或分支，当前运行已停止';
         await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('git-history', 'GIT_HISTORY_MUTATION', message) });
         return failedResult(request, 'GIT_HISTORY_MUTATION', message);
-      }
-      if (evidence.taskFactViolations.length > 0) {
-        const expectedHandoff = request.artifacts.find((path) => path.startsWith(`handoffs/${nodeId}/`) && path.endsWith('.yaml'));
-        const staleHandoffs = evidence.taskFactViolations.filter((path) => path.startsWith(`.aiw/tasks/${task.id}/handoffs/${nodeId}/`));
-        const message = staleHandoffs.length === 0
-          ? `检测到不允许写入的任务事实：${evidence.taskFactViolations.join(', ')}`
-          : `检测到写入旧交接包：${staleHandoffs.join(', ')}。本次运行只允许写入 ${expectedHandoff ?? '当前 revision 的交接包'}；请勿根据节点的历史 revision 重写旧文件。`;
-        await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('task-facts', 'TASK_FACT_WRITE_VIOLATION', message) });
-        return failedResult(request, 'TASK_FACT_WRITE_VIOLATION', message);
       }
       const artifacts = await outputRecords(task, this.deps.taskStore, nodeId, baseline.outputs, manifest);
       await this.persistChangeEvidence(task, { ...evidence, artifacts });
@@ -243,7 +263,7 @@ export class TaskRunner {
     } catch (error) {
       const message = error instanceof Error ? error.message : '节点产物校验失败';
       const code = error instanceof TaskRunnerError ? error.code : 'ARTIFACT_INVALID';
-      const captured = evidence ?? await this.recordChangeEvidence(task, request, scope, result, baseline);
+      const captured = evidence ?? await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts);
       await this.persistChangeEvidence(task, { ...captured, failure: failureEvidence('artifact', code, message) });
       return failedResult(request, code, message);
     }
@@ -320,25 +340,30 @@ export class TaskRunner {
     }
     const taskRoot = relative(this.deps.taskStore.projectDirectory(), this.deps.taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
     const outputPaths = outputPathsForNextRun(nodeId, node);
-    const allowedTaskPaths = [
+    const platformManagedOutputs = outputPaths.filter(isPlatformManagedOutput);
+    const agentWritableTaskPaths = outputPaths
+      .filter((path) => !isPlatformManagedOutput(path))
+      .map((path) => `${taskRoot}/${path}`);
+    const platformOwnedTaskPaths = [
       `${taskRoot}/task.yaml`,
       `${taskRoot}/runs/${runId}/**`,
-      ...outputPaths.map((path) => `${taskRoot}/${path}`),
+      ...platformManagedOutputs.map((path) => `${taskRoot}/${path}`),
     ];
     return {
-      schemaVersion: 'aiw.change-scope/v2',
+      schemaVersion: 'aiw.change-scope/v3',
       taskId: task.id,
       nodeId,
       runId,
       businessFilePolicy: 'unrestricted',
-      allowedTaskPaths,
+      agentWritableTaskPaths,
+      platformOwnedTaskPaths,
     };
   }
 
-  private async recordChangeEvidence(task: Task, request: RunRequest, scope: TaskFactWriteScope, result: RunResult, baseline: ChangeBaseline, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
+  private async recordChangeEvidence(task: Task, request: RunRequest, scope: TaskFactWriteScope, result: RunResult, baseline: ChangeBaseline, agentTaskFacts: AgentTaskFactChanges, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
     const projectRoot = this.deps.taskStore.projectDirectory();
     const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot });
-    const taskFactViolations = changedPaths.filter((path) => path.startsWith('.aiw/') && !scope.allowedTaskPaths.some((allowed) => matchesAllowedPath(path, allowed)));
+    const taskFactViolations = agentTaskFacts.violations;
     const rawDiff = await this.deps.changeInspector.diff({ projectRoot });
     const untrackedPaths = await this.deps.changeInspector.untrackedPaths({ projectRoot });
     const changedFiles = await Promise.all(changedPaths.map(async (path) => ({ path, ...(await fileHash(projectRoot, path)) })));
@@ -347,7 +372,7 @@ export class TaskRunner {
     const evidence: ChangeEvidence = {
       schemaVersion: 'aiw.change-evidence/v2', taskId: task.id, nodeId: scope.nodeId, runId: request.runId,
       baseline,
-      changedPaths, taskFactViolations, changedFiles,
+      changedPaths, taskFactViolations, agentTaskFacts: agentTaskFacts.changes, changedFiles,
       untrackedPaths,
       git: { before: baseline.git ?? {}, after, historyChanged: !sameGitRevision(baseline.git, after) },
       patch,
@@ -389,12 +414,13 @@ export class TaskRunner {
 }
 
 interface TaskFactWriteScope {
-  schemaVersion: 'aiw.change-scope/v2';
+  schemaVersion: 'aiw.change-scope/v3';
   taskId: string;
   nodeId: string;
   runId: string;
   businessFilePolicy: 'unrestricted';
-  allowedTaskPaths: string[];
+  agentWritableTaskPaths: string[];
+  platformOwnedTaskPaths: string[];
 }
 
 interface ChangeEvidence {
@@ -405,6 +431,7 @@ interface ChangeEvidence {
   baseline: ChangeBaseline;
   changedPaths: string[];
   taskFactViolations: string[];
+  agentTaskFacts: TaskFactChange[];
   changedFiles: Array<{ path: string; sha256?: string; deleted?: true }>;
   untrackedPaths: string[];
   git: { before: { head?: string; branch?: string }; after: { head?: string; branch?: string }; historyChanged: boolean };
@@ -422,8 +449,85 @@ interface ChangeBaseline {
   git?: { head?: string; branch?: string };
 }
 
+type TaskFactSnapshot = Record<string, string>;
+
+type TaskFactChange = {
+  path: string;
+  kind: 'created' | 'modified' | 'deleted';
+  beforeSha256?: string;
+  afterSha256?: string;
+};
+
+type AgentTaskFactChanges = {
+  changes: TaskFactChange[];
+  violations: string[];
+};
+
 function matchesAllowedPath(path: string, allowed: string): boolean {
   return allowed.endsWith('/**') ? path.startsWith(allowed.slice(0, -2)) : path === allowed;
+}
+
+function isPlatformManagedOutput(path: string): boolean {
+  return path === 'artifacts/test-results.yaml';
+}
+
+/**
+ * Git status cannot tell whether a task fact was written by AIW during setup
+ * or by Codex afterwards.  Snapshot the whole .aiw tree at the handoff point
+ * so platform facts (task.yaml, run evidence and canonical test results) are
+ * never accidentally granted to the agent as writable paths.
+ */
+async function snapshotAiWorkflowFacts(projectRoot: string): Promise<TaskFactSnapshot> {
+  const root = join(projectRoot, '.aiw');
+  const entries: Array<{ path: string; sha256: string }> = [];
+  async function visit(directory: string, relativeDirectory: string): Promise<void> {
+    let children: Dirent<string>[];
+    try {
+      children = await readdir(directory, { withFileTypes: true, encoding: 'utf8' });
+    } catch (error) {
+      if (isMissingFile(error)) return;
+      throw error;
+    }
+    await Promise.all(children.map(async (child) => {
+      const relativePath = `${relativeDirectory}/${child.name}`;
+      const absolutePath = join(directory, child.name);
+      if (child.isDirectory()) {
+        await visit(absolutePath, relativePath);
+        return;
+      }
+      if (!child.isFile()) return;
+      const content = await readFile(absolutePath);
+      entries.push({ path: relativePath, sha256: createHash('sha256').update(content).digest('hex') });
+    }));
+  }
+  await visit(root, '.aiw');
+  return Object.fromEntries(entries.sort((left, right) => left.path.localeCompare(right.path)).map(({ path, sha256 }) => [path, sha256]));
+}
+
+async function inspectAgentTaskFactChanges(projectRoot: string, baseline: TaskFactSnapshot, scope: TaskFactWriteScope): Promise<AgentTaskFactChanges> {
+  const after = await snapshotAiWorkflowFacts(projectRoot);
+  const paths = [...new Set([...Object.keys(baseline), ...Object.keys(after)])].sort();
+  const changes = paths.flatMap((path): TaskFactChange[] => {
+    const beforeSha256 = baseline[path];
+    const afterSha256 = after[path];
+    if (beforeSha256 === afterSha256) return [];
+    return [{
+      path,
+      kind: beforeSha256 === undefined ? 'created' : afterSha256 === undefined ? 'deleted' : 'modified',
+      ...(beforeSha256 === undefined ? {} : { beforeSha256 }),
+      ...(afterSha256 === undefined ? {} : { afterSha256 }),
+    }];
+  });
+  return {
+    changes,
+    violations: changes
+      .map((change) => change.path)
+      .filter((path) => !scope.agentWritableTaskPaths.some((allowed) => matchesAllowedPath(path, allowed))),
+  };
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
 async function loadContextFiles(task: Task, taskStore: TaskStore, manifest: ContextManifest): Promise<RunRequest['context']['files']> {
