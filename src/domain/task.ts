@@ -10,8 +10,6 @@ export const PhaseSchema = z.enum([
   'solution',
   'plan',
   'implement',
-  'verify',
-  'test',
 ]);
 
 export const NodeStatusSchema = z.enum([
@@ -116,6 +114,7 @@ export const TaskNodeSchema = z.object({
   outputs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
   contextPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
   generatedFromPlanRevision: z.number().int().positive().optional(),
+  acceptanceRefs: z.array(z.string().regex(/^AC-\d{2,}$/, '验收项 ID 格式无效')).default([]),
   blockedByDecisionIds: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).optional(),
 });
 
@@ -172,6 +171,10 @@ export const TaskSchema = TaskBaseSchema.superRefine((task, context) => {
 
     if (nodeId !== 'intake' && node.skill === undefined) {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'skill'], message: '可执行节点必须锁定技能' });
+    }
+
+    if (node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.acceptanceRefs.length === 0) {
+      context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'acceptanceRefs'], message: '交付单元必须声明至少一个验收项' });
     }
 
     for (const dependency of node.dependsOn) {

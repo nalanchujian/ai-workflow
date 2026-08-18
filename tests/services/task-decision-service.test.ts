@@ -45,8 +45,6 @@ describe('TaskDecisionService', () => {
     waiting.nodes.plan!.status = 'completed';
     waiting.nodes.implement!.status = 'blocked';
     waiting.nodes.implement!.blockedByDecisionIds = ['DEC-API-01'];
-    waiting.nodes.verify!.status = 'pending';
-    waiting.nodes.verify!.dependsOn = ['implement'];
     waiting.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml'];
     await store.update(waiting);
 
@@ -93,13 +91,11 @@ describe('TaskDecisionService', () => {
       status: 'blocked',
       blockedByDecisionIds: ['DEC-API-01'],
     };
-    waiting.nodes.verify.dependsOn = ['implement'];
     await store.update(waiting);
 
     const task = await service.choose({ taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'defer-scope', actor: 'product-owner', status: 'deferred', note: '接口能力拆至下个版本。' });
 
     expect(task.nodes.implement.status).toBe('superseded');
-    expect(task.nodes.verify.dependsOn).toEqual([]);
   });
 
   it('derives the decision status from the selected option instead of accepting a conflicting status', async () => {

@@ -30,18 +30,17 @@ describe('ImplementationWorkPlanner', () => {
     const revised = await store.load(task.id);
     revised.nodes.plan.status = 'completed';
     revised.nodes.plan.revision = 2;
-    revised.nodes.verify.status = 'invalidated';
     await store.update(revised);
     await writePlanFacts(store, task.id, 'second');
 
     const second = await materializeImplementationWork(await store.load(task.id), store);
 
-    expect(second.task.nodes['implement-page'].status).toBe('superseded');
-    expect(second.task.nodes['implement-export'].status).toBe('superseded');
-    expect(second.task.nodes['implement-export-r2']).toMatchObject({
-      contextPath: 'artifacts/work-units/r2/implement-export-r2.md',
+    expect(second.task.nodes['delivery-page'].status).toBe('superseded');
+    expect(second.task.nodes['delivery-export'].status).toBe('superseded');
+    expect(second.task.nodes['delivery-export-r2']).toMatchObject({
+      contextPath: 'artifacts/work-units/r2/delivery-export-r2.md',
     });
-    expect(second.task.nodes.verify.dependsOn).toEqual(['implement-page-r2', 'implement-export-r2']);
+    expect(second.task.nodes['delivery-export-r2']?.dependsOn).toEqual(['plan']);
   });
 
   it('keeps a work unit visible but blocked when its decision is waiting for an external condition', async () => {
@@ -60,11 +59,11 @@ describe('ImplementationWorkPlanner', () => {
 
     const materialized = await materializeImplementationWork(await store.load(task.id), store);
 
-    expect(materialized.task.nodes['implement-export']).toMatchObject({ status: 'blocked', blockedByDecisionIds: ['DEC-API-01'] });
+    expect(materialized.task.nodes['delivery-export']).toMatchObject({ status: 'blocked', blockedByDecisionIds: ['DEC-API-01'] });
     expect(materialized.task.status).toBe('partially_blocked');
   });
 
-  it('removes a deferred work unit from the verify merge so unrelated work can continue', async () => {
+  it('supersedes a deferred delivery unit while unrelated delivery can continue', async () => {
     const projectRoot = await createTempDirectory('aiw-work-planner-');
     directories.push(projectRoot);
     const store = new TaskStore(projectRoot);
@@ -80,11 +79,11 @@ describe('ImplementationWorkPlanner', () => {
 
     const materialized = await materializeImplementationWork(await store.load(task.id), store);
 
-    expect(materialized.task.nodes['implement-export'].status).toBe('superseded');
-    expect(materialized.task.nodes.verify.dependsOn).toEqual(['implement-page']);
+    expect(materialized.task.nodes['delivery-export']?.status).toBe('superseded');
+    expect(materialized.task.nodes['delivery-page']?.status).toBe('ready');
   });
 
-  it('keeps verify dependent on implement when the plan has exactly one work unit', async () => {
+  it('materializes a named delivery unit even when the plan has exactly one unit', async () => {
     const projectRoot = await createTempDirectory('aiw-work-planner-');
     directories.push(projectRoot);
     const store = new TaskStore(projectRoot);
@@ -122,8 +121,12 @@ describe('ImplementationWorkPlanner', () => {
 
     const materialized = await materializeImplementationWork(await store.load(task.id), store);
 
-    expect(materialized.task.nodes.implement.status).toBe('ready');
-    expect(materialized.task.nodes.verify.dependsOn).toEqual(['implement']);
+    expect(materialized.task.nodes.implement.status).toBe('superseded');
+    expect(materialized.task.nodes['delivery-main']).toMatchObject({
+      status: 'ready',
+      acceptanceRefs: ['AC-01'],
+      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'],
+    });
   });
 
   it('explains incorrect acceptance coverage fields by item and replacement field name', () => {

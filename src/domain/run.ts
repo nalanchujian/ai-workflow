@@ -18,7 +18,7 @@ export const RunRequestSchema = z.object({
   task: z.object({
     id: z.string().min(1),
     nodeId: z.string().min(1),
-    phase: z.enum(['clarify', 'solution', 'plan', 'implement', 'verify', 'test']),
+    phase: z.enum(['clarify', 'solution', 'plan', 'implement']),
     nodeRevision: z.number().int().nonnegative(),
     projectRoot: z.string().min(1),
   }),

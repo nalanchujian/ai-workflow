@@ -9,10 +9,10 @@ describe('task state machine', () => {
     for (const node of Object.values(task.nodes)) {
       node.status = 'completed';
     }
-    task.nodes.test.status = 'running';
-    task.nodes.test.requiresApproval = false;
+    task.nodes.implement.status = 'running';
+    task.nodes.implement.requiresApproval = false;
 
-    const next = transitionNode(task, 'test', { type: 'succeed', runId: 'test-run-1', outputs: [], evidencePath: 'runs/test-run-1/change-evidence.json' });
+    const next = transitionNode(task, 'implement', { type: 'succeed', runId: 'delivery-run-1', outputs: [], evidencePath: 'runs/delivery-run-1/change-evidence.json' });
 
     expect(next.status).toBe('completed');
   });
@@ -54,7 +54,6 @@ describe('task state machine', () => {
     task.nodes.plan.status = 'completed';
     task.nodes.implement.status = 'blocked';
     task.nodes.implement.blockedByDecisionIds = ['DEC-API-01'];
-    task.nodes.verify.status = 'pending';
     task.decisions = [{
       id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api', actor: 'backend-lead',
       at: '2026-08-14T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r2.yaml',
@@ -63,7 +62,6 @@ describe('task state machine', () => {
     const next = reconcileDecisionBlocks(task, 'DEC-API-01');
 
     expect(next.nodes.implement.status).toBe('ready');
-    expect(next.nodes.verify.status).toBe('pending');
     expect(next.status).toBe('active');
   });
 
@@ -72,15 +70,12 @@ describe('task state machine', () => {
     task.nodes.solution.status = 'completed';
     task.nodes.plan.status = 'awaiting_approval';
     task.nodes.implement.status = 'ready';
-    task.nodes.verify.status = 'running';
 
     const next = invalidateDependents(task, 'clarify', 'requirements changed');
 
     expect(next.nodes.solution.status).toBe('invalidated');
     expect(next.nodes.plan.status).toBe('invalidated');
     expect(next.nodes.implement.status).toBe('invalidated');
-    expect(next.nodes.verify.status).toBe('invalidated');
-    expect(next.nodes.test.status).toBe('pending');
   });
 
   it('moves an approval-required node to awaiting approval after a successful run', () => {
@@ -135,9 +130,7 @@ describe('task state machine', () => {
     task.nodes.solution.status = 'completed';
     task.nodes.plan.status = 'completed';
     task.nodes.implement.status = 'completed';
-    task.nodes.verify.status = 'completed';
-    task.nodes.test.status = 'awaiting_approval';
-    task.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml', 'approvals/test/r1.yaml'];
+    task.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml', 'approvals/implement/r1.yaml'];
     task.decisions = [{
       id: 'DEC-API-01', revision: 1, status: 'resolved', optionId: 'mock', actor: 'tester', at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r1.yaml',
     }];
@@ -148,8 +141,6 @@ describe('task state machine', () => {
     expect(next.nodes.solution.status).toBe('pending');
     expect(next.nodes.plan.status).toBe('pending');
     expect(next.nodes.implement.status).toBe('pending');
-    expect(next.nodes.verify.status).toBe('pending');
-    expect(next.nodes.test.status).toBe('pending');
     expect(next.approvalRefs).toEqual([]);
     expect(next.decisions).toEqual([]);
   });
@@ -160,23 +151,20 @@ describe('task state machine', () => {
     task.nodes.solution.status = 'completed';
     task.nodes.plan.status = 'completed';
     task.nodes.implement.status = 'superseded';
-    task.nodes.implement.generatedFromPlanRevision = 1;
-    task.nodes['implement-export'] = {
+    task.nodes['delivery-export'] = {
       ...task.nodes.implement,
       title: '导出能力',
       status: 'ready',
       dependsOn: ['plan'],
       generatedFromPlanRevision: 1,
+      acceptanceRefs: ['AC-01'],
     };
-    task.nodes.verify.status = 'pending';
-    task.nodes.verify.dependsOn = ['implement-export'];
 
     const next = transitionNode(task, 'plan', { type: 'start', runId: 'replace-plan-run' });
 
     expect(next.nodes.plan.status).toBe('running');
-    expect(next.nodes['implement-export']).toMatchObject({ status: 'superseded' });
+    expect(next.nodes['delivery-export']).toMatchObject({ status: 'superseded' });
     expect(next.nodes.implement).toMatchObject({ status: 'pending', dependsOn: ['plan'] });
-    expect(next.nodes.verify).toMatchObject({ status: 'pending', dependsOn: ['implement'] });
   });
 
   it('keeps historical output declarations when a completed node is re-run', () => {

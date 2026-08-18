@@ -23,7 +23,6 @@ const WorkUnitSchema = z.object({
   verification: z.array(z.string().min(1)).min(1),
   blockedBy: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   dependsOn: z.array(z.string().regex(unitIdPattern, '依赖工作单元 ID 格式无效')).default([]),
-  requiresApproval: z.boolean().default(false),
 }).strict();
 
 const AcceptanceCoverageSchema = z.object({
@@ -61,11 +60,11 @@ export const WorkBreakdownSchema = z.object({
     if (unitIds.size !== coverage.workUnitIds.length || coverage.workUnitIds.some((id) => !ids.has(id))) {
       context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index, 'workUnitIds'], message: '验收覆盖必须引用已声明且唯一的工作单元' });
     }
-    if (coverage.disposition === 'implement' && coverage.workUnitIds.length === 0) {
-      context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index, 'workUnitIds'], message: '本期实施验收项必须关联至少一个工作单元' });
+    if (['implement', 'waiting_external'].includes(coverage.disposition) && coverage.workUnitIds.length !== 1) {
+      context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index, 'workUnitIds'], message: '每个本期或外部等待验收项必须且只能关联一个交付单元；跨单元验收请新增集成交付单元' });
     }
-    if (coverage.disposition === 'waiting_external' && (coverage.decisionId === undefined || coverage.workUnitIds.length === 0)) {
-      context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index], message: '等待外部条件验收项必须关联决策和至少一个工作单元' });
+    if (coverage.disposition === 'waiting_external' && coverage.decisionId === undefined) {
+      context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index], message: '等待外部条件验收项必须关联决策和一个交付单元' });
     }
     if (['deferred', 'waived'].includes(coverage.disposition) && coverage.decisionId === undefined) {
       context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index, 'decisionId'], message: '拆期或风险豁免验收项必须关联决策' });
@@ -111,12 +110,6 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
   await validateAcceptanceCoverage(task, taskStore, breakdown);
   const planRevision = plan.revision;
   const next = TaskSchema.parse(task);
-  const verify = next.nodes.verify;
-  if (verify === undefined || !['pending', 'invalidated'].includes(verify.status)) {
-    throw new ImplementationWorkPlannerError('工程验证已开始，不能重新生成实施工作单元');
-  }
-  verify.status = 'pending';
-
   const generatedNodeIds = Object.entries(next.nodes)
     .filter(([nodeId, node]) => nodeId !== 'implement' && node.generatedFromPlanRevision !== undefined)
     .map(([nodeId]) => nodeId);
@@ -124,16 +117,10 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
     next.nodes[nodeId]!.status = 'superseded';
     next.events.push({ type: 'supersede', nodeId, at: new Date().toISOString(), reason: `已由计划 r${planRevision} 重新生成` });
   }
-  const split = breakdown.units.length > 1;
-  verify.dependsOn = verify.dependsOn.filter((nodeId) => nodeId !== 'implement' && !generatedNodeIds.includes(nodeId));
-  if (split) {
-    next.nodes.implement = { ...implementation, status: 'superseded' };
-    next.events.push({ type: 'supersede', nodeId: 'implement', at: new Date().toISOString(), reason: `计划 r${planRevision} 已拆分为 ${breakdown.units.length} 个实施单元` });
-  } else {
-    verify.dependsOn = [...new Set([...verify.dependsOn, 'implement'])];
-  }
+  next.nodes.implement = { ...implementation, status: 'superseded', dependsOn: ['plan'], blockedByDecisionIds: undefined, acceptanceRefs: [] };
+  next.events.push({ type: 'supersede', nodeId: 'implement', at: new Date().toISOString(), reason: `计划 r${planRevision} 已生成 ${breakdown.units.length} 个交付单元` });
 
-  const nodeIds = new Map(breakdown.units.map((unit, index) => [unit.id, !split && index === 0 ? 'implement' : nextNodeId(next, `implement-${unit.id}`, planRevision)]));
+  const nodeIds = new Map(breakdown.units.map((unit) => [unit.id, nextNodeId(next, `delivery-${unit.id}`, planRevision)]));
   const facts: Array<{ path: string; content: string }> = [];
   const taskDirectory = taskStore.taskDirectory(task.id);
   const planPath = completedArtifactPath('plan', plan, 'artifacts/implementation-plan.md');
@@ -143,9 +130,7 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
 
   for (const unit of breakdown.units) {
     const nodeId = nodeIds.get(unit.id)!;
-    const contextPath = breakdown.units.length === 1
-      ? completedArtifactPath('plan', plan, 'artifacts/implementation-context.md')
-      : `artifacts/work-units/r${planRevision}/${nodeId}.md`;
+    const contextPath = `artifacts/work-units/r${planRevision}/${nodeId}.md`;
     const dependencies = ['plan', ...unit.dependsOn.map((dependency) => nodeIds.get(dependency)!)];
     const deferred = unit.blockedBy.some((decisionId) => next.decisions.find((decision) => decision.id === decisionId)?.status === 'deferred');
     const blockedByDecisionIds = unit.blockedBy.filter((decisionId) => {
@@ -157,21 +142,17 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       phase: 'implement',
       dependsOn: [...new Set(dependencies)],
       skill: implementation.skill,
-      requiresApproval: unit.requiresApproval,
+      requiresApproval: true,
       status: deferred ? 'superseded' : blockedByDecisionIds.length > 0 ? 'blocked' : dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
-      revision: nodeId === 'implement' ? implementation.revision : 0,
-      outputs: nodeId === 'implement' ? ['artifacts/implementation.md'] : [`artifacts/subtasks/${nodeId}.md`],
+      revision: 0,
+      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'],
       contextPath,
       generatedFromPlanRevision: planRevision,
+      acceptanceRefs: unit.acceptanceRefs,
       ...(blockedByDecisionIds.length === 0 || deferred ? {} : { blockedByDecisionIds }),
     };
     next.nodes[nodeId] = node;
-    if (nodeId !== 'implement' && node.status !== 'superseded') {
-      verify.dependsOn = [...new Set([...verify.dependsOn, nodeId])];
-    }
-    if (breakdown.units.length > 1) {
-      facts.push({ path: contextPath, content: renderUnitContext(unit, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash) });
-    }
+    facts.push({ path: contextPath, content: renderUnitContext(unit, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash) });
     next.events.push({ type: 'materialize_implementation', nodeId, at: new Date().toISOString(), note: `计划 r${planRevision}；工作单元：${unit.id}` });
   }
   return { task: TaskSchema.parse(deriveTaskStatus(next)), facts };
@@ -247,6 +228,7 @@ function workBreakdownIssueMessages(issue: z.core.$ZodIssue, kind: 'coverage' | 
           paths: '不能使用 paths；请使用 steps 描述实施边界。',
           commands: '不能使用 commands；请改为 verification。',
           dependencies: '不能使用 dependencies；请改为 dependsOn。',
+          requiresApproval: '交付单元固定需要审批；不要声明 requiresApproval。',
         };
     return keys.map((key) => aliases[key as keyof typeof aliases] ?? `不支持字段 ${key}。`);
   }
@@ -269,7 +251,7 @@ async function validateAcceptanceCoverage(task: Task, taskStore: TaskStore, brea
 
   for (const coverage of breakdown.acceptanceCoverage) {
     const units = coverage.workUnitIds.map((id) => breakdown.units.find((unit) => unit.id === id)!);
-    if (coverage.disposition === 'implement' && units.some((unit) => !unit.acceptanceRefs.includes(coverage.acceptanceId))) {
+    if (coverage.disposition === 'implement' && (units.length !== 1 || !units[0]!.acceptanceRefs.includes(coverage.acceptanceId))) {
       errors.push(`${coverage.acceptanceId} 的实施单元必须在 acceptanceRefs 中声明该验收项`);
     }
     if (coverage.disposition === 'waiting_external') {
@@ -277,7 +259,7 @@ async function validateAcceptanceCoverage(task: Task, taskStore: TaskStore, brea
       if (decision?.status !== 'waiting_external') {
         errors.push(`${coverage.acceptanceId} 声明等待外部条件，但 ${coverage.decisionId} 不是当前外部等待决策`);
       }
-      if (units.some((unit) => !unit.acceptanceRefs.includes(coverage.acceptanceId) || !unit.blockedBy.includes(coverage.decisionId!))) {
+      if (units.length !== 1 || units.some((unit) => !unit.acceptanceRefs.includes(coverage.acceptanceId) || !unit.blockedBy.includes(coverage.decisionId!))) {
         errors.push(`${coverage.acceptanceId} 的等待工作单元必须引用 ${coverage.decisionId}`);
       }
     }
@@ -343,7 +325,7 @@ function renderUnitContext(
   breakdownHash: string,
 ): string {
   return [
-    `# 实施上下文：${unit.title}`,
+    `# 交付单元上下文：${unit.title}`,
     '',
     '## 来源',
     `- 任务：${taskId}`,
@@ -356,11 +338,15 @@ function renderUnitContext(
     '## 验收项',
     ...unit.acceptanceRefs.map((reference) => `- ${reference}`),
     '',
-    '## 实施步骤',
+    '## 交付步骤',
     ...unit.steps.map((step, index) => `${index + 1}. ${step}`),
     '',
-    '## 验证',
+    '## 工程验证与验收测试',
     ...unit.verification.map((command) => `- ${command}`),
+    '',
+    '## 交付要求',
+    '- 在本单元内完成代码修改、工程验证和验收测试；不得等待全局验证节点。',
+    '- 只为上述验收项生成验收结果；跨单元验收必须由计划声明的集成交付单元负责。',
     '',
   ].join('\n');
 }

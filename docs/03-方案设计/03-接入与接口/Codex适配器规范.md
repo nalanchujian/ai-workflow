@@ -20,7 +20,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
   "contextManifestPath": "/absolute/path/to/repository/.aiw/tasks/refund-123/runs/run_01JABC/context-manifest.json",
   "runDirectory": "/absolute/path/to/user-home/.aiw/runtime/refund-123/run_01JABC",
   "mode": "execute",
-  "artifacts": ["artifacts/plan/r1/implementation-plan.md", "artifacts/plan/r1/implementation-context.md", "artifacts/plan/r1/work-breakdown.yaml", "handoffs/plan/r1.yaml"]
+  "artifacts": ["artifacts/plan/r1/implementation-plan.md", "artifacts/plan/r1/work-breakdown.yaml", "handoffs/plan/r1.yaml"]
 }
 ```
 

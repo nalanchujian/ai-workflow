@@ -20,7 +20,7 @@ describe('SkillInstaller', () => {
 
     const installed = await installer.install({ url: 'https://example.test/skills.git' });
 
-    expect(installed.skills).toHaveLength(6);
+    expect(installed.skills).toHaveLength(4);
     expect(installed.skills[0]).toMatchObject({ registrySource: { revision: 'abc123' } });
     expect(await registry.listProfiles()).toHaveLength(1);
   });
@@ -38,7 +38,7 @@ describe('SkillInstaller', () => {
     const installed = await installer.install({ url: 'https://example.test/skills.git' });
 
     expect(installed.methods).toHaveLength(3);
-    expect(installed.skills).toHaveLength(6);
+    expect(installed.skills).toHaveLength(4);
     await expect(registry.listMethods()).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ source: expect.objectContaining({ source: 'bundled:superpowers', id: 'superpowers:brainstorming' }) }),
     ]));
@@ -82,7 +82,7 @@ describe('SkillInstaller', () => {
 
     const installed = await installer.install({ url: 'https://example.test/skills-only.git' });
 
-    expect(installed.skills).toHaveLength(6);
+    expect(installed.skills).toHaveLength(4);
     expect(installed.profiles).toEqual([]);
   });
 
@@ -104,7 +104,7 @@ describe('SkillInstaller', () => {
 
     expect(installed.skills).toEqual([]);
     expect(installed.profiles).toHaveLength(1);
-    expect(await registry.list()).toHaveLength(6);
+    expect(await registry.list()).toHaveLength(4);
   });
 
   it('rejects a source that contains neither skills nor workflow profiles', async () => {

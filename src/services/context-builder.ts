@@ -189,8 +189,6 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
     solution: [],
     plan: [],
     implement: [],
-    verify: [],
-    test: [],
   };
   const files: ContextFileInput[] = [
     ...defaults[phase].map((path) => ({ role: path === 'task.md' ? 'task' as const : 'artifact' as const, path })),
@@ -206,12 +204,6 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
 
 function effectiveContextPath(task: Task, nodeId: string, node: Task['nodes'][string] | undefined): string | undefined {
   if (node?.contextPath === undefined) return undefined;
-  if (nodeId === 'implement' && node.contextPath === 'artifacts/implementation-context.md') {
-    const plan = task.nodes.plan;
-    return plan === undefined || plan.revision === 0
-      ? node.contextPath
-      : completedArtifactPath('plan', plan, node.contextPath);
-  }
   return node.contextPath;
 }
 

@@ -134,21 +134,22 @@ describe('CodexAdapter', () => {
     expect(context).toContain('aiw.decision-register/v1');
   });
 
-  it('requires test to emit machine-readable acceptance results', async () => {
+  it('requires each delivery unit to emit machine-readable acceptance results', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.aiw-runtime', 'run-acceptance');
     const adapter = new CodexAdapter({
       processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
     });
     const request = runRequest({ projectRoot, runDirectory });
-    request.task = { ...request.task, nodeId: 'test', phase: 'test' };
-    request.artifacts = ['artifacts/test-report.md', 'artifacts/acceptance-results.yaml'];
+    request.task = { ...request.task, nodeId: 'delivery-list', phase: 'implement' };
+    request.artifacts = ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'];
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('artifacts/acceptance-results.yaml');
     expect(context).toContain('没有真实测试证据不得写 `passed`');
+    expect(context).toContain('本次运行中完成代码实现、工程验证和验收测试');
   });
 
   it('requires task artifacts to use Simplified Chinese by default', async () => {

@@ -115,7 +115,7 @@ export function invalidateNodeAndDependents(task: Task, nodeId: string, reason: 
   }
 
   next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
-  if (affected.includes('test')) next.deliveryStatus = 'not_assessed';
+  if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
@@ -136,7 +136,7 @@ export function restartDependentsForSourceChange(task: Task, upstreamNodeId: str
   // treated as current after its upstream source snapshot changes.
   next.decisions = [];
   next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((nodeId) => path.startsWith(`approvals/${nodeId}/`)));
-  if (affected.includes('test')) next.deliveryStatus = 'not_assessed';
+  if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
@@ -199,8 +199,9 @@ function unlockDependents(task: Task, upstreamNodeId: string): void {
 function resetForOverwrite(task: Task, nodeId: string): void {
   const affected = [nodeId, ...downstreamNodeIds(task, nodeId)];
   const affectedSet = new Set(affected);
-  // `implement` is the permanent workflow anchor. A one-unit plan may have marked it
-  // as generated, but a later split plan must still be able to rebuild from its skill.
+  // `implement` is the internal workflow anchor. Plans always materialize
+  // named delivery units from this locked skill; the anchor itself is never
+  // a user-facing delivery unit.
   const generatedImplementationIds = affected.filter((id) => id !== nodeId && id !== 'implement' && task.nodes[id]?.phase === 'implement' && task.nodes[id]?.generatedFromPlanRevision !== undefined);
 
   for (const id of generatedImplementationIds) {
@@ -221,19 +222,13 @@ function resetForOverwrite(task: Task, nodeId: string): void {
     if (id === nodeId || id === 'implement' || generatedImplementationIds.includes(id)) continue;
     const node = task.nodes[id];
     if (node === undefined) continue;
-    if (node.phase === 'verify' && generatedImplementationIds.length > 0) {
-      node.dependsOn = [...new Set([
-        ...node.dependsOn.filter((dependency) => !generatedImplementationIds.includes(dependency)),
-        'implement',
-      ])];
-    }
     node.status = 'pending';
     node.blockedByDecisionIds = undefined;
     addEvent(task, 'invalidate', id, { reason: `重新执行 ${nodeId}，已覆盖上次结果` });
   }
 
   if (affectedSet.has('clarify')) task.decisions = [];
-  if (affectedSet.has('test')) task.deliveryStatus = 'not_assessed';
+  if (affectsDelivery(task, affected)) task.deliveryStatus = 'not_assessed';
   task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
 }
 
@@ -251,6 +246,13 @@ function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {
     }
   }
   return result;
+}
+
+function affectsDelivery(task: Task, nodeIds: string[]): boolean {
+  return nodeIds.some((nodeId) => {
+    const node = task.nodes[nodeId];
+    return nodeId === 'plan' || (node?.phase === 'implement' && node.generatedFromPlanRevision !== undefined);
+  });
 }
 
 function assertStatus(node: TaskNode, allowed: TaskNode['status'][], message: string): void {

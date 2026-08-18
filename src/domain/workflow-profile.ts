@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { RegistrySourceSchema } from './task.js';
 
-const stageKeys = ['clarify', 'solution', 'plan', 'implement', 'verify', 'test'] as const;
+const stageKeys = ['clarify', 'solution', 'plan', 'implement'] as const;
 
 export const WorkflowProfileSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9-]*$/),
@@ -13,8 +13,6 @@ export const WorkflowProfileSchema = z.object({
     solution: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
     plan: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
     implement: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
-    verify: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
-    test: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
   }),
 });
 

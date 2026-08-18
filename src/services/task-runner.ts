@@ -6,7 +6,7 @@ import type { CodexAdapter } from '../adapters/codex-adapter.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import type { ContextManifest } from '../domain/context.js';
 import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
-import { completedArtifactPath, declaredOutputPath, handoffPath, nextArtifactPath, outputPathsForCompletedRun, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
+import { declaredOutputPath, handoffPath, nextArtifactPath, outputPathsForCompletedRun, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
 import { hasTestExecutionEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
@@ -509,9 +509,6 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       }));
     }
   }
-  if (declaredPath === 'artifacts/implementation-context.md' && Buffer.byteLength(content, 'utf8') > 16_000) {
-    throw new TaskRunnerError('ARTIFACT_INVALID', '实施上下文摘要超过 4000 tokens 预算，必须压缩后重新生成计划');
-  }
   if (content.trim().length < 24) {
     throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物内容不足：${path}`);
   }
@@ -520,8 +517,8 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   } catch (error) {
     throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : `${path} 结构无效`);
   }
-  if (node.phase === 'test' && !hasTestExecutionEvidence(content)) {
-    throw new TaskRunnerError('ARTIFACT_INVALID', '测试报告必须包含测试命令与测试结果');
+  if (isDeliveryUnit(node) && declaredPath === 'artifacts/delivery.md' && !hasTestExecutionEvidence(content)) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', '交付报告必须包含测试命令与测试结果');
   }
 }
 
@@ -541,17 +538,11 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
       throw new TaskRunnerError('ARTIFACT_INVALID', `决策登记引用了验收清单中不存在的验收项：${unknown.join('、')}。请先在 artifacts/acceptance.yaml 声明该 AC，或修正 affects.acceptanceRefs。`);
     }
   }
-  if (node.phase === 'test') {
+  if (isDeliveryUnit(node)) {
     const resultContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance-results.yaml'));
     if (resultContent === undefined) return;
     const results = AcceptanceResultsSchema.parse(parse(resultContent));
-    const clarify = task.nodes.clarify;
-    if (clarify === undefined || clarify.revision === 0) {
-      throw new TaskRunnerError('ARTIFACT_INVALID', '测试前缺少已完成的需求澄清验收清单');
-    }
-    const catalogContent = await readFile(join(taskStore.taskDirectory(task.id), completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml')), 'utf8');
-    const catalog = AcceptanceCatalogSchema.parse(parse(catalogContent));
-    const expected = new Set(catalog.items.map((item) => item.id));
+    const expected = new Set(node.acceptanceRefs);
     const actual = new Set(results.items.map((item) => item.id));
     const missing = [...expected].filter((id) => !actual.has(id));
     const unknown = [...actual].filter((id) => !expected.has(id));
@@ -560,9 +551,13 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
         ...(missing.length === 0 ? [] : [`缺少结果：${missing.join('、')}`]),
         ...(unknown.length === 0 ? [] : [`不存在的验收项：${unknown.join('、')}`]),
       ];
-      throw new TaskRunnerError('ARTIFACT_INVALID', `验收结果必须与验收清单逐项一一对应：${parts.join('；')}。`);
+      throw new TaskRunnerError('ARTIFACT_INVALID', `交付单元验收结果必须与其所属验收项逐项一一对应：${parts.join('；')}。`);
     }
   }
+}
+
+function isDeliveryUnit(node: Task['nodes'][string]): boolean {
+  return node.phase === 'implement' && node.generatedFromPlanRevision !== undefined;
 }
 
 /**

@@ -21,6 +21,10 @@ export function createSkillLock(name: string): SkillLock {
   };
 }
 
+/**
+ * A task before its approved plan has materialized delivery units.
+ * The legacy name is intentionally retained only for test import stability.
+ */
 export function createSevenPhaseTask(): Task {
   return {
     schemaVersion: 'aiw.task/v2',
@@ -43,10 +47,9 @@ export function createSevenPhaseTask(): Task {
       intake: node('接入资料', 'intake', [], 'completed', false, ['sources/requirements/r1/snapshot.md']),
       clarify: node('澄清需求', 'clarify', ['intake'], 'ready', true, ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml'], createSkillLock('requirements-clarification')),
       solution: node('形成技术方案', 'solution', ['clarify'], 'pending', false, ['artifacts/solution.md'], createSkillLock('technical-solution')),
-      plan: node('制定实施计划', 'plan', ['solution'], 'pending', true, ['artifacts/implementation-plan.md', 'artifacts/implementation-context.md', 'artifacts/work-breakdown.yaml'], createSkillLock('implementation-planning')),
-      implement: { ...node('完成实现', 'implement', ['plan'], 'pending', false, ['artifacts/implementation.md'], createSkillLock('typescript-web-implementation')), contextPath: 'artifacts/implementation-context.md' },
-      verify: node('工程验证', 'verify', ['implement'], 'pending', false, ['artifacts/verification.md'], createSkillLock('web-verification')),
-      test: node('测试验证', 'test', ['verify'], 'pending', true, ['artifacts/test-report.md', 'artifacts/acceptance-results.yaml'], createSkillLock('acceptance-testing')),
+      plan: node('制定实施计划', 'plan', ['solution'], 'pending', true, ['artifacts/implementation-plan.md', 'artifacts/work-breakdown.yaml'], createSkillLock('implementation-planning')),
+      // This is an internal anchor.  Approved plans replace it with delivery-<unit> nodes.
+      implement: node('交付业务单元', 'implement', ['plan'], 'pending', true, ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'], createSkillLock('typescript-web-implementation')),
     },
     approvalRefs: [],
     decisions: [],
@@ -71,6 +74,7 @@ function node(
     revision: 0,
     outputs,
     requiresApproval,
+    acceptanceRefs: [],
     ...(skill ? { skill } : {}),
   };
 }

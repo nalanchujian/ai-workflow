@@ -4,10 +4,8 @@ const contracts: Array<{ matches: (path: string) => boolean; label: string; head
   { matches: (path) => path.endsWith('/acceptance.md'), label: '验收标准', headings: ['验收项'] },
   { matches: (path) => path.endsWith('/solution.md'), label: '技术方案', headings: ['方案结论', '架构与接口影响', '风险与待决事项'] },
   { matches: (path) => path.endsWith('/implementation-plan.md'), label: '实施计划', headings: ['实施单元', '范围与边界', '验证方式'] },
-  { matches: (path) => path.endsWith('/implementation-context.md'), label: '实施上下文', headings: ['目标', '验收项', '实施步骤', '验证'] },
-  { matches: (path) => path.endsWith('/implementation.md') || /\/subtasks\/.+\.md$/.test(path), label: '实施报告', headings: ['实际变更', '测试命令', '测试结果', '未完成事项与风险'] },
-  { matches: (path) => path.endsWith('/verification.md'), label: '工程验证报告', headings: ['执行命令', '验证结果', '覆盖边界与风险'] },
-  { matches: (path) => path.endsWith('/test-report.md'), label: '测试报告', headings: ['测试命令', '测试结果', '逐项验收', '阻塞缺陷与风险', '建议的下一步'] },
+  { matches: (path) => /\/work-units\/r\d+\/delivery-.+\.md$/.test(path), label: '交付单元上下文', headings: ['交付目标', '验收项', '交付步骤', '工程验证与验收测试'] },
+  { matches: (path) => path.endsWith('/delivery.md'), label: '交付报告', headings: ['实际变更', '工程验证', '测试命令', '测试结果', '逐项验收', '未完成事项与风险'] },
 ];
 
 export function validateMarkdownArtifactContract(path: string, content: string): void {

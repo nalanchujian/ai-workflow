@@ -40,7 +40,8 @@ describe('TaskInitializer', () => {
     expect(task.nodes.clarify.skill?.name).toBe('requirements-clarification');
     expect(task.nodes.clarify.outputs).toContain('artifacts/decision-register.yaml');
     expect(task.nodes.clarify.outputs).toContain('artifacts/acceptance.yaml');
-    expect(task.nodes.test.skill?.name).toBe('acceptance-testing');
+    expect(task.nodes.implement.skill?.name).toBe('typescript-web-implementation');
+    expect(task.nodes.implement.outputs).toEqual(['artifacts/delivery.md', 'artifacts/acceptance-results.yaml']);
     expect((await store.load('task-20260813-120000-000')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
     await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.md'), 'utf8')).resolves.toContain('需求来源：requirements.md');
     await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'handoffs', 'intake', 'r1.yaml'), 'utf8')).resolves.toContain('nodeId: intake');
@@ -79,7 +80,7 @@ describe('TaskInitializer', () => {
     const task = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@3.0.0' });
 
     expect(task.nodes.implement.skill?.registrySource).toEqual(selectedSource);
-    expect(task.nodes.verify.skill?.sha256).toBe(hash('selected-web-verification'));
+    expect(task.nodes.implement.skill?.sha256).toBe(hash('selected-typescript-web-implementation'));
   });
 
   it('rejects an unfinished task with the same normalized requirement before reading the source again', async () => {
@@ -233,14 +234,14 @@ function profile() {
   return {
     name: 'standard-web-feature', version: '1.0.0', description: 'Standard web feature workflow', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
     skills: {
-      clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', implement: 'typescript-web-implementation@1.0.0', verify: 'web-verification@1.0.0', test: 'acceptance-testing@1.0.0',
+      clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', implement: 'typescript-web-implementation@1.0.0',
     },
   };
 }
 
 function allSkills(): InstalledSkill[] {
   return [
-    ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'implement'], ['web-verification', 'verify'], ['acceptance-testing', 'test'],
+    ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'implement'],
   ].map(([name, phase]) => ({
     name, version: '1.0.0', description: `${name} skill`, phases: [phase as InstalledSkill['phases'][number]], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash(name),
     methodSources: [{ id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0', revision: 'a'.repeat(40), sha256: hash(`method-${name}`) }],

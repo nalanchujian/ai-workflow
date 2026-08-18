@@ -154,42 +154,42 @@ describe('TaskStateCommands', () => {
     })]);
   });
 
-  it('does not approve a test report when acceptance results still contain blocked items', async () => {
-    const { store } = await createApprovalTask('test', { acceptanceStatus: 'blocked' });
+  it('does not approve a delivery unit when acceptance results still contain blocked items', async () => {
+    const { store } = await createApprovalTask('delivery-main', { acceptanceStatus: 'blocked' });
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
     });
 
-    await expect(commands.approve('refund-123', 'test', { note: '查看报告' }))
-      .rejects.toThrow('验收结果包含未通过或阻塞项');
-    expect((await store.load('refund-123')).nodes.test.status).toBe('awaiting_approval');
+    await expect(commands.approve('refund-123', 'delivery-main', { note: '查看报告' }))
+      .rejects.toThrow('交付单元存在未通过或阻塞验收项');
+    expect((await store.load('refund-123')).nodes['delivery-main']?.status).toBe('awaiting_approval');
   });
 
-  it('records an explicit risk acceptance before closing a blocked test report', async () => {
-    const { store, directory } = await createApprovalTask('test', { acceptanceStatus: 'blocked' });
+  it('records an explicit risk acceptance before closing a blocked delivery unit', async () => {
+    const { store, directory } = await createApprovalTask('delivery-main', { acceptanceStatus: 'blocked' });
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
     });
 
-    const task = await commands.closeWithRisk('refund-123', {
+    const task = await commands.closeWithRisk('refund-123', 'delivery-main', {
       owner: 'product-owner', reason: '后端接口未就绪，先以已知风险发布。', expiresAt: '2026-09-01T00:00:00.000Z',
     });
 
     expect(task).toMatchObject({ status: 'completed', deliveryStatus: 'risk_accepted' });
-    await expect(readFile(join(directory, 'risk-acceptances', 'test', 'r1.yaml'), 'utf8'))
+    await expect(readFile(join(directory, 'risk-acceptances', 'delivery-main', 'r1.yaml'), 'utf8'))
       .resolves.toContain('owner: product-owner');
   });
 
-  it('requires a machine-readable risk expiry before closing a blocked test report', async () => {
-    const { store } = await createApprovalTask('test', { acceptanceStatus: 'blocked' });
+  it('requires a machine-readable risk expiry before closing a blocked delivery unit', async () => {
+    const { store } = await createApprovalTask('delivery-main', { acceptanceStatus: 'blocked' });
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
     });
 
-    await expect(commands.closeWithRisk('refund-123', {
+    await expect(commands.closeWithRisk('refund-123', 'delivery-main', {
       owner: 'product-owner', reason: '后端接口未就绪，先以已知风险发布。', expiresAt: '下个版本',
     })).rejects.toThrow('风险到期时间必须为 ISO 8601 时间');
   });
@@ -229,18 +229,17 @@ describe('TaskStateCommands', () => {
     const updated = await commands.approve('refund-123', 'plan', { note: '计划确认' });
 
     expect(updated.nodes.implement).toMatchObject({ status: 'superseded' });
-    expect(updated.nodes['implement-page']).toMatchObject({
+    expect(updated.nodes['delivery-page']).toMatchObject({
       title: '实现页面筛选',
-      contextPath: 'artifacts/work-units/r1/implement-page.md',
+      contextPath: 'artifacts/work-units/r1/delivery-page.md',
       status: 'ready',
     });
-    expect(updated.nodes['implement-export']).toMatchObject({
+    expect(updated.nodes['delivery-export']).toMatchObject({
       title: '实现导出文件名',
-      contextPath: 'artifacts/work-units/r1/implement-export.md',
+      contextPath: 'artifacts/work-units/r1/delivery-export.md',
       status: 'ready',
     });
-    expect(updated.nodes.verify.dependsOn).toEqual(['implement-page', 'implement-export']);
-    await expect(readFile(join(directory, 'artifacts', 'work-units', 'r1', 'implement-export.md'), 'utf8'))
+    await expect(readFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-export.md'), 'utf8'))
       .resolves.toContain('实现导出文件名');
   });
 
@@ -549,7 +548,7 @@ describe('TaskStateCommands', () => {
 
 });
 
-async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: { completionBundle?: boolean; acceptanceStatus?: 'passed' | 'blocked' } = {}): Promise<{ store: TaskStore; directory: string }> {
+async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', options: { completionBundle?: boolean; acceptanceStatus?: 'passed' | 'blocked' } = {}): Promise<{ store: TaskStore; directory: string }> {
   const directory = await createTempDirectory('aiw-task-state-');
   directories.push(directory);
   const store = new TaskStore(directory);
@@ -558,11 +557,20 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
     task.nodes.clarify = { ...task.nodes.clarify, status: 'completed', revision: 1 };
     task.nodes.solution.status = 'completed';
   }
-  if (nodeId === 'test') {
-    for (const id of ['clarify', 'solution', 'plan', 'implement', 'verify']) task.nodes[id]!.status = 'completed';
+  if (nodeId === 'delivery-main') {
+    for (const id of ['clarify', 'solution', 'plan']) task.nodes[id]!.status = 'completed';
+    task.nodes.implement.status = 'superseded';
+    task.nodes['delivery-main'] = {
+      ...task.nodes.implement,
+      title: '完成退款功能',
+      status: 'awaiting_approval',
+      dependsOn: ['plan'],
+      generatedFromPlanRevision: 1,
+      acceptanceRefs: ['AC-01'],
+    };
   }
-  task.nodes[nodeId].status = 'awaiting_approval';
-  task.nodes[nodeId].revision = 1;
+  task.nodes[nodeId]!.status = 'awaiting_approval';
+  task.nodes[nodeId]!.revision = 1;
   await store.create(task);
   const taskDirectory = store.taskDirectory(task.id);
   await mkdir(join(taskDirectory, 'artifacts'), { recursive: true });
@@ -587,10 +595,10 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
     const firstArtifact = outputs.find((path) => path.startsWith('artifacts/'))!;
     const content = output === handoffPath(nodeId, node.revision)
       ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
-      : nodeId === 'test' && output.endsWith('/acceptance-results.yaml')
-        ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/test-report.md\n`
-      : nodeId === 'test' && output.endsWith('/test-report.md')
-          ? '# 测试报告\n\n## 测试命令\n\n`pnpm test`\n\n## 测试结果\n\n已执行。\n'
+      : nodeId === 'delivery-main' && output.endsWith('/acceptance-results.yaml')
+        ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/delivery.md\n`
+      : nodeId === 'delivery-main' && output.endsWith('/delivery.md')
+          ? '# 交付报告\n\n## 实际变更\n\n已完成。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试命令\n\n`pnpm test`\n\n## 测试结果\n\n已执行，退出码 0。\n\n## 逐项验收\n\nAC-01 通过。\n\n## 未完成事项与风险\n\n无。\n'
           : nodeId === 'clarify' && output.endsWith('/acceptance.yaml')
             ? 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n'
             : nodeId === 'clarify' && output.endsWith('/decision-register.yaml')

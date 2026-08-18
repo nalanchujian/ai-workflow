@@ -26,19 +26,30 @@ describe('ContextBuilder', () => {
     expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', revision: 'd'.repeat(40) }));
   });
 
-  it('uses completed upstream handoffs instead of Markdown artifacts from solution through test', async () => {
+  it('uses completed upstream handoffs instead of Markdown artifacts across delivery units', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
-    task.nodes['implement-details'] = {
+    task.nodes['delivery-details'] = {
       ...task.nodes.implement,
-      title: '实现详情页',
-      outputs: ['artifacts/subtasks/implement-details.md'],
+      title: '交付详情页',
+      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'],
+      contextPath: 'artifacts/work-units/r1/delivery-details.md',
+      generatedFromPlanRevision: 1,
+      acceptanceRefs: ['AC-01'],
     };
-    task.nodes.verify.dependsOn = ['implement', 'implement-details'];
-    const detailsPath = completedArtifactPath('implement-details', task.nodes['implement-details']!, 'artifacts/subtasks/implement-details.md');
+    task.nodes['delivery-integration'] = {
+      ...task.nodes['delivery-details'],
+      title: '交付集成验收',
+      dependsOn: ['delivery-details'],
+      contextPath: 'artifacts/work-units/r1/delivery-integration.md',
+    };
+    const detailsPath = completedArtifactPath('delivery-details', task.nodes['delivery-details']!, 'artifacts/delivery.md');
     await mkdir(join(directory, detailsPath, '..'), { recursive: true });
     await writeFile(join(directory, detailsPath), '# 详情页实施记录\n', 'utf8');
-    for (const nodeId of ['clarify', 'solution', 'plan', 'implement', 'implement-details', 'verify']) {
+    await mkdir(join(directory, 'artifacts', 'work-units', 'r1'), { recursive: true });
+    await writeFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-details.md'), '# 交付单元上下文\n', 'utf8');
+    await writeFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-integration.md'), '# 交付单元上下文\n', 'utf8');
+    for (const nodeId of ['clarify', 'solution', 'plan', 'delivery-details']) {
       await writeHandoff(directory, task, nodeId);
     }
 
@@ -48,28 +59,33 @@ describe('ContextBuilder', () => {
       .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('clarify', 0) }));
     expect((await builder.build({ task, nodeId: 'plan', includes: [] })).files)
       .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('solution', 0) }));
-    expect((await builder.build({ task, nodeId: 'implement', includes: [] })).files)
+    expect((await builder.build({ task, nodeId: 'delivery-details', includes: [] })).files)
       .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('plan', 0) }));
-    const verifyManifest = await builder.build({ task, nodeId: 'verify', includes: [] });
-    expect(verifyManifest.files).toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('implement', 0) }));
-    expect(verifyManifest.files).toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('implement-details', 0) }));
-    expect((await builder.build({ task, nodeId: 'test', includes: [] })).files)
-      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('verify', 0) }));
+    const integrationManifest = await builder.build({ task, nodeId: 'delivery-integration', includes: [] });
+    expect(integrationManifest.files).toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('delivery-details', 0) }));
   });
 
-  it('injects the approved plan handoff and its declared implementation context', async () => {
+  it('injects the approved plan handoff and its isolated delivery-unit context', async () => {
     const directory = await taskDirectory();
-  const task = createSevenPhaseTask();
-  await writeHandoff(directory, task, 'plan');
-  const implementationContextPath = 'artifacts/implementation-context.md';
+    const task = createSevenPhaseTask();
+    task.nodes['delivery-main'] = {
+      ...task.nodes.implement,
+      title: '交付退款功能',
+      contextPath: 'artifacts/work-units/r1/delivery-main.md',
+      generatedFromPlanRevision: 1,
+      acceptanceRefs: ['AC-01'],
+    };
+    await writeHandoff(directory, task, 'plan');
+    await mkdir(join(directory, 'artifacts', 'work-units', 'r1'), { recursive: true });
+    await writeFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-main.md'), '# 交付单元上下文\n', 'utf8');
 
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
-      .build({ task, nodeId: 'implement', includes: [] });
+      .build({ task, nodeId: 'delivery-main', includes: [] });
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('plan', 0),
       'task.yaml',
-      implementationContextPath,
+      'artifacts/work-units/r1/delivery-main.md',
     ]);
   });
 
@@ -149,47 +165,26 @@ describe('ContextBuilder', () => {
     ]);
   });
 
-  it('builds verification context from every implementation handoff', async () => {
+  it('builds an integration delivery context from its declared delivery-unit handoffs', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
-    task.nodes['implement-details'] = {
+    task.nodes['delivery-details'] = {
       ...task.nodes.implement,
       title: '实现详情页',
-      outputs: ['artifacts/subtasks/implement-details.md'],
+      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'],
+      generatedFromPlanRevision: 1,
+      acceptanceRefs: ['AC-01'],
     };
     await mkdir(join(directory, 'artifacts', 'subtasks'), { recursive: true });
     await writeFile(join(directory, 'artifacts', 'subtasks', 'implement-details.md'), '# 详情页实施记录\n', 'utf8');
-    task.nodes.verify.dependsOn = ['implement', 'implement-details'];
-    await writeHandoff(directory, task, 'implement');
-    await writeHandoff(directory, task, 'implement-details');
+    task.nodes['delivery-integration'] = { ...task.nodes['delivery-details'], title: '集成交付', dependsOn: ['delivery-details'], acceptanceRefs: ['AC-01'] };
+    await writeHandoff(directory, task, 'delivery-details');
 
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
-      .build({ task, nodeId: 'verify', includes: [] });
+      .build({ task, nodeId: 'delivery-integration', includes: [] });
 
     expect(manifest.files.map((file) => file.path)).toEqual([
-      handoffPath('implement', 0),
-      handoffPath('implement-details', 0),
-      'task.yaml',
-    ]);
-  });
-
-  it('builds test context from the verification handoff', async () => {
-    const directory = await taskDirectory();
-    const task = createSevenPhaseTask();
-    task.nodes['implement-details'] = {
-      ...task.nodes.implement,
-      title: '实现详情页',
-      outputs: ['artifacts/subtasks/implement-details.md'],
-    };
-    await mkdir(join(directory, 'artifacts', 'subtasks'), { recursive: true });
-    await writeFile(join(directory, 'artifacts', 'subtasks', 'implement-details.md'), '# 详情页实施记录\n', 'utf8');
-    await writeHandoff(directory, task, 'verify');
-
-    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
-      .build({ task, nodeId: 'test', includes: [] });
-
-    expect(manifest.files.map((file) => file.path)).toEqual([
-      handoffPath('verify', 0),
+      handoffPath('delivery-details', 0),
       'task.yaml',
     ]);
   });

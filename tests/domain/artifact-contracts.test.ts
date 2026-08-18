@@ -4,8 +4,8 @@ import { validateMarkdownArtifactContract } from '../../src/domain/artifact-cont
 
 describe('Markdown artifact contracts', () => {
   it('rejects an implementation report that omits evidence sections', () => {
-    expect(() => validateMarkdownArtifactContract('artifacts/implementation.md', '# 实施报告\n\n## 实际变更\n\n完成页面。\n'))
-      .toThrow('缺少章节「## 测试命令」「## 测试结果」「## 未完成事项与风险」');
+    expect(() => validateMarkdownArtifactContract('artifacts/delivery.md', '# 交付报告\n\n## 实际变更\n\n完成页面。\n'))
+      .toThrow('缺少章节「## 工程验证」「## 测试命令」「## 测试结果」「## 逐项验收」「## 未完成事项与风险」');
   });
 
   it('accepts a complete test report structure', () => {

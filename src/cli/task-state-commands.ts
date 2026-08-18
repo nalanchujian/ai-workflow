@@ -15,7 +15,7 @@ import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { materializeImplementationWork, readWorkBreakdown, validatePlanAcceptanceCoverage } from '../services/implementation-work-planner.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
-import { AcceptanceResultsSchema, deliveryStatusFromAcceptanceResults } from '../domain/acceptance-results.js';
+import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
 import { type ProgressReporter } from './progress-reporter.js';
@@ -149,11 +149,11 @@ export class TaskStateCommands {
     return this.decide(taskId, 'clarify', 'approved', { actor, note: options.note }, { skipCommittedCheck: true });
   }
 
-  async closeWithRisk(taskId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }): Promise<Task> {
+  async closeWithRisk(taskId: string, nodeId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }): Promise<Task> {
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(options.expiresAt) || Number.isNaN(Date.parse(options.expiresAt))) {
       throw new Error('风险到期时间必须为 ISO 8601 时间');
     }
-    return this.decide(taskId, 'test', 'approved', { actor: options.actor, note: options.reason, riskAcceptance: { owner: options.owner, reason: options.reason, expiresAt: options.expiresAt } });
+    return this.decide(taskId, nodeId, 'approved', { actor: options.actor, note: options.reason, riskAcceptance: { owner: options.owner, reason: options.reason, expiresAt: options.expiresAt } });
   }
 
   async cancel(taskId: string, nodeId: string, options: { note: string }): Promise<{ taskId: string; nodeId: string; runId: string; status: 'requested' | 'signalled' }> {
@@ -182,11 +182,12 @@ export class TaskStateCommands {
       await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...completionBundle.paths] });
     }
     const actor = await this.deps.taskFactGuard.actor(options.actor);
-    const deliveryStatus = nodeId === 'test' && decision === 'approved'
-      ? await readDeliveryStatus(task, this.deps.taskStore)
-      : undefined;
-    if (nodeId === 'test' && decision === 'approved' && deliveryStatus !== 'ready' && options.riskAcceptance === undefined) {
-      throw new Error('验收结果包含未通过或阻塞项；请先处理，或使用 task close-with-risk 明确记录风险接受。');
+    const deliveryUnit = isDeliveryUnit(node);
+    if (deliveryUnit && options.riskAcceptance === undefined) {
+      await assertDeliveryUnitPassed(task, this.deps.taskStore, nodeId, node);
+    }
+    if (options.riskAcceptance !== undefined && !deliveryUnit) {
+      throw new Error('风险接受只能用于交付单元');
     }
     if (nodeId === 'plan' && decision === 'approved') {
       await validatePlanAcceptanceCoverage(task, this.deps.taskStore);
@@ -204,8 +205,8 @@ export class TaskStateCommands {
     });
     await this.deps.taskStore.createFact(taskId, approvalPath, stringify(approval));
     if (options.riskAcceptance !== undefined) {
-      const riskPath = `risk-acceptances/test/r${node.revision}.yaml`;
-      await this.deps.taskStore.createFact(taskId, riskPath, stringify({ schemaVersion: 'aiw.risk-acceptance/v1', nodeId: 'test', nodeRevision: node.revision, actor, ...options.riskAcceptance, at: new Date().toISOString() }));
+      const riskPath = `risk-acceptances/${nodeId}/r${node.revision}.yaml`;
+      await this.deps.taskStore.createFact(taskId, riskPath, stringify({ schemaVersion: 'aiw.risk-acceptance/v1', nodeId, nodeRevision: node.revision, actor, ...options.riskAcceptance, at: new Date().toISOString() }));
     }
     let next = transitionNode(task, nodeId, { type: 'approve', actor, ...(note === undefined ? {} : { note }) });
     const generatedFacts: Array<{ path: string; content: string }> = [];
@@ -214,9 +215,9 @@ export class TaskStateCommands {
       next = materialized.task;
       generatedFacts.push(...materialized.facts);
     }
-    if (nodeId === 'test' && decision === 'approved') {
-      next.deliveryStatus = options.riskAcceptance === undefined ? 'ready' : 'risk_accepted';
-      if (options.riskAcceptance !== undefined) next.events.push({ type: 'close_with_risk', at: new Date().toISOString(), actor, note: options.riskAcceptance.reason });
+    if (deliveryUnit) {
+      next.deliveryStatus = await readDeliveryStatus(next, this.deps.taskStore);
+      if (options.riskAcceptance !== undefined) next.events.push({ type: 'close_with_risk', nodeId, at: new Date().toISOString(), actor, note: options.riskAcceptance.reason });
     }
     next.approvalRefs.push(approvalPath);
     for (const fact of generatedFacts) {
@@ -318,9 +319,9 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     const coverageSection = nodeId === 'plan' ? await deps.commands.acceptanceCoverageSummary(taskId) : undefined;
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `「${nodeId}」节点已批准`, `chore(aiw): approve ${nodeId}`, [], undefined, coverageSection));
   }));
-  command.addCommand(new Command('close-with-risk').description('例外：接受未通过验收项的风险并关闭测试节点').argument('<task-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--owner <name>').requiredOption('--reason <text>').requiredOption('--expires-at <datetime>').option('--actor <name>').action(async (taskId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }, current: Command) => {
-    const task = await deps.commands.closeWithRisk(taskId, options);
-    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '测试节点已按风险接受关闭', 'chore(aiw): close test with risk'));
+  command.addCommand(new Command('close-with-risk').description('例外：接受未通过验收项的风险并关闭交付单元').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--owner <name>').requiredOption('--reason <text>').requiredOption('--expires-at <datetime>').option('--actor <name>').action(async (taskId: string, nodeId: string, options: { actor?: string; owner: string; reason: string; expiresAt: string }, current: Command) => {
+    const task = await deps.commands.closeWithRisk(taskId, nodeId, options);
+    writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `交付单元「${nodeId}」已按风险接受关闭`, `chore(aiw): accept ${nodeId} risk`));
   }));
   command.addCommand(new Command('cancel').description('例外：取消正在运行的节点').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').action(async (taskId: string, nodeId: string, options: { note: string }, current: Command) => {
     const result = await deps.commands.cancel(taskId, nodeId, options);
@@ -388,11 +389,10 @@ function invalidatedNextSteps(task: Task): string[] {
 
 function nodeSections(task: Task): Array<NonNullable<HumanOutput['sections']>[number]> {
   const units = Object.entries(task.nodes).filter(([, node]) => node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.status !== 'superseded');
-  const split = units.length > 1;
-  const ordinary = Object.entries(task.nodes).filter(([nodeId, node]) => !split || (node.phase !== 'implement' && nodeId !== 'implement'));
+  const ordinary = Object.entries(task.nodes).filter(([nodeId]) => nodeId !== 'implement');
   return [
     { title: '节点', lines: ordinary.map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) },
-    ...(split ? [{ title: `实施单元（${units.length}）`, lines: units.map(([nodeId, node]) => `${node.title}：${nodeStatusLabel(node.status)}（${nodeId}）`) }] : []),
+    ...(units.length === 0 ? [] : [{ title: `交付单元（${units.length}）`, lines: units.map(([nodeId, node]) => `${node.title}：${nodeStatusLabel(node.status)}（${nodeId}）`) }]),
   ];
 }
 
@@ -588,13 +588,53 @@ async function outputHashes(task: Task, taskStore: TaskStore, nodeId: string): P
   return Object.fromEntries(hashes);
 }
 
+function isDeliveryUnit(node: TaskNode): boolean {
+  return node.phase === 'implement' && node.generatedFromPlanRevision !== undefined;
+}
+
+async function assertDeliveryUnitPassed(task: Task, taskStore: TaskStore, nodeId: string, node: TaskNode): Promise<void> {
+  const results = await readDeliveryUnitResults(task, taskStore, nodeId, node);
+  const incomplete = results.items.filter((item) => item.status !== 'passed').map((item) => `${item.id}（${item.status}）`);
+  if (incomplete.length > 0) {
+    throw new Error(`交付单元存在未通过或阻塞验收项：${incomplete.join('、')}；请先修复重跑，或使用 task close-with-risk 明确记录风险接受。`);
+  }
+}
+
 async function readDeliveryStatus(task: Task, taskStore: TaskStore): Promise<Task['deliveryStatus']> {
+  const units = Object.entries(task.nodes).filter(([, node]) => isDeliveryUnit(node) && node.status !== 'superseded');
+  if (units.length === 0 || units.some(([, node]) => node.status !== 'completed')) return 'not_assessed';
+
+  let acceptedRisk = false;
+  for (const [nodeId, node] of units) {
+    const results = await readDeliveryUnitResults(task, taskStore, nodeId, node);
+    if (results.items.every((item) => item.status === 'passed')) continue;
+    if (!await hasRiskAcceptance(task, taskStore, nodeId, node.revision)) return 'not_ready';
+    acceptedRisk = true;
+  }
+  return acceptedRisk ? 'risk_accepted' : 'ready';
+}
+
+async function readDeliveryUnitResults(task: Task, taskStore: TaskStore, nodeId: string, node: TaskNode) {
   try {
-    const test = task.nodes.test;
-    if (test === undefined || test.revision === 0) throw new Error('测试节点尚未生成当前 revision');
-    const results = AcceptanceResultsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), completedArtifactPath('test', test, 'artifacts/acceptance-results.yaml')), 'utf8')));
-    return deliveryStatusFromAcceptanceResults(results);
+    const path = completedArtifactPath(nodeId, node, 'artifacts/acceptance-results.yaml');
+    const results = AcceptanceResultsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), path), 'utf8')));
+    const actual = new Set(results.items.map((item) => item.id));
+    const missing = node.acceptanceRefs.filter((id) => !actual.has(id));
+    const unknown = [...actual].filter((id) => !node.acceptanceRefs.includes(id));
+    if (missing.length > 0 || unknown.length > 0) {
+      throw new Error(`验收项不一致：${[...(missing.length === 0 ? [] : [`缺少 ${missing.join('、')}`]), ...(unknown.length === 0 ? [] : [`包含非本单元验收项 ${unknown.join('、')}`])].join('；')}`);
+    }
+    return results;
+  } catch (error) {
+    throw new Error(`交付单元 ${nodeId} 缺少有效的 artifacts/acceptance-results.yaml：${error instanceof Error ? error.message : '无法读取'}`);
+  }
+}
+
+async function hasRiskAcceptance(task: Task, taskStore: TaskStore, nodeId: string, revision: number): Promise<boolean> {
+  try {
+    await readFile(join(taskStore.taskDirectory(task.id), `risk-acceptances/${nodeId}/r${revision}.yaml`), 'utf8');
+    return true;
   } catch {
-    throw new Error('测试节点缺少有效的 artifacts/acceptance-results.yaml');
+    return false;
   }
 }

@@ -27,8 +27,6 @@ export async function createBundledSkillRepositoryFixture(root: string): Promise
     ['technical-solution', ['solution'], 'brainstorming'],
     ['implementation-planning', ['plan'], 'writing-plans'],
     ['typescript-web-implementation', ['implement'], 'test-driven-development'],
-    ['web-verification', ['verify'], 'test-driven-development'],
-    ['acceptance-testing', ['test'], 'test-driven-development'],
   ] as const;
   for (const [name, phases, method] of skills) {
     const directory = join(repository, 'skills', name);
@@ -37,7 +35,7 @@ export async function createBundledSkillRepositoryFixture(root: string): Promise
   }
   const profileDirectory = join(repository, 'profiles', 'standard-web-feature');
   await mkdir(profileDirectory, { recursive: true });
-  await writeFile(join(profileDirectory, 'PROFILE.yaml'), `name: standard-web-feature\nversion: 2.0.0\ndescription: Standard web feature workflow\nskills:\n  clarify: requirements-clarification@2.0.0\n  solution: technical-solution@2.0.0\n  plan: implementation-planning@2.0.0\n  implement: typescript-web-implementation@2.0.0\n  verify: web-verification@2.0.0\n  test: acceptance-testing@2.0.0\n`);
+  await writeFile(join(profileDirectory, 'PROFILE.yaml'), `name: standard-web-feature\nversion: 2.0.0\ndescription: Standard web feature workflow\nskills:\n  clarify: requirements-clarification@2.0.0\n  solution: technical-solution@2.0.0\n  plan: implementation-planning@2.0.0\n  implement: typescript-web-implementation@2.0.0\n`);
   return { repository };
 }
 
