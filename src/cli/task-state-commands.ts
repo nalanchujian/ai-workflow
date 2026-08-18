@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
-import { type Task, type TaskNode } from '../domain/task.js';
+import { type ExternalResolutionImpact, type Task, type TaskNode } from '../domain/task.js';
 import { ApprovalFactSchema } from '../domain/approval.js';
 import { completedArtifactPath, outputPathsForCompletedRun } from '../domain/handoff.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
@@ -93,10 +93,18 @@ export class TaskStateCommands {
     return this.deps.decisionService.list(taskId);
   }
 
-  async resolveDecision(taskId: string, decisionId: string, options: { note: string; actor?: string }): Promise<Task> {
+  async resolveDecision(taskId: string, decisionId: string, options: { impact: ExternalResolutionImpact; fact?: string; evidence?: string; note: string; actor?: string }): Promise<Task> {
     if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
     await this.assertDecisionRegisterCommitted(taskId);
-    return this.deps.decisionService.resolve({ taskId, decisionId, actor: await this.deps.taskFactGuard.actor(options.actor), note: options.note });
+    return this.deps.decisionService.resolve({
+      taskId,
+      decisionId,
+      actor: await this.deps.taskFactGuard.actor(options.actor),
+      impact: options.impact,
+      ...(options.fact === undefined ? {} : { fact: options.fact }),
+      ...(options.evidence === undefined ? {} : { evidence: options.evidence }),
+      note: options.note,
+    });
   }
 
   async approve(taskId: string, nodeId: string, options: { actor?: string; note?: string }): Promise<Task> {
@@ -294,9 +302,16 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
         })),
       });
     }))
-    .addCommand(new Command('resolve').description('例外：外部等待条件满足后解除阻塞').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { note: string; actor?: string }, current: Command) => {
-      const task = await deps.commands.resolveDecision(taskId, decisionId, options);
-      writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, `决策「${decisionId}」已解除阻塞`, `chore(aiw): resolve ${decisionId}`));
+    .addCommand(new Command('resolve').description('例外：按新增事实解除外部等待').argument('<task-id>').argument('<decision-id>').option('--project <path>', '业务仓库根目录；默认当前目录').requiredOption('--impact <type>', 'execution-only（仅恢复执行）或 replan（重新规划）').option('--fact <text>', '重新规划所依据的新增事实').option('--evidence <reference>', '新增事实的文档地址或项目内证据').requiredOption('--note <text>').option('--actor <name>').action(async (taskId: string, decisionId: string, options: { impact: string; fact?: string; evidence?: string; note: string; actor?: string }, current: Command) => {
+      if (!['execution-only', 'replan'].includes(options.impact)) {
+        throw new Error('--impact 只能是 execution-only 或 replan');
+      }
+      const impact = options.impact as ExternalResolutionImpact;
+      const task = await deps.commands.resolveDecision(taskId, decisionId, { ...options, impact });
+      const headline = impact === 'replan'
+        ? `决策「${decisionId}」已记录新事实，需重新生成方案和计划`
+        : `决策「${decisionId}」已解除阻塞`;
+      writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, headline, `chore(aiw): resolve ${decisionId}`));
     })));
   command.addCommand(new Command('approve').argument('<task-id>').argument('<node-id>').option('--project <path>', '业务仓库根目录；默认当前目录').option('--actor <name>').option('--note <text>').action(async (taskId: string, nodeId: string, options: { actor?: string; note?: string }, current: Command) => {
     const task = await deps.commands.approve(taskId, nodeId, options);
@@ -366,7 +381,7 @@ function renderTaskOutput(
 function invalidatedNextSteps(task: Task): string[] {
   const candidates = Object.entries(task.nodes)
     .filter(([, node]) => node.status === 'invalidated')
-    .filter(([, node]) => node.dependsOn.every((dependency) => task.nodes[dependency]?.status !== 'invalidated'));
+    .filter(([, node]) => node.dependsOn.every((dependency) => task.nodes[dependency]?.status === 'completed'));
   const [nodeId, node] = candidates[0] ?? Object.entries(task.nodes).find(([, item]) => item.status === 'invalidated')!;
   return [`重新执行已失效节点「${node.title}」：aiw task run ${task.id} ${nodeId}`];
 }

@@ -74,6 +74,12 @@ export class TaskRunner {
     if (node === undefined || node.phase === 'intake' || (!['ready', 'failed'].includes(node.status) && !canOverwrite) || node.skill === undefined) {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪、可重试、已完成、待审批或已失效节点');
     }
+    if (node.status === 'invalidated') {
+      const incomplete = node.dependsOn.filter((dependency) => task.nodes[dependency]?.status !== 'completed');
+      if (incomplete.length > 0) {
+        throw new TaskRunnerError('NODE_NOT_RUNNABLE', `当前节点已失效，必须先重新完成上游节点：${incomplete.join('、')}`);
+      }
+    }
 
     await this.assertUpstreamIntegrity(task, input.nodeId);
     const skill = await this.loadLockedSkill(node.skill);

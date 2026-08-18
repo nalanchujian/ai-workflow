@@ -106,6 +106,26 @@ describe('ContextBuilder', () => {
     expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'decisions/DEC-API-01/r1.yaml' }));
   });
 
+  it('passes plan-changing external decision facts to solution and plan', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+    task.decisions = [{
+      id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api', actor: 'backend-lead',
+      at: '2026-08-18T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r2.yaml',
+      resolutionImpact: 'replan', inputFactPath: 'external-inputs/DEC-API-01/r2.yaml',
+    }];
+    await writeHandoff(directory, task, 'clarify');
+    await mkdir(join(directory, 'decisions', 'DEC-API-01'), { recursive: true });
+    await mkdir(join(directory, 'external-inputs', 'DEC-API-01'), { recursive: true });
+    await writeFile(join(directory, 'decisions', 'DEC-API-01', 'r2.yaml'), 'schemaVersion: aiw.decision/v1\n', 'utf8');
+    await writeFile(join(directory, 'external-inputs', 'DEC-API-01', 'r2.yaml'), 'schemaVersion: aiw.external-decision-input/v1\nsummary: 正式接口已定义字段映射与导出响应。\n', 'utf8');
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'solution', includes: [] });
+
+    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'external-inputs/DEC-API-01/r2.yaml' }));
+  });
+
   it('injects the plan handoff together with the current implementation work unit Markdown', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();

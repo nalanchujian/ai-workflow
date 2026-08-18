@@ -25,15 +25,63 @@ describe('TaskDecisionService', () => {
       .resolves.toContain('status: waiting_external');
   });
 
-  it('only resolves an existing external wait and keeps a revision history', async () => {
+  it('directly unlocks an external wait only when the plan remains valid', async () => {
     const { store, service } = await fixture();
     await service.choose({ taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'wait-api', actor: 'tech-lead', status: 'waiting_external', owner: 'backend', unblockCondition: '接口契约与联调样例已确认' });
 
-    const task = await service.resolve({ taskId: 'refund-123', decisionId: 'DEC-API-01', actor: 'backend-lead', note: '接口已发布并提供样例。' });
+    const task = await service.resolve({ taskId: 'refund-123', decisionId: 'DEC-API-01', actor: 'backend-lead', impact: 'execution-only', note: '测试环境已经恢复，原计划和验收方式不变。' });
 
-    expect(task.decisions).toEqual([expect.objectContaining({ id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api' })]);
+    expect(task.decisions).toEqual([expect.objectContaining({ id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api', resolutionImpact: 'execution-only' })]);
     await expect(readFile(join(store.taskDirectory(task.id), 'decisions', 'DEC-API-01', 'r2.yaml'), 'utf8'))
       .resolves.toContain('status: resolved');
+  });
+
+  it('records new external facts and invalidates solution and plan when they must be replanned', async () => {
+    const { store, service } = await fixture();
+    await service.choose({ taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'wait-api', actor: 'tech-lead', status: 'waiting_external', owner: 'backend', unblockCondition: '接口契约与联调样例已确认' });
+    const waiting = await store.load('refund-123');
+    waiting.nodes.clarify!.status = 'completed';
+    waiting.nodes.solution!.status = 'completed';
+    waiting.nodes.plan!.status = 'completed';
+    waiting.nodes.implement!.status = 'blocked';
+    waiting.nodes.implement!.blockedByDecisionIds = ['DEC-API-01'];
+    waiting.nodes.verify!.status = 'pending';
+    waiting.nodes.verify!.dependsOn = ['implement'];
+    waiting.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml'];
+    await store.update(waiting);
+
+    const task = await service.resolve({
+      taskId: 'refund-123',
+      decisionId: 'DEC-API-01',
+      actor: 'backend-lead',
+      impact: 'replan',
+      fact: '正式接口已定义 columnKeys、字段顺序、空值语义和两 Sheet 导出响应。',
+      evidence: 'https://example.test/contracts/link-export-v2',
+      note: '后端已交付正式接口契约。',
+    });
+
+    expect(task.decisions).toEqual([expect.objectContaining({
+      id: 'DEC-API-01',
+      revision: 2,
+      status: 'resolved',
+      resolutionImpact: 'replan',
+      inputFactPath: 'external-inputs/DEC-API-01/r2.yaml',
+    })]);
+    expect(task.nodes.solution?.status).toBe('invalidated');
+    expect(task.nodes.plan?.status).toBe('invalidated');
+    expect(task.nodes.implement?.status).toBe('invalidated');
+    expect(task.approvalRefs).toEqual(['approvals/clarify/r1.yaml']);
+    await expect(readFile(join(store.taskDirectory(task.id), 'external-inputs', 'DEC-API-01', 'r2.yaml'), 'utf8'))
+      .resolves.toContain('正式接口已定义 columnKeys');
+  });
+
+  it('requires a structured fact when an external wait changes the plan', async () => {
+    const { service } = await fixture();
+    await service.choose({ taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'wait-api', actor: 'tech-lead', status: 'waiting_external', owner: 'backend', unblockCondition: '接口契约与联调样例已确认' });
+
+    await expect(service.resolve({
+      taskId: 'refund-123', decisionId: 'DEC-API-01', actor: 'backend-lead', impact: 'replan', note: '接口已经准备完成。',
+    })).rejects.toThrow('重新规划必须提供新增事实');
   });
 
   it('supersedes only the blocked work unit when a decision is explicitly deferred', async () => {

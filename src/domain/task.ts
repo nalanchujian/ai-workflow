@@ -29,6 +29,7 @@ export const NodeStatusSchema = z.enum([
 
 export const TaskStatusSchema = z.enum(['active', 'partially_blocked', 'blocked', 'completed', 'cancelled']);
 export const DeliveryStatusSchema = z.enum(['not_assessed', 'ready', 'not_ready', 'risk_accepted']);
+export const ExternalResolutionImpactSchema = z.enum(['execution-only', 'replan']);
 
 export const DecisionResolutionSchema = z.object({
   id: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效'),
@@ -40,8 +41,20 @@ export const DecisionResolutionSchema = z.object({
   owner: z.string().min(1).optional(),
   unblockCondition: z.string().min(8).optional(),
   note: z.string().min(1).optional(),
+  resolutionImpact: ExternalResolutionImpactSchema.optional(),
+  inputFactPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
   factPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径'),
-}).strict();
+}).strict().superRefine((decision, context) => {
+  if (decision.resolutionImpact === 'replan' && decision.inputFactPath === undefined) {
+    context.addIssue({ code: 'custom', path: ['inputFactPath'], message: '重新规划必须记录新增事实' });
+  }
+  if (decision.resolutionImpact === 'execution-only' && decision.inputFactPath !== undefined) {
+    context.addIssue({ code: 'custom', path: ['inputFactPath'], message: '仅恢复执行不得附带新增方案事实' });
+  }
+  if ((decision.resolutionImpact !== undefined || decision.inputFactPath !== undefined) && decision.status !== 'resolved') {
+    context.addIssue({ code: 'custom', path: ['resolutionImpact'], message: '外部等待解除信息仅允许用于已解除的决策' });
+  }
+});
 
 export const RegistrySourceSchema = z.object({
   url: z.string().min(1),
@@ -199,11 +212,15 @@ export type Phase = z.infer<typeof PhaseSchema>;
 export type NodeStatus = z.infer<typeof NodeStatusSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type DeliveryStatus = z.infer<typeof DeliveryStatusSchema>;
+export type ExternalResolutionImpact = z.infer<typeof ExternalResolutionImpactSchema>;
 export type DecisionResolution = z.infer<typeof DecisionResolutionSchema>;
 
 /** Returns only decision facts explicitly registered in the immutable task record. */
 export function registeredDecisionFactPaths(task: Pick<Task, 'decisions'>): string[] {
-  return [...new Set(task.decisions.map((decision) => decision.factPath))];
+  return [...new Set(task.decisions.flatMap((decision) => [
+    decision.factPath,
+    ...(decision.inputFactPath === undefined ? [] : [decision.inputFactPath]),
+  ]))];
 }
 export type SkillLock = z.infer<typeof SkillLockSchema>;
 export type OutputRecord = z.infer<typeof OutputRecordSchema>;

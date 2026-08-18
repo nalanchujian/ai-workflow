@@ -203,15 +203,25 @@ aiw task review refund-123 --confirm # 没有待确认事项时用于脚本化�
 
 ### `aiw task decision <list|resolve>`
 
-查看 `clarify` 产出的 AI 业务方案，或在已选择“等待外部条件”且条件满足后解除对应阻塞。初始的继续/等待选择和人工结论均在 `task review` 中完成；需求拆期通过刷新来源重新澄清，风险接受由测试阶段的 `task close-with-risk` 处理。
+查看 `clarify` 产出的 AI 业务方案，或在已选择“等待外部条件”后按新增事实处理对应阻塞。初始的继续/等待选择和人工结论均在 `task review` 中完成；需求拆期通过刷新来源重新澄清，风险接受由测试阶段的 `task close-with-risk` 处理。
 
 ```bash
 aiw task decision list refund-123
-aiw task decision resolve refund-123 DEC-API-01 --note "后端接口已发布并完成联调"
+aiw task decision resolve refund-123 DEC-ENV-01 \
+  --impact execution-only \
+  --note "测试环境已恢复；既有方案、计划和验收方式不变"
+
+aiw task decision resolve refund-123 DEC-API-01 \
+  --impact replan \
+  --fact "正式接口已定义 columnKeys、字段顺序、空值语义和两 Sheet 导出响应。" \
+  --evidence "https://example.com/api-contract/link-export-v2" \
+  --note "后端已交付正式接口契约"
 ```
 
-- `list` 显示 AI 推荐、可选方案、取舍、影响的验收项/工作单元和当前选择；`resolve` 只能解除已处于外部等待的事项。
-- 命令成功后必须提交 `.aiw`。`waiting_external` 的决策使对应 `blockedBy` 工作单元等待；`resolve` 只解锁相关单元。
+- `list` 显示 AI 推荐、可选方案、取舍、影响的验收项/工作单元和当前选择；`resolve` 只能处理已处于外部等待的事项。
+- `--impact execution-only` 仅适用于新增事实不改变既有方案、计划或验收方式的情况，例如测试环境恢复；AIW 只解锁关联单元。
+- `--impact replan` 适用于接口契约、字段口径、产品规则、权限模型等新增或变化；必须提供 `--fact`，可附带 `--evidence`。AIW 将新增事实写入不可变记录，并使 `solution`、`plan` 及下游当前结果失效；必须依次重新运行方案和计划，重新审批计划后才会生成新的可执行实施单元。
+- 命令成功后必须提交 `.aiw`。
 
 ### `aiw task run <task-id> <node-id> [--project <path>] [--dry-run] [--include <relative-path>]`
 

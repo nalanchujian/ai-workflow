@@ -3,9 +3,10 @@ import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 
 import { DecisionRegisterSchema, type DecisionItem, type DecisionRegister } from '../domain/decision-register.js';
+import { ExternalDecisionInputSchema } from '../domain/external-decision-input.js';
 import { completedArtifactPath } from '../domain/handoff.js';
-import { type DecisionResolution, type Task } from '../domain/task.js';
-import { deriveTaskStatus, reconcileDecisionBlocks } from './task-state-machine.js';
+import { type DecisionResolution, type ExternalResolutionImpact, type Task } from '../domain/task.js';
+import { deriveTaskStatus, invalidateNodeAndDependents, reconcileDecisionBlocks } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 
 export class TaskDecisionService {
@@ -57,7 +58,15 @@ export class TaskDecisionService {
     });
   }
 
-  async resolve(input: { taskId: string; decisionId: string; actor: string; note: string }): Promise<Task> {
+  async resolve(input: {
+    taskId: string;
+    decisionId: string;
+    actor: string;
+    impact: ExternalResolutionImpact;
+    fact?: string;
+    evidence?: string;
+    note: string;
+  }): Promise<Task> {
     const task = await this.deps.taskStore.load(input.taskId);
     const register = await this.readRegister(task);
     const proposal = this.findProposal(register, input.decisionId);
@@ -65,8 +74,34 @@ export class TaskDecisionService {
     if (current?.status !== 'waiting_external') {
       throw new Error('只能解除等待外部条件的决策项');
     }
+    const fact = input.fact?.trim();
+    if (input.impact === 'replan' && (fact === undefined || fact.length < 16)) {
+      throw new Error('重新规划必须提供新增事实，且至少包含 16 个字符');
+    }
+    const revision = current.revision + 1;
+    const inputFactPath = input.impact === 'replan'
+      ? `external-inputs/${proposal.id}/r${revision}.yaml`
+      : undefined;
+    if (inputFactPath !== undefined) {
+      const recordedAt = new Date().toISOString();
+      const externalFact = ExternalDecisionInputSchema.parse({
+        schemaVersion: 'aiw.external-decision-input/v1',
+        decisionId: proposal.id,
+        decisionRevision: revision,
+        summary: fact,
+        ...(input.evidence === undefined || input.evidence.trim().length === 0 ? {} : { evidence: input.evidence.trim() }),
+        recordedBy: input.actor,
+        recordedAt,
+      });
+      await this.deps.taskStore.createFact(task.id, inputFactPath, stringify(externalFact));
+    }
     return this.record(task, proposal, {
-      status: 'resolved', optionId: current.optionId, actor: input.actor, note: input.note.trim(),
+      status: 'resolved',
+      optionId: current.optionId,
+      actor: input.actor,
+      note: input.note.trim(),
+      resolutionImpact: input.impact,
+      ...(inputFactPath === undefined ? {} : { inputFactPath }),
     });
   }
 
@@ -98,9 +133,12 @@ export class TaskDecisionService {
       actor: resolution.actor,
       ...(resolution.note === undefined ? {} : { note: resolution.note }),
     });
-    const next = resolution.status === 'resolved' || resolution.status === 'waived' || resolution.status === 'deferred'
-      ? reconcileDecisionBlocks(task, proposal.id)
-      : deriveTaskStatus(task);
+    const requiresReplan = previous?.status === 'waiting_external' && resolution.status === 'resolved' && resolution.resolutionImpact === 'replan';
+    const next = requiresReplan
+      ? invalidateNodeAndDependents(task, 'solution', `决策 ${proposal.id} 已补充影响方案的新事实；必须重新生成技术方案和实施计划`)
+      : resolution.status === 'resolved' || resolution.status === 'waived' || resolution.status === 'deferred'
+        ? reconcileDecisionBlocks(task, proposal.id)
+        : deriveTaskStatus(task);
     await this.deps.taskStore.update(next);
     return next;
   }

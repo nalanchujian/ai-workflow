@@ -137,6 +137,19 @@ describe('TaskRunner', () => {
     expect(fixture.processCalls).toHaveLength(0);
   });
 
+  it('requires invalidated downstream stages to wait for their invalidated dependencies', async () => {
+    const fixture = await createRunnerFixture({});
+    const task = await fixture.taskStore.load('refund-123');
+    task.nodes.clarify!.status = 'completed';
+    task.nodes.solution!.status = 'invalidated';
+    task.nodes.plan!.status = 'invalidated';
+    await fixture.taskStore.update(task);
+
+    await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'plan', dryRun: false, includes: [] }))
+      .rejects.toMatchObject({ code: 'NODE_NOT_RUNNABLE', message: expect.stringContaining('solution') });
+    expect(fixture.processCalls).toHaveLength(0);
+  });
+
   it('invalidates an upstream stage before a downstream run when its approved artifact was changed', async () => {
     const fixture = await createRunnerFixture({
       changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
