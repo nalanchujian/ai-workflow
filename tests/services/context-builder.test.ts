@@ -56,7 +56,7 @@ describe('ContextBuilder', () => {
       .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('verify', 0) }));
   });
 
-  it('injects only the approved plan handoff for implementation', async () => {
+  it('injects the approved plan handoff and its declared implementation context', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
     await writeHandoff(directory, task, 'plan');
@@ -67,6 +67,7 @@ describe('ContextBuilder', () => {
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('plan', 0),
       'task.yaml',
+      'artifacts/implementation-context.md',
     ]);
   });
 
@@ -100,7 +101,7 @@ describe('ContextBuilder', () => {
     expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'decisions/DEC-API-01/r1.yaml' }));
   });
 
-  it('uses the plan handoff instead of the current implementation work unit Markdown', async () => {
+  it('injects the plan handoff together with the current implementation work unit Markdown', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
     task.nodes['implement-export'] = {
@@ -119,6 +120,7 @@ describe('ContextBuilder', () => {
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('plan', 0),
       'task.yaml',
+      'artifacts/work-units/r1/implement-export.md',
     ]);
   });
 
@@ -228,6 +230,22 @@ describe('ContextBuilder', () => {
     await expect(new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
       .build({ task, nodeId: 'clarify', includes: ['../secret.md'] }))
       .rejects.toMatchObject({ code: 'CONTEXT_INVALID' });
+  });
+
+  it('marks explicit project includes as reference-only instead of task evidence', async () => {
+    const directory = await taskDirectory();
+    const task = createSevenPhaseTask();
+    await writeFile(join(directory, 'relevant-code.ts'), 'export const source = true;\n', 'utf8');
+
+    const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
+      .build({ task, nodeId: 'clarify', includes: ['relevant-code.ts'] });
+
+    expect(manifest.files).toContainEqual(expect.objectContaining({
+      role: 'additional',
+      path: 'relevant-code.ts',
+      evidenceEligible: false,
+    }));
+    expect(manifest.files.filter((file) => file.role !== 'additional').every((file) => file.evidenceEligible)).toBe(true);
   });
 
   it('records the exact Lark snapshot revision in the clarify manifest', async () => {

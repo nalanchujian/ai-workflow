@@ -7,7 +7,7 @@ import { ContextBuilder } from '../../src/services/context-builder.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { TaskRunner, handoffEvidencePaths } from '../../src/services/task-runner.js';
 import { TaskStore } from '../../src/services/task-store.js';
-import { handoffPath } from '../../src/domain/handoff.js';
+import { handoffPath, validateHandoff } from '../../src/domain/handoff.js';
 import { ExecutableNotFoundError } from '../../src/ports/process-runner.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
@@ -294,14 +294,63 @@ items:
     expect(evidence).toMatchObject({ failure: { stage: 'artifact', code: 'ARTIFACT_INVALID' } });
   });
 
-  it('allows an implementation handoff to cite only its declared work-unit context', () => {
+  it('allows an implementation handoff to cite its injected work-unit context only', () => {
     const task = createSevenPhaseTask();
     task.nodes.implement!.contextPath = 'artifacts/work-units/r2/implement-performance.md';
 
-    const evidencePaths = handoffEvidencePaths(task, 'implement');
+    const evidencePaths = handoffEvidencePaths({
+      files: [
+        { role: 'artifact', path: 'artifacts/work-units/r2/implement-performance.md', sha256: 'a'.repeat(64), evidenceEligible: true },
+        { role: 'additional', path: 'src/temporary-reference.ts', sha256: 'b'.repeat(64), evidenceEligible: false },
+      ],
+    }, task.nodes.implement!);
 
     expect(evidencePaths).toContain('artifacts/work-units/r2/implement-performance.md');
     expect(evidencePaths).not.toContain('artifacts/work-units/r2/other-unit.md');
+    expect(evidencePaths).not.toContain('src/temporary-reference.ts');
+  });
+
+  it('uses the actual context manifest as the handoff evidence allowlist', () => {
+    const task = createSevenPhaseTask();
+    const node = task.nodes.solution!;
+    const evidencePaths = handoffEvidencePaths({
+      files: [
+        { role: 'handoff', path: handoffPath('clarify', 1), sha256: 'a'.repeat(64), evidenceEligible: true },
+        { role: 'task', path: 'task.yaml', sha256: 'b'.repeat(64), evidenceEligible: true },
+        { role: 'artifact', path: 'artifacts/decision-register.yaml', sha256: 'c'.repeat(64), evidenceEligible: true },
+        { role: 'artifact', path: 'decisions/DEC-API-01/r1.yaml', sha256: 'd'.repeat(64), evidenceEligible: true },
+        { role: 'additional', path: 'src/temporary-reference.ts', sha256: 'e'.repeat(64), evidenceEligible: false },
+      ],
+    }, node);
+
+    expect(evidencePaths).toEqual(expect.arrayContaining([
+      handoffPath('clarify', 1),
+      'task.yaml',
+      'artifacts/decision-register.yaml',
+      'decisions/DEC-API-01/r1.yaml',
+      'artifacts/solution.md',
+    ]));
+    expect(evidencePaths).not.toContain('src/temporary-reference.ts');
+    expect(() => validateHandoff(`schemaVersion: aiw.handoff/v1
+taskId: ${task.id}
+nodeId: solution
+phase: solution
+revision: 1
+summary: 已根据任务事实形成可追溯技术方案。
+facts:
+  - id: FACT-01
+    statement: 人工决策已记录在当前任务事实中。
+    evidence:
+      - path: task.yaml
+decisions:
+  - statement: 采用已确认的接口边界继续技术方案。
+    evidence:
+      - path: decisions/DEC-API-01/r1.yaml
+acceptance: []
+changes: []
+verification: []
+openRisks: []
+`, { taskId: task.id, nodeId: 'solution', phase: 'solution', revision: 1, evidencePaths })).not.toThrow();
   });
 
   it('rejects a valid-looking artifact left over from a previous run', async () => {

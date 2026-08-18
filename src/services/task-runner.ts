@@ -5,7 +5,7 @@ import { join, relative } from 'node:path';
 import type { CodexAdapter } from '../adapters/codex-adapter.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import type { ContextManifest } from '../domain/context.js';
-import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
+import { type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
 import { handoffPath, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
 import { hasTestExecutionEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
@@ -149,7 +149,7 @@ export class TaskRunner {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少变更范围');
     }
     await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
-    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline)), contextManifest: finalizedManifest });
+    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline, finalizedManifest)), contextManifest: finalizedManifest });
     await this.writeResult(task.id, runId, result);
     const next = result.status === 'succeeded'
       ? transitionNode(startedTask, input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
@@ -160,7 +160,14 @@ export class TaskRunner {
     return result;
   }
 
-  private async execute(request: RunRequest, task: Task, nodeId: string, scope: ChangeScope, baseline: ChangeBaseline): Promise<RunResult> {
+  private async execute(
+    request: RunRequest,
+    task: Task,
+    nodeId: string,
+    scope: ChangeScope,
+    baseline: ChangeBaseline,
+    manifest: ContextManifest,
+  ): Promise<RunResult> {
     if (await cancellationRequested(request.runDirectory)) {
       return cancelledResult(request, '已收到取消请求，未启动 Codex');
     }
@@ -201,7 +208,7 @@ export class TaskRunner {
         await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('scope', 'CHANGE_SCOPE_VIOLATION', message) });
         return failedResult(request, 'CHANGE_SCOPE_VIOLATION', message);
       }
-      const artifacts = await outputRecords(task, this.deps.taskStore, nodeId, baseline.outputs);
+      const artifacts = await outputRecords(task, this.deps.taskStore, nodeId, baseline.outputs, manifest);
       await this.persistChangeEvidence(task, { ...evidence, artifacts });
       return RunResultSchema.parse({ ...result, artifacts });
     } catch (error) {
@@ -344,13 +351,22 @@ async function loadContextFiles(task: Task, taskStore: TaskStore, manifest: Cont
   }));
 }
 
-async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string, baseline: ChangeBaseline['outputs']): Promise<OutputRecord[]> {
+async function outputRecords(
+  task: Task,
+  taskStore: TaskStore,
+  nodeId: string,
+  baseline: ChangeBaseline['outputs'],
+  manifest: ContextManifest | undefined,
+): Promise<OutputRecord[]> {
   const node = task.nodes[nodeId];
   if (node === undefined) {
     throw new TaskRunnerError('ARTIFACT_MISSING', `未知节点：${nodeId}`);
   }
   const outputPaths = outputPathsForNextRun(nodeId, node);
-  const evidencePaths = handoffEvidencePaths(task, nodeId);
+  if (manifest === undefined) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', '本次运行缺少上下文清单，无法校验交接包证据');
+  }
+  const evidencePaths = handoffEvidencePaths(manifest, node);
   const artifacts = await Promise.all(outputPaths.map(async (path) => {
     let content: Buffer;
     try {
@@ -530,16 +546,16 @@ function validateClarifyDecisionChoices(register: import('../domain/decision-reg
   }
 }
 
-export function handoffEvidencePaths(task: Task, nodeId: string): string[] {
-  const node = task.nodes[nodeId];
-  if (node === undefined) return [];
-  const upstream = dependencyClosure(task, nodeId).flatMap((dependency) => task.nodes[dependency]?.outputs ?? []);
+/**
+ * A handoff may cite only immutable task facts that were actually injected into
+ * this run, plus the current node's declared outputs.  Keeping this derived
+ * from the manifest prevents context construction and artifact validation from
+ * silently drifting apart.
+ */
+export function handoffEvidencePaths(manifest: Pick<ContextManifest, 'files'>, node: Pick<Task['nodes'][string], 'outputs'>): string[] {
   return [...new Set([
-    ...Object.values(task.sources).flatMap((source) => [source.snapshotPath, source.metaPath]),
-    ...registeredDecisionFactPaths(task),
-    ...upstream,
+    ...manifest.files.filter((file) => file.evidenceEligible).map((file) => file.path),
     ...node.outputs,
-    ...(node.contextPath === undefined ? [] : [node.contextPath]),
   ])];
 }
 

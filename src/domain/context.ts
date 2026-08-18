@@ -28,6 +28,12 @@ export const ContextFileSchema = z.object({
   role: z.enum(['task', 'source', 'artifact', 'handoff', 'additional']),
   path: z.string().regex(relativePathPattern),
   sha256: z.string().regex(sha256Pattern),
+  /**
+   * Whether a fact read during this run may be cited by the generated handoff.
+   * Project-local `--include` files are deliberately reference-only: they are
+   * mutable and are not copied into the task's immutable fact store.
+   */
+  evidenceEligible: z.boolean().default(true),
   sourceId: z.string().min(1).optional(),
   sourceRevision: z.number().int().positive().optional(),
 });

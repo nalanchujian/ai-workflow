@@ -53,6 +53,7 @@ export class ContextBuilder {
       role: file.role,
       path: file.path,
       sha256: file.sha256,
+      evidenceEligible: file.evidenceEligible,
       ...(file.sourceId === undefined ? {} : { sourceId: file.sourceId }),
       ...(file.sourceRevision === undefined ? {} : { sourceRevision: file.sourceRevision }),
     }));
@@ -117,6 +118,7 @@ export class ContextBuilder {
       return {
         role: input.role,
         path: input.path,
+        evidenceEligible: input.evidenceEligible ?? true,
         ...(input.sourceId === undefined ? {} : { sourceId: input.sourceId }),
         ...(input.sourceRevision === undefined ? {} : { sourceRevision: input.sourceRevision }),
         sha256: sha256(content),
@@ -136,7 +138,7 @@ export class ContextBuilder {
     try {
       const absolutePath = await resolveInside(taskDirectory, path);
       const content = await readFile(absolutePath, 'utf8');
-      return { role: 'artifact', path, sha256: sha256(content), absolutePath, content };
+      return { role: 'artifact', path, sha256: sha256(content), evidenceEligible: true, absolutePath, content };
     } catch (error) {
       if (error instanceof ContextBuilderError && error.message === `上下文文件不存在：${path}`) return undefined;
       throw error;
@@ -146,7 +148,7 @@ export class ContextBuilder {
   private async requiredTaskFact(taskDirectory: string, path: string): Promise<ContextFileWithContent> {
     const absolutePath = await resolveInside(taskDirectory, path);
     const content = await readFile(absolutePath, 'utf8');
-    return { role: 'artifact', path, sha256: sha256(content), absolutePath, content };
+    return { role: 'artifact', path, sha256: sha256(content), evidenceEligible: true, absolutePath, content };
   }
 
   private async additionalFile(path: string, projectRoot: string): Promise<ContextFileWithContent> {
@@ -155,7 +157,7 @@ export class ContextBuilder {
     }
     const absolutePath = await resolveInside(projectRoot, path);
     const content = await readFile(absolutePath, 'utf8');
-    return { role: 'additional', path, sha256: sha256(content), absolutePath, content };
+    return { role: 'additional', path, sha256: sha256(content), evidenceEligible: false, absolutePath, content };
   }
 }
 
@@ -164,15 +166,19 @@ interface ContextFileWithContent extends ContextFile {
   content: string;
 }
 
+type ContextFileInput = Omit<ContextFile, 'sha256' | 'evidenceEligible'> & { evidenceEligible?: boolean };
+
 export interface ContextBudgetInput {
   category?: ContextBudgetCategory;
   label: string;
   content: string;
 }
 
-function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>): Array<Omit<ContextFile, 'sha256'>> {
+function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>): ContextFileInput[] {
+  const node = task.nodes[nodeId];
+  const contextPath = node?.contextPath === undefined ? [] : [{ role: 'artifact' as const, path: node.contextPath }];
   if (phase !== 'clarify') {
-    return [...handoffInputs(task, nodeId), { role: 'task', path: 'task.yaml' }];
+    return [...handoffInputs(task, nodeId), { role: 'task', path: 'task.yaml' }, ...contextPath];
   }
   const defaults: Record<Exclude<Task['nodes'][string]['phase'], 'intake'>, string[]> = {
     clarify: ['task.md'],
@@ -182,7 +188,7 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
     verify: [],
     test: [],
   };
-  const files: Array<Omit<ContextFile, 'sha256'>> = [
+  const files: ContextFileInput[] = [
     ...defaults[phase].map((path) => ({ role: path === 'task.md' ? 'task' as const : 'artifact' as const, path })),
     { role: 'task', path: 'task.yaml' },
   ];
@@ -191,10 +197,10 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
       files.push({ role: 'source', path: source.snapshotPath, sourceId, sourceRevision: source.revision });
     }
   }
-  return files;
+  return [...files, ...contextPath];
 }
 
-function handoffInputs(task: Task, nodeId: string): Array<Omit<ContextFile, 'sha256'>> {
+function handoffInputs(task: Task, nodeId: string): ContextFileInput[] {
   const node = task.nodes[nodeId];
   if (node === undefined) return [];
   return [...new Set(node.dependsOn)]
