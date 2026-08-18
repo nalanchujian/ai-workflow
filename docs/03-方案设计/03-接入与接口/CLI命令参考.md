@@ -257,7 +257,7 @@ aiw task approve refund-123 clarify --actor jeffrey --note "验收标准完整"
 | `--actor <name>` | 可选。审批人的声明性身份；未提供时读取当前仓库的 `git config user.name`，读取失败则拒绝审批。 |
 | `--note <text>` | 可选。审批备注。 |
 
-仅当节点处于 `awaiting_approval`，且待审产物**及该等待审批状态**均已提交时可执行。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入不可变审批事实（含产物哈希），并将节点置为 `completed`；批准 `plan` 时会先校验 `work-breakdown.yaml.acceptanceCoverage` 是否完整覆盖 `acceptance.yaml` 的每一个 AC，再生成每个工作单元的摘要与自动实施节点。任何验收项未声明实施、外部等待、拆期或风险豁免时，计划审批失败且不写入审批事实。测试节点会额外读取 `acceptance-results.yaml`：只要存在 `failed` 或 `blocked`，普通审批就失败。调用者必须提交审批文件、自动生成的任务事实与状态变化后，下游节点才可运行。`actor` 仅用于记录，不替代受保护分支、CODEOWNERS、签名提交或 Git 平台 PR 审批。否则失败且不改变状态。
+仅当节点处于 `awaiting_approval`，且待审产物**及该等待审批状态**均已提交时可执行。成功后在 `approvals/<node-id>/r<revision>.yaml` 写入不可变审批事实（含产物哈希），并将节点置为 `completed`；批准 `plan` 时会先校验 `work-breakdown.yaml.acceptanceCoverage` 是否完整覆盖 `acceptance.yaml` 的每一个 AC，再生成每个工作单元的摘要与自动实施节点。覆盖项字段固定为 `acceptanceId`、`disposition`、`workUnitIds`、`decisionId`；AIW 会对常见错误字段给出对应替换建议。任何验收项未声明实施、外部等待、拆期或风险豁免时，计划审批失败且不写入审批事实。测试节点会额外读取 `acceptance-results.yaml`：只要存在 `failed` 或 `blocked`，普通审批就失败。调用者必须提交审批文件、自动生成的任务事实与状态变化后，下游节点才可运行。`actor` 仅用于记录，不替代受保护分支、CODEOWNERS、签名提交或 Git 平台 PR 审批。否则失败且不改变状态。
 
 ### `aiw task close-with-risk <task-id> --owner <name> --reason <text> --expires-at <datetime>`
 

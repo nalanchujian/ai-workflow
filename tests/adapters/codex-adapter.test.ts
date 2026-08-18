@@ -96,13 +96,17 @@ describe('CodexAdapter', () => {
     });
     const request = runRequest({ projectRoot, runDirectory });
     request.task.nodeId = 'plan';
-    request.artifacts = ['artifacts/implementation-plan.md'];
+    request.artifacts = ['artifacts/implementation-plan.md', 'artifacts/work-breakdown.yaml'];
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('实施计划产物必须包含以下 YAML 代码块');
     expect(context).toContain('allowedPaths:');
+    expect(context).toContain('「## 实施单元」');
+    expect(context).toContain('每个 `units` 项只能使用');
+    expect(context).toContain('acceptanceId: AC-01');
+    expect(context).toContain('不得使用 `acceptanceRef`、`status`、`units`');
   });
 
   it('requires clarify to turn unresolved facts into recommended decision options', async () => {
@@ -119,7 +123,7 @@ describe('CodexAdapter', () => {
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('artifacts/decision-register.yaml');
     expect(context).toContain('选项、取舍、明确的 `effect` 与 AI 推荐');
-    expect(context).toContain('决策登记的每个 item 必须额外提供 `detail`');
+    expect(context).toContain('detail:');
     expect(context).toContain('一次人工选择只能解决一个独立业务结论');
     expect(context).toContain('aiw.decision-register/v1');
   });

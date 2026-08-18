@@ -9,6 +9,7 @@ describe('DecisionRegisterSchema', () => {
       items: [{
         id: 'DEC-API-01',
         title: '详情趋势数据来源',
+        detail: decisionDetail(),
         type: 'external-contract',
         affects: { acceptanceRefs: ['AC-07', 'AC-08'], workUnits: ['performance-overview'] },
         status: 'resolved',
@@ -30,6 +31,7 @@ describe('DecisionRegisterSchema', () => {
       items: [{
         id: 'DEC-API-01',
         title: '详情趋势数据来源',
+        detail: decisionDetail(),
         type: 'external-contract',
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
         status: 'waiting_external',
@@ -51,6 +53,7 @@ describe('DecisionRegisterSchema', () => {
       items: [{
         id: 'DEC-API-01',
         title: '详情趋势数据来源',
+        detail: decisionDetail(),
         type: 'external-contract',
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
         status: 'resolved',
@@ -68,7 +71,7 @@ describe('DecisionRegisterSchema', () => {
     expect(() => DecisionRegisterSchema.parse({
       schemaVersion: 'aiw.decision-register/v1',
       items: [{
-        id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
+        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract',
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
         options: [{ id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期。', effect: 'waiting_external' }],
         recommendation: { optionId: 'wait-api', rationale: '现有接口不能满足验收。' },
@@ -80,7 +83,7 @@ describe('DecisionRegisterSchema', () => {
     expect(() => DecisionRegisterSchema.parse({
       schemaVersion: 'aiw.decision-register/v1',
       items: [{
-        id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
+        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract',
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
         options: [
           { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但口径一致。' },
@@ -91,3 +94,11 @@ describe('DecisionRegisterSchema', () => {
     })).toThrow(/effect/);
   });
 });
+
+function decisionDetail() {
+  return {
+    question: '详情趋势与导出本期使用哪一套服务端接口？',
+    background: '当前需求与仓库未提供趋势、导出和日期聚合的统一契约。',
+    impact: '不确认会使页面、导出与验收采用不同的数据口径。',
+  };
+}

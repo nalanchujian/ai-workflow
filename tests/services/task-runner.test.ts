@@ -258,9 +258,9 @@ describe('TaskRunner', () => {
   it('rejects a valid-looking artifact left over from a previous run', async () => {
     const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']] });
     await mkdir(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts'), { recursive: true });
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'brief.md'), '# 需求澄清\n\n## 结论\n\n这是上一次运行遗留的产物。\n', 'utf8');
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'questions.md'), '# 待确认事项\n\n当前没有阻塞性待确认事项；后续可以按验收清单继续推进。\n', 'utf8');
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'acceptance.md'), '# 验收标准\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'brief.md'), validBrief('这是上一次运行遗留的产物。'), 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n后续可以按验收清单继续推进。\n', 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
     await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
     await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
     await writeHandoff(fixture.taskStore, 'refund-123');
@@ -321,9 +321,9 @@ async function createRunnerFixture(options: {
         }
         if (options.writeArtifact !== undefined) {
           await mkdir(join(taskStore.taskDirectory(task.id), 'artifacts'), { recursive: true });
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'brief.md'), options.writeArtifact, 'utf8');
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'questions.md'), '# 待确认事项\n\n当前没有阻塞性待确认事项；后续可以按照验收清单继续完成技术方案。\n', 'utf8');
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.md'), '# 验收标准\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'brief.md'), options.writeArtifact === 'done\n' ? options.writeArtifact : validBrief(options.writeArtifact), 'utf8');
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n可按照验收清单继续完成技术方案。\n', 'utf8');
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
           await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
           await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
           await writeHandoff(taskStore, task.id, options.writeHandoff);
@@ -363,6 +363,10 @@ async function writeHandoff(taskStore: TaskStore, taskId: string, content?: stri
   const path = handoffPath('clarify', node.revision + 1);
   await mkdir(join(taskStore.taskDirectory(task.id), 'handoffs', 'clarify'), { recursive: true });
   await writeFile(join(taskStore.taskDirectory(task.id), path), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nrevision: ${node.revision + 1}\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: artifacts/brief.md\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+}
+
+function validBrief(content: string): string {
+  return `# 需求摘要\n\n## 目标与范围\n\n${content.trim()}\n\n## 来源依据\n\n- sources/requirements/r1/snapshot.md\n`;
 }
 
 async function temporaryDirectory(): Promise<string> {

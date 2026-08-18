@@ -11,6 +11,8 @@ import { hasTestExecutionEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
+import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
+import { validateMarkdownArtifactContract } from '../domain/artifact-contracts.js';
 import { parse } from 'yaml';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
@@ -345,7 +347,7 @@ async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string, b
   }
   const outputPaths = outputPathsForNextRun(nodeId, node);
   const evidencePaths = handoffEvidencePaths(task, nodeId);
-  return Promise.all(outputPaths.map(async (path) => {
+  const artifacts = await Promise.all(outputPaths.map(async (path) => {
     let content: Buffer;
     try {
       content = await readFile(join(taskStore.taskDirectory(task.id), path));
@@ -357,8 +359,10 @@ async function outputRecords(task: Task, taskStore: TaskStore, nodeId: string, b
     if (baseline.find((entry) => entry.path === path)?.sha256 === sha256) {
       throw new TaskRunnerError('ARTIFACT_STALE', `节点产物未在本次运行中更新：${path}`);
     }
-    return { path, sha256 };
+    return { path, sha256, content: content.toString('utf8') };
   }));
+  await validateArtifactSet(task, taskStore, nodeId, new Map(artifacts.map((artifact) => [artifact.path, artifact.content])));
+  return artifacts.map(({ path, sha256 }) => ({ path, sha256 }));
 }
 
 async function outputBaseline(task: Task, taskStore: TaskStore, nodeId: string, outputPaths: string[]): Promise<ChangeBaseline['outputs']> {
@@ -396,24 +400,53 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
     try {
       DecisionRegisterSchema.parse(parse(content));
       return;
-    } catch {
-      throw new TaskRunnerError('ARTIFACT_INVALID', '决策登记必须是有效的 aiw.decision-register/v1 YAML');
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', formatSchemaDiagnostics({
+        title: '决策登记',
+        error,
+        aliases: {
+          acceptanceIds: '不能使用 acceptanceIds；请改为 affects.acceptanceRefs。',
+          acceptanceId: '不能使用 acceptanceId；请改为 affects.acceptanceRefs。',
+          workUnitIds: '不能使用 workUnitIds；请改为 affects.workUnits。',
+          status: '不能在 option 中使用 status；请改为 effect。',
+          recommendationId: '不能使用 recommendationId；请改为 recommendation.optionId。',
+        },
+        itemLabel: '决策项',
+      }));
     }
   }
   if (path === 'artifacts/acceptance.yaml') {
     try {
       AcceptanceCatalogSchema.parse(parse(content));
       return;
-    } catch {
-      throw new TaskRunnerError('ARTIFACT_INVALID', '验收清单必须是有效的 aiw.acceptance-catalog/v1 YAML');
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', formatSchemaDiagnostics({
+        title: '验收清单',
+        error,
+        aliases: {
+          acceptanceId: '不能使用 acceptanceId；请改为 id。',
+          name: '不能使用 name；请改为 title。',
+          criteria: '不能使用 criteria；请改为 description。',
+        },
+        itemLabel: '验收项',
+      }));
     }
   }
   if (path === 'artifacts/acceptance-results.yaml') {
     try {
       AcceptanceResultsSchema.parse(parse(content));
       return;
-    } catch {
-      throw new TaskRunnerError('ARTIFACT_INVALID', '验收结果必须是有效的 aiw.acceptance-results/v1 YAML');
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', formatSchemaDiagnostics({
+        title: '验收结果',
+        error,
+        aliases: {
+          acceptanceId: '不能使用 acceptanceId；请改为 id。',
+          result: '不能使用 result；请改为 status。',
+          proofs: '不能使用 proofs；请改为 evidence。',
+        },
+        itemLabel: '验收结果',
+      }));
     }
   }
   if (path === 'artifacts/implementation-context.md' && Buffer.byteLength(content, 'utf8') > 16_000) {
@@ -422,11 +455,51 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   if (content.trim().length < 24 || !/^#\s+.+/m.test(content)) {
     throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物内容不足或缺少一级标题：${path}`);
   }
+  try {
+    validateMarkdownArtifactContract(path, content);
+  } catch (error) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : `${path} 结构无效`);
+  }
   if (path === 'artifacts/implementation-plan.md' && !/```ya?ml\s*\n[\s\S]*?allowedPaths:\s*\n\s*-\s*[^\s#]+/i.test(content)) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '实施计划必须声明含至少一个路径的 allowedPaths YAML 代码块');
   }
   if (node.phase === 'test' && !hasTestExecutionEvidence(content)) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '测试报告必须包含测试命令与测试结果');
+  }
+}
+
+async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: string, contents: Map<string, string>): Promise<void> {
+  const node = task.nodes[nodeId];
+  if (node === undefined) return;
+  if (node.phase === 'clarify') {
+    const catalogContent = contents.get('artifacts/acceptance.yaml');
+    const registerContent = contents.get('artifacts/decision-register.yaml');
+    if (catalogContent === undefined || registerContent === undefined) return;
+    const catalog = AcceptanceCatalogSchema.parse(parse(catalogContent));
+    const register = DecisionRegisterSchema.parse(parse(registerContent));
+    const acceptanceIds = new Set(catalog.items.map((item) => item.id));
+    const unknown = register.items.flatMap((item) => item.affects.acceptanceRefs.filter((id) => !acceptanceIds.has(id)).map((id) => `${item.id} → ${id}`));
+    if (unknown.length > 0) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', `决策登记引用了验收清单中不存在的验收项：${unknown.join('、')}。请先在 artifacts/acceptance.yaml 声明该 AC，或修正 affects.acceptanceRefs。`);
+    }
+  }
+  if (node.phase === 'test') {
+    const resultContent = contents.get('artifacts/acceptance-results.yaml');
+    if (resultContent === undefined) return;
+    const results = AcceptanceResultsSchema.parse(parse(resultContent));
+    const catalogContent = await readFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'utf8');
+    const catalog = AcceptanceCatalogSchema.parse(parse(catalogContent));
+    const expected = new Set(catalog.items.map((item) => item.id));
+    const actual = new Set(results.items.map((item) => item.id));
+    const missing = [...expected].filter((id) => !actual.has(id));
+    const unknown = [...actual].filter((id) => !expected.has(id));
+    if (missing.length > 0 || unknown.length > 0) {
+      const parts = [
+        ...(missing.length === 0 ? [] : [`缺少结果：${missing.join('、')}`]),
+        ...(unknown.length === 0 ? [] : [`不存在的验收项：${unknown.join('、')}`]),
+      ];
+      throw new TaskRunnerError('ARTIFACT_INVALID', `验收结果必须与验收清单逐项一一对应：${parts.join('；')}。`);
+    }
   }
 }
 

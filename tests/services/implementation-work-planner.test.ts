@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { materializeImplementationWork } from '../../src/services/implementation-work-planner.js';
+import { materializeImplementationWork, validateWorkBreakdown } from '../../src/services/implementation-work-planner.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
@@ -120,6 +120,28 @@ describe('ImplementationWorkPlanner', () => {
 
     expect(materialized.task.nodes.implement.status).toBe('ready');
     expect(materialized.task.nodes.verify.dependsOn).toEqual(['implement']);
+  });
+
+  it('explains incorrect acceptance coverage fields by item and replacement field name', () => {
+    const invalidBreakdown = [
+      'schemaVersion: aiw.work-breakdown/v1',
+      'units:',
+      '  - id: page',
+      '    title: 实现页面',
+      '    goal: 实现列表页面',
+      '    allowedPaths: [src/pages/links/**]',
+      '    acceptanceRefs: [AC-01]',
+      '    steps: [实现页面]',
+      '    verification: [pnpm test -- page]',
+      'acceptanceCoverage:',
+      '  - acceptanceRef: AC-01',
+      '    status: implement',
+      '    units: [page]',
+    ].join('\n');
+    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('验收覆盖第 1 项');
+    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 acceptanceRef；请改为 acceptanceId。');
+    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 status；请改为 disposition。');
+    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 units；请改为 workUnitIds。');
   });
 });
 

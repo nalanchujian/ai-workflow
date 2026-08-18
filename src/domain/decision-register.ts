@@ -26,7 +26,7 @@ export const DecisionItemSchema = z.object({
     question: z.string().min(8),
     background: z.string().min(16),
     impact: z.string().min(12),
-  }).strict().optional(),
+  }).strict(),
   type: z.enum(['business-rule', 'technical-contract', 'external-contract', 'engineering-baseline']),
   affects: z.object({
     acceptanceRefs: z.array(z.string().min(1)).min(1),

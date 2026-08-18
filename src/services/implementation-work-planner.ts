@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 import { z } from 'zod';
 
 import { AcceptanceCatalogSchema, type AcceptanceCatalog } from '../domain/acceptance-catalog.js';
+import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
 import { TaskStore } from './task-store.js';
 import { deriveTaskStatus } from './task-state-machine.js';
@@ -24,7 +25,7 @@ const WorkUnitSchema = z.object({
   blockedBy: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   dependsOn: z.array(z.string().regex(unitIdPattern, '依赖工作单元 ID 格式无效')).default([]),
   requiresApproval: z.boolean().default(false),
-});
+}).strict();
 
 const AcceptanceCoverageSchema = z.object({
   acceptanceId: z.string().regex(/^AC-\d{2,}$/, '验收项 ID 格式无效'),
@@ -37,7 +38,7 @@ export const WorkBreakdownSchema = z.object({
   schemaVersion: z.literal('aiw.work-breakdown/v1'),
   units: z.array(WorkUnitSchema).min(1),
   acceptanceCoverage: z.array(AcceptanceCoverageSchema).min(1),
-}).superRefine((breakdown, context) => {
+}).strict().superRefine((breakdown, context) => {
   const ids = new Set(breakdown.units.map((unit) => unit.id));
   if (ids.size !== breakdown.units.length) {
     context.addIssue({ code: 'custom', path: ['units'], message: '工作单元 ID 必须唯一' });
@@ -88,7 +89,7 @@ export async function readWorkBreakdown(task: Task, taskStore: TaskStore): Promi
     return WorkBreakdownSchema.parse(parse(content));
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ImplementationWorkPlannerError(`实施工作单元声明无效：${error.issues.map((issue) => issue.message).join('；')}`);
+      throw new ImplementationWorkPlannerError(formatWorkBreakdownIssues(error));
     }
     throw new ImplementationWorkPlannerError('实施工作单元声明缺失或无法读取：artifacts/work-breakdown.yaml');
   }
@@ -174,10 +175,75 @@ export function validateWorkBreakdown(content: string): void {
     WorkBreakdownSchema.parse(parse(content));
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ImplementationWorkPlannerError(`实施工作单元声明无效：${error.issues.map((issue) => issue.message).join('；')}`);
+      throw new ImplementationWorkPlannerError(formatWorkBreakdownIssues(error));
     }
     throw new ImplementationWorkPlannerError('实施工作单元声明不是有效 YAML');
   }
+}
+
+function formatWorkBreakdownIssues(error: z.ZodError): string {
+  const items = new Map<string, string[]>();
+  const general: string[] = [];
+  for (const issue of error.issues) {
+    const location = workBreakdownIssueLocation(issue.path);
+    const messages = location === undefined
+      ? [issue.message]
+      : workBreakdownIssueMessages(issue, location.kind);
+    if (location === undefined) {
+      general.push(...messages);
+    } else {
+      items.set(location.label, [...(items.get(location.label) ?? []), ...messages]);
+    }
+  }
+  const lines = [
+    '实施工作单元声明无效：',
+    ...[...items.entries()].flatMap(([label, messages]) => [
+      `- ${label}：`,
+      ...[...new Set(messages)].map((message) => `  - ${message}`),
+    ]),
+    ...[...new Set(general)].map((message) => `- ${message}`),
+  ];
+  return lines.join('\n');
+}
+
+function workBreakdownIssueLocation(path: PropertyKey[]): { label: string; kind: 'coverage' | 'unit' } | undefined {
+  if (path[0] === 'acceptanceCoverage' && typeof path[1] === 'number') {
+    return { label: `验收覆盖第 ${path[1] + 1} 项`, kind: 'coverage' };
+  }
+  if (path[0] === 'units' && typeof path[1] === 'number') {
+    return { label: `工作单元第 ${path[1] + 1} 项`, kind: 'unit' };
+  }
+  return undefined;
+}
+
+function workBreakdownIssueMessages(issue: z.core.$ZodIssue, kind: 'coverage' | 'unit'): string[] {
+  const field = issue.path.at(-1);
+  if (kind === 'coverage' && field === 'acceptanceId' && issue.code === 'invalid_type') {
+    return ['缺少 acceptanceId；应填写验收项编号，例如 AC-01。'];
+  }
+  if (kind === 'coverage' && field === 'disposition' && issue.code === 'invalid_value') {
+    return ['缺少或错误使用 disposition；只能是 implement、waiting_external、deferred、waived。'];
+  }
+  if (issue.code === 'unrecognized_keys') {
+    const keys = (issue as { keys: string[] }).keys;
+    const aliases = kind === 'coverage'
+      ? {
+          acceptanceRef: '不能使用 acceptanceRef；请改为 acceptanceId。',
+          status: '不能使用 status；请改为 disposition。',
+          units: '不能使用 units；请改为 workUnitIds。',
+          decisions: '不能使用 decisions；等待、拆期或豁免只使用单个 decisionId。',
+          blockedUnits: '不能使用 blockedUnits；请改为 workUnitIds，并在对应工作单元声明 blockedBy。',
+          reason: '不能使用 reason；拆期或豁免原因应写入关联决策事实。',
+        }
+      : {
+          acceptanceIds: '不能使用 acceptanceIds；请改为 acceptanceRefs。',
+          paths: '不能使用 paths；请改为 allowedPaths。',
+          commands: '不能使用 commands；请改为 verification。',
+          dependencies: '不能使用 dependencies；请改为 dependsOn。',
+        };
+    return keys.map((key) => aliases[key as keyof typeof aliases] ?? `不支持字段 ${key}。`);
+  }
+  return [issue.message];
 }
 
 export async function validatePlanAcceptanceCoverage(task: Task, taskStore: TaskStore): Promise<void> {
@@ -234,7 +300,16 @@ async function readAcceptanceCatalog(task: Task, taskStore: TaskStore): Promise<
     return AcceptanceCatalogSchema.parse(parse(content));
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ImplementationWorkPlannerError(`验收清单无效：${error.issues.map((issue) => issue.message).join('；')}`);
+      throw new ImplementationWorkPlannerError(formatSchemaDiagnostics({
+        title: '验收清单',
+        error,
+        aliases: {
+          acceptanceId: '不能使用 acceptanceId；请改为 id。',
+          name: '不能使用 name；请改为 title。',
+          criteria: '不能使用 criteria；请改为 description。',
+        },
+        itemLabel: '验收项',
+      }));
     }
     throw new ImplementationWorkPlannerError('验收清单缺失或无法读取：artifacts/acceptance.yaml');
   }

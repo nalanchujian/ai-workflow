@@ -2,6 +2,7 @@ import { parse } from 'yaml';
 import { z } from 'zod';
 
 import { PhaseSchema, type Phase, type TaskNode } from './task.js';
+import { formatSchemaDiagnostics } from './schema-diagnostics.js';
 
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
@@ -71,10 +72,15 @@ export function validateHandoff(content: string, expected: {
   try {
     handoff = HandoffSchema.parse(parse(content));
   } catch (error) {
-    const details = error instanceof z.ZodError
-      ? error.issues.map((issue) => `${issue.path.join('.') || '根节点'}：${issue.message}`).join('；')
-      : 'YAML 解析失败';
-    throw new Error(`交接包格式无效：${details}`, { cause: error });
+    throw new Error(formatSchemaDiagnostics({
+      title: '交接包',
+      error,
+      aliases: {
+        decisionId: '不能使用 decisionId；决策项只允许 statement 和 evidence。',
+        acceptanceId: '不能使用 acceptanceId；验收项请使用 id。',
+      },
+      itemLabel: '交接内容',
+    }), { cause: error });
   }
   if (handoff.taskId !== expected.taskId || handoff.nodeId !== expected.nodeId || handoff.phase !== expected.phase || handoff.revision !== expected.revision) {
     throw new Error('交接包与当前节点身份或 revision 不一致');
