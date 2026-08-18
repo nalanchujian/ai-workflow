@@ -3,7 +3,10 @@ import { z } from 'zod';
 import type { DeliveryStatus } from './task.js';
 import { TestResultIdSchema } from './test-results.js';
 
-export const AcceptanceResultStatusSchema = z.enum(['passed', 'failed', 'blocked', 'deferred', 'waived']);
+// Acceptance is a statement about the current delivery. It can pass, fail, or
+// be blocked. Moving scope is a source change; accepting an unmet result is a
+// separately auditable close-with-risk action, never an acceptance outcome.
+export const AcceptanceResultStatusSchema = z.enum(['passed', 'failed', 'blocked']);
 
 export const AcceptanceResultsSchema = z.object({
   schemaVersion: z.literal('aiw.acceptance-results/v1'),
@@ -28,5 +31,5 @@ export const AcceptanceResultsSchema = z.object({
 export type AcceptanceResults = z.infer<typeof AcceptanceResultsSchema>;
 
 export function deliveryStatusFromAcceptanceResults(results: AcceptanceResults): DeliveryStatus {
-  return results.items.every((item) => ['passed', 'deferred', 'waived'].includes(item.status)) ? 'ready' : 'not_ready';
+  return results.items.every((item) => item.status === 'passed') ? 'ready' : 'not_ready';
 }

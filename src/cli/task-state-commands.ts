@@ -27,7 +27,7 @@ import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js'
 type ClarifyDecisionSelection = {
   decisionId: string;
   optionId: string;
-  status?: 'resolved' | 'waiting_external' | 'deferred' | 'waived';
+  status?: 'resolved' | 'waiting_external';
   owner?: string;
   unblockCondition?: string;
   manualNote?: string;
@@ -48,8 +48,6 @@ export class TaskStateCommands {
     const labels = {
       implement: '本期实施',
       waiting_external: '等待外部条件',
-      deferred: '拆至后续范围',
-      waived: '风险豁免',
     } as const;
     return {
       title: '验收覆盖',
@@ -312,7 +310,7 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
             `影响工作单元：${item.affects.workUnits.join('、')}`,
             `AI 推荐：${item.recommendation.optionId}（${item.recommendation.rationale}）`,
             `当前选择：${resolution === undefined ? '待选择' : `${resolution.optionId}（${resolution.status}）`}`,
-            ...item.options.map((option) => `- ${option.id}：${option.title}；${option.tradeoffs}；结果：${decisionEffectLabel(option.effect)}`),
+            ...item.options.map((option) => `- ${option.id}：${option.title}；${option.tradeoffs}`),
           ],
         })),
       });
@@ -535,11 +533,10 @@ function writeDecisionContext(
 }
 
 function continuationOptions(item: Awaited<ReturnType<TaskStateCommands['listDecisions']>>[number]['item']) {
-  const candidates = item.options.filter((option) => option.effect === 'resolved');
-  const recommendation = candidates.find((option) => option.id === item.recommendation.optionId);
+  const recommendation = item.options.find((option) => option.id === item.recommendation.optionId);
   return [
     ...(recommendation === undefined ? [] : [recommendation]),
-    ...candidates.filter((option) => option.id !== recommendation?.id),
+    ...item.options.filter((option) => option.id !== recommendation?.id),
   ].slice(0, 2);
 }
 
@@ -547,15 +544,6 @@ async function askNumber(prompter: ReviewPrompter, prompt: string, maximum: numb
   while (true) {
     const answer = Number((await prompter.ask(prompt)).trim());
     if (Number.isInteger(answer) && answer >= 1 && answer <= maximum) return answer;
-  }
-}
-
-function decisionEffectLabel(effect: 'resolved' | 'waiting_external' | 'deferred' | 'waived'): string {
-  switch (effect) {
-    case 'resolved': return '本期继续实施';
-    case 'waiting_external': return '等待外部条件，仅阻塞关联实施单元';
-    case 'deferred': return '拆至后续范围，移除关联实施单元';
-    case 'waived': return '接受已知风险，继续实施';
   }
 }
 

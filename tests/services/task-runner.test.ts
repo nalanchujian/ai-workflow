@@ -349,7 +349,7 @@ describe('TaskRunner', () => {
     expect(evidence).toMatchObject({ failure: { stage: 'artifact', code: 'ARTIFACT_INVALID' } });
   });
 
-  it('rejects clarify output that presents external waiting as an AI business option', async () => {
+  it('rejects clarify output that embeds obsolete workflow effects into an AI business option', async () => {
     const fixture = await createRunnerFixture({
       changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/decision-register.yaml']],
       writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
@@ -366,7 +366,6 @@ items:
     affects:
       acceptanceRefs: [AC-01]
       workUnits: [implement]
-    status: proposed
     options:
       - id: wait-api
         title: 等待正式接口
@@ -380,7 +379,7 @@ items:
 
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
 
-    expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_INVALID', message: expect.stringContaining('只能表示“本期继续”') } });
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_INVALID', message: expect.stringContaining('不支持字段 effect') } });
   });
 
   it('rejects a malformed structured handoff and preserves failure evidence', async () => {

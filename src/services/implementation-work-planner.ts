@@ -31,7 +31,7 @@ const WorkUnitSchema = z.object({
 
 const AcceptanceCoverageSchema = z.object({
   acceptanceId: z.string().regex(/^AC-\d{2,}$/, '验收项 ID 格式无效'),
-  disposition: z.enum(['implement', 'waiting_external', 'deferred', 'waived']),
+  disposition: z.enum(['implement', 'waiting_external']),
   workUnitIds: z.array(z.string().regex(unitIdPattern, '工作单元 ID 格式无效')).default([]),
   decisionId: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效').optional(),
 }).strict();
@@ -78,9 +78,6 @@ export const WorkBreakdownSchema = z.object({
     }
     if (coverage.disposition === 'waiting_external' && coverage.decisionId === undefined) {
       context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index], message: '等待外部条件验收项必须关联决策和一个交付单元' });
-    }
-    if (['deferred', 'waived'].includes(coverage.disposition) && coverage.decisionId === undefined) {
-      context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index, 'decisionId'], message: '拆期或风险豁免验收项必须关联决策' });
     }
   }
 });
@@ -155,7 +152,6 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
     const nodeId = nodeIds.get(unit.id)!;
     const contextPath = `artifacts/work-units/r${planRevision}/${nodeId}.md`;
     const dependencies = ['plan', ...unit.dependsOn.map((dependency) => nodeIds.get(dependency)!)];
-    const deferred = unit.blockedBy.some((decisionId) => next.decisions.find((decision) => decision.id === decisionId)?.status === 'deferred');
     const blockedByDecisionIds = unit.blockedBy.filter((decisionId) => {
       const resolution = next.decisions.find((decision) => decision.id === decisionId);
       return resolution === undefined || resolution.status === 'waiting_external';
@@ -166,7 +162,7 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       dependsOn: [...new Set(dependencies)],
       skill: implementation.skill,
       requiresApproval: true,
-      status: deferred ? 'superseded' : blockedByDecisionIds.length > 0 ? 'blocked' : dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
+      status: blockedByDecisionIds.length > 0 ? 'blocked' : dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
       revision: 0,
       outputs: ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
       contextPath,
@@ -175,7 +171,7 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       verificationCommands: unit.verification,
       acceptanceRefs: unit.acceptanceRefs,
       decisionRefs: unit.decisionRefs,
-      ...(blockedByDecisionIds.length === 0 || deferred ? {} : { blockedByDecisionIds }),
+      ...(blockedByDecisionIds.length === 0 ? {} : { blockedByDecisionIds }),
     };
     next.nodes[nodeId] = node;
     facts.push({ path: contextPath, content: renderUnitContext(unit, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash, factsById, decisionsById, next) });
@@ -236,7 +232,7 @@ function workBreakdownIssueMessages(issue: z.core.$ZodIssue, kind: 'coverage' | 
     return ['缺少 acceptanceId；应填写验收项编号，例如 AC-01。'];
   }
   if (kind === 'coverage' && field === 'disposition' && issue.code === 'invalid_value') {
-    return ['缺少或错误使用 disposition；只能是 implement、waiting_external、deferred、waived。'];
+    return ['缺少或错误使用 disposition；只能是 implement、waiting_external。'];
   }
   if (issue.code === 'unrecognized_keys') {
     const keys = (issue as { keys: string[] }).keys;
@@ -245,9 +241,9 @@ function workBreakdownIssueMessages(issue: z.core.$ZodIssue, kind: 'coverage' | 
           acceptanceRef: '不能使用 acceptanceRef；请改为 acceptanceId。',
           status: '不能使用 status；请改为 disposition。',
           units: '不能使用 units；请改为 workUnitIds。',
-          decisions: '不能使用 decisions；等待、拆期或豁免只使用单个 decisionId。',
+          decisions: '不能使用 decisions；等待外部条件只使用单个 decisionId。',
           blockedUnits: '不能使用 blockedUnits；请改为 workUnitIds，并在对应工作单元声明 blockedBy。',
-          reason: '不能使用 reason；拆期或豁免原因应写入关联决策事实。',
+          reason: '不能使用 reason；外部等待原因应写入关联决策事实。',
         }
       : {
           acceptanceIds: '不能使用 acceptanceIds；请改为 acceptanceRefs。',
@@ -289,19 +285,12 @@ async function validateAcceptanceCoverage(task: Task, taskStore: TaskStore, brea
         errors.push(`${coverage.acceptanceId} 的等待工作单元必须引用 ${coverage.decisionId}`);
       }
     }
-    if (coverage.disposition === 'deferred' || coverage.disposition === 'waived') {
-      const decision = task.decisions.find((item) => item.id === coverage.decisionId);
-      if (decision?.status !== coverage.disposition || decision.note === undefined) {
-        errors.push(`${coverage.acceptanceId} 声明${coverage.disposition === 'deferred' ? '拆期' : '风险豁免'}，但 ${coverage.decisionId} 缺少对应的当前决策事实或说明`);
-      }
-    }
   }
   for (const unit of breakdown.units) {
     for (const acceptanceId of unit.acceptanceRefs) {
       const coverage = coverageByAcceptance.get(acceptanceId);
       if (coverage === undefined ||
-        (coverage.disposition !== 'deferred' && (!['implement', 'waiting_external'].includes(coverage.disposition) || !coverage.workUnitIds.includes(unit.id))) ||
-        (coverage.disposition === 'deferred' && !unit.blockedBy.includes(coverage.decisionId!))) {
+        (!['implement', 'waiting_external'].includes(coverage.disposition) || !coverage.workUnitIds.includes(unit.id))) {
         errors.push(`工作单元 ${unit.id} 引用的 ${acceptanceId} 未与该单元形成一致覆盖声明`);
       }
     }

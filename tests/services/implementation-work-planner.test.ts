@@ -63,26 +63,6 @@ describe('ImplementationWorkPlanner', () => {
     expect(materialized.task.status).toBe('partially_blocked');
   });
 
-  it('supersedes a deferred delivery unit while unrelated delivery can continue', async () => {
-    const projectRoot = await createTempDirectory('aiw-work-planner-');
-    directories.push(projectRoot);
-    const store = new TaskStore(projectRoot);
-    const task = createSevenPhaseTask();
-    task.nodes.plan.status = 'completed';
-    task.nodes.plan.revision = 1;
-    task.decisions = [{
-      id: 'DEC-API-01', revision: 1, status: 'deferred', optionId: 'wait-api', actor: 'tech-lead',
-      at: '2026-08-14T00:00:00.000Z', note: '接口另行排期', factPath: 'decisions/DEC-API-01/r1.yaml',
-    }];
-    await store.create(task);
-    await writePlanFacts(store, task.id, 'first', true);
-
-    const materialized = await materializeImplementationWork(await store.load(task.id), store);
-
-    expect(materialized.task.nodes['delivery-export']?.status).toBe('superseded');
-    expect(materialized.task.nodes['delivery-page']?.status).toBe('ready');
-  });
-
   it('materializes a named delivery unit even when the plan has exactly one unit', async () => {
     const projectRoot = await createTempDirectory('aiw-work-planner-');
     directories.push(projectRoot);
@@ -231,12 +211,10 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    affects:',
     '      acceptanceRefs: [AC-02]',
     '      workUnits: [export]',
-    '    status: proposed',
     '    options:',
     '      - id: use-contract',
     '        title: 使用正式服务端契约',
     '        tradeoffs: 字段口径一致，但需要后端提供可用契约。',
-    '        effect: resolved',
     '    recommendation:',
     '      optionId: use-contract',
     '      rationale: 当前导出行为必须以服务端字段契约作为唯一依据。',
@@ -271,8 +249,6 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    workUnitIds: [page]',
     ...(blockExport && exportCoverage === 'waiting_external'
       ? ['  - acceptanceId: AC-02', '    disposition: waiting_external', '    decisionId: DEC-API-01', '    workUnitIds: [export]']
-      : blockExport && exportCoverage === 'deferred'
-        ? ['  - acceptanceId: AC-02', '    disposition: deferred', '    decisionId: DEC-API-01', '    workUnitIds: []']
-        : ['  - acceptanceId: AC-02', '    disposition: implement', '    workUnitIds: [export]']),
+      : ['  - acceptanceId: AC-02', '    disposition: implement', '    workUnitIds: [export]']),
   ].join('\n') + '\n', 'utf8');
 }

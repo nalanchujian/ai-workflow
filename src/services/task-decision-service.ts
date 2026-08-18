@@ -23,7 +23,7 @@ export class TaskDecisionService {
     decisionId: string;
     optionId: string;
     actor: string;
-    status: 'resolved' | 'waiting_external' | 'deferred' | 'waived';
+    status: 'resolved' | 'waiting_external';
     owner?: string;
     unblockCondition?: string;
     note?: string;
@@ -36,17 +36,11 @@ export class TaskDecisionService {
     if (!manual && option === undefined) {
       throw new Error(`决策项不存在选项：${input.optionId}`);
     }
-    if (option !== undefined && option.effect !== input.status) {
-      throw new Error(`决策选项的处理结果必须为：${option.effect}`);
-    }
     if (manual && (input.note === undefined || input.note.trim().length === 0)) {
       throw new Error('人工输入的决策结论不能为空');
     }
     if (input.status === 'waiting_external' && (input.owner === undefined || input.unblockCondition === undefined)) {
       throw new Error('外部等待决策必须提供责任人和解除条件');
-    }
-    if ((input.status === 'deferred' || input.status === 'waived') && (input.note === undefined || input.note.trim().length === 0)) {
-      throw new Error('拆期或风险豁免必须提供说明');
     }
     return this.record(task, proposal, {
       status: input.status,
@@ -127,7 +121,7 @@ export class TaskDecisionService {
     }));
     task.decisions = [...task.decisions.filter((decision) => decision.id !== proposal.id), resolution];
     task.events.push({
-      type: resolution.status === 'deferred' ? 'defer_decision' : resolution.status === 'resolved' && previous?.status === 'waiting_external' ? 'resolve_decision' : 'choose_decision',
+      type: resolution.status === 'resolved' && previous?.status === 'waiting_external' ? 'resolve_decision' : 'choose_decision',
       decisionId: proposal.id,
       at: resolution.at,
       actor: resolution.actor,
@@ -141,7 +135,7 @@ export class TaskDecisionService {
       // would make the graph look precise while using a stale design. Only the
       // execution-only path may unlock a unit directly.
       ? invalidateNodeAndDependents(task, 'solution', `决策 ${proposal.id} 已补充影响方案的新事实；必须重新生成技术方案和实施计划`)
-      : resolution.status === 'resolved' || resolution.status === 'waived' || resolution.status === 'deferred'
+      : resolution.status === 'resolved'
         ? reconcileDecisionBlocks(task, proposal.id)
         : deriveTaskStatus(task);
     await this.deps.taskStore.update(next);

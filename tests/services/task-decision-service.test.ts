@@ -83,30 +83,14 @@ describe('TaskDecisionService', () => {
     })).rejects.toThrow('重新规划必须提供新增事实');
   });
 
-  it('supersedes only the blocked work unit when a decision is explicitly deferred', async () => {
-    const { store, service } = await fixture();
-    await service.choose({ taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'wait-api', actor: 'tech-lead', status: 'waiting_external', owner: 'backend', unblockCondition: '接口契约与联调样例已确认' });
-    const waiting = await store.load('refund-123');
-    waiting.nodes.implement = {
-      ...waiting.nodes.implement,
-      status: 'blocked',
-      blockedByDecisionIds: ['DEC-API-01'],
-      decisionRefs: ['DEC-API-01'],
-    };
-    await store.update(waiting);
-
-    const task = await service.choose({ taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'defer-scope', actor: 'product-owner', status: 'deferred', note: '接口能力拆至下个版本。' });
-
-    expect(task.nodes.implement.status).toBe('superseded');
-  });
-
-  it('derives the decision status from the selected option instead of accepting a conflicting status', async () => {
+  it('does not let a proposal option encode workflow state', async () => {
     const { service } = await fixture();
+    const task = await service.choose({
+      taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'wait-api', actor: 'tech-lead',
+      status: 'resolved', note: '采用正式接口契约。',
+    });
 
-    await expect(service.choose({
-      taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'defer-scope', actor: 'product-owner',
-      status: 'resolved', note: '接口能力拆至下个版本。',
-    })).rejects.toThrow('决策选项的处理结果必须为：deferred');
+    expect(task.decisions).toEqual([expect.objectContaining({ status: 'resolved', optionId: 'wait-api' })]);
   });
 });
 
@@ -133,16 +117,10 @@ async function fixture(): Promise<{ store: TaskStore; service: TaskDecisionServi
     '    affects:',
     '      acceptanceRefs: [AC-07]',
     '      workUnits: [performance-overview]',
-    '    status: proposed',
     '    options:',
     '      - id: wait-api',
     '        title: 等待正式 API',
     '        tradeoffs: 交付依赖后端排期，但数据口径一致。',
-    '        effect: waiting_external',
-    '      - id: defer-scope',
-    '        title: 拆至后续版本',
-    '        tradeoffs: 当前范围缩小，需要后续跟踪。',
-    '        effect: deferred',
     '    recommendation:',
     '      optionId: wait-api',
     '      rationale: 当前仓库没有可信详情与趋势接口。',

@@ -124,12 +124,10 @@ items:
     affects:
       acceptanceRefs: [AC-01]
       workUnits: [export]
-    status: proposed
     options:
       - id: use-formal-contract
         title: 使用正式服务端契约
         tradeoffs: 字段口径可端到端验证，但需等待后端提供稳定契约。
-        effect: resolved
     recommendation:
       optionId: use-formal-contract
       rationale: 导出字段必须以服务端契约作为唯一依据，不能由页面推断。

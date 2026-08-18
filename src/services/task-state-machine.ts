@@ -158,19 +158,7 @@ export function restartDependentsForSourceChange(task: Task, upstreamNodeId: str
 export function reconcileDecisionBlocks(task: Task, decisionId: string): Task {
   const next = TaskSchema.parse(task);
   const resolution = next.decisions.find((decision) => decision.id === decisionId);
-  if (resolution?.status === 'deferred') {
-    for (const [nodeId, node] of Object.entries(next.nodes)) {
-      if (!node.blockedByDecisionIds?.includes(decisionId) || !['blocked', 'pending', 'ready'].includes(node.status)) continue;
-      node.status = 'superseded';
-      node.blockedByDecisionIds = undefined;
-      for (const dependent of Object.values(next.nodes)) {
-        dependent.dependsOn = dependent.dependsOn.filter((dependency) => dependency !== nodeId);
-      }
-      addEvent(next, 'supersede', nodeId, { reason: `决策 ${decisionId} 已拆期` });
-    }
-    return TaskSchema.parse(deriveTaskStatus(next));
-  }
-  if (resolution?.status !== 'resolved' && resolution?.status !== 'waived') {
+  if (resolution?.status !== 'resolved') {
     return TaskSchema.parse(deriveTaskStatus(next));
   }
   for (const [nodeId, node] of Object.entries(next.nodes)) {

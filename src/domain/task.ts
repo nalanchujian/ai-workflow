@@ -34,7 +34,11 @@ export const ExternalResolutionImpactSchema = z.enum(['execution-only', 'replan'
 export const DecisionResolutionSchema = z.object({
   id: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效'),
   revision: z.number().int().positive(),
-  status: z.enum(['resolved', 'waiting_external', 'deferred', 'waived']),
+  // A task decision has exactly two pre-delivery outcomes: it is resolved for
+  // this scope, or it is waiting for an external condition. Scope changes
+  // restart from the source snapshot; delivery risks are recorded only by the
+  // delivery-unit close-with-risk fact.
+  status: z.enum(['resolved', 'waiting_external']),
   optionId: z.string().min(1),
   actor: z.string().min(1),
   at: z.string().datetime(),

@@ -128,7 +128,7 @@ describe('CodexAdapter', () => {
     expect(context).toContain('artifacts/decision-register.yaml');
     expect(context).toContain('正式事实引用规则优先于上文示例');
     expect(context).toContain('验收项允许字段为 `id`、`title`、`description`、`factRefs`');
-    expect(context).toContain('每个方案都必须使用 `effect: resolved`');
+    expect(context).toContain('每个决策项只提供一至两个本期继续的 AI 方案');
     expect(context).toContain('一至两个本期继续的 AI 方案');
     expect(context).toContain('第一层自动记录为外部等待');
     expect(context).toContain('detail:');

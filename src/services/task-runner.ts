@@ -676,20 +676,13 @@ function isDeliveryUnit(node: Task['nodes'][string]): boolean {
 /**
  * `task review` has a fixed two-level interaction: first choose whether this
  * item continues in the current scope, then choose one of the AI's business
- * alternatives.  Keep the generated register aligned with that interaction,
- * rather than letting an old-style "wait/defer/waive" option leak into it.
+ * alternatives. The register is therefore a proposal-only record: waiting is
+ * recorded by AIW, and neither scope changes nor delivery risks belong here.
  */
 function validateClarifyDecisionChoices(register: import('../domain/decision-register.js').DecisionRegister): void {
   for (const item of register.items) {
-    const nonContinuing = item.options.filter((option) => option.effect !== 'resolved');
-    if (nonContinuing.length > 0) {
-      throw new TaskRunnerError(
-        'ARTIFACT_INVALID',
-        `决策项 ${item.id} 的 AI 方案只能表示“本期继续”；等待外部条件由 task review 第一层处理。请将 ${nonContinuing.map((option) => option.id).join('、')} 改为可在本期执行的方案，或拆成独立决策项。`,
-      );
-    }
     const recommended = item.options.find((option) => option.id === item.recommendation.optionId);
-    if (recommended?.effect !== 'resolved') {
+    if (recommended === undefined) {
       throw new TaskRunnerError('ARTIFACT_INVALID', `决策项 ${item.id} 的 AI 推荐必须指向一个“本期继续”方案。`);
     }
   }

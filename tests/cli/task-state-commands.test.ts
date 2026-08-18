@@ -326,10 +326,10 @@ describe('TaskStateCommands', () => {
           return [{
             item: {
               id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
-              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
+              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
               options: [
-                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。', effect: 'waiting_external' },
-                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。', effect: 'resolved' },
+                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。' },
+                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。' },
               ],
               recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情与趋势接口。' },
             },
@@ -361,8 +361,8 @@ describe('TaskStateCommands', () => {
           return [{
             item: {
               id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
-              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
-              options: [{ id: 'wait-api', title: '等待正式 API', tradeoffs: '依赖后端排期。', effect: 'waiting_external' }, { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '不能完成端到端验收。', effect: 'resolved' }],
+              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
+              options: [{ id: 'wait-api', title: '等待正式 API', tradeoffs: '依赖后端排期。' }, { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '不能完成端到端验收。' }],
               recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情接口。' },
             },
           }];
@@ -436,10 +436,10 @@ describe('TaskStateCommands', () => {
                 background: '当前仓库没有可覆盖趋势、导出与日期粒度的统一接口。',
                 impact: '不先确认会导致页面交互和最终验收使用不同的数据口径。',
               },
-              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
+              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
               options: [
-                { id: 'use-existing-api', title: '复用现有聚合接口', tradeoffs: '可以立即实施，但需要限制为现有字段能力。', effect: 'resolved' },
-                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。', effect: 'resolved' },
+                { id: 'use-existing-api', title: '复用现有聚合接口', tradeoffs: '可以立即实施，但需要限制为现有字段能力。' },
+                { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。' },
               ],
               recommendation: { optionId: 'use-existing-api', rationale: '当前仓库已有可复用聚合接口，适合先完成本期交互。' },
             },
@@ -492,12 +492,12 @@ describe('TaskStateCommands', () => {
                 background: '需求只说明新增 Custom metrics，未说明字段白名单、默认顺序和持久化规则。',
                 impact: '不确认会使列表展示和导出字段采用不同规则，造成返工和验收争议。',
               },
-              affects: { acceptanceRefs: ['AC-01'], workUnits: ['list-custom-metrics'] }, status: 'proposed',
+              affects: { acceptanceRefs: ['AC-01'], workUnits: ['list-custom-metrics'] },
               options: [
-                { id: 'confirm-product', title: '由产品确认规则', tradeoffs: '规则准确，但需要等待产品补充说明。', effect: 'waiting_external' },
-                { id: 'use-existing', title: '沿用现有列表列', tradeoffs: '可以立即开发，但可能与本期规则不一致。', effect: 'waived' },
+                { id: 'product-rule', title: '采用产品给定指标规则', tradeoffs: '规则准确，但必须由人工在本次确认中补充具体规则。' },
+                { id: 'use-existing', title: '沿用现有列表列', tradeoffs: '可以立即开发，但可能与本期规则不一致。' },
               ],
-              recommendation: { optionId: 'confirm-product', rationale: '当前需求没有足以锁定配置规则的证据。' },
+              recommendation: { optionId: 'product-rule', rationale: '当前需求没有足以锁定配置规则的证据。' },
             },
           }];
         },
@@ -526,7 +526,7 @@ describe('TaskStateCommands', () => {
     expect(selections).toEqual([{ decisionId: 'DEC-METRIC-01', optionId: 'manual', status: 'waiting_external', owner: '待指定', unblockCondition: '已确认：Custom metrics 的配置规则', manualNote: '人工选择等待外部条件。' }]);
   });
 
-  it('uses the generic wait outcome instead of exposing deferred choices', async () => {
+  it('uses the generic wait outcome instead of exposing scope changes as options', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'awaiting_approval';
     let selections: unknown;
@@ -539,12 +539,12 @@ describe('TaskStateCommands', () => {
           return [{
             item: {
               id: 'DEC-API-01', title: '详情趋势数据来源', type: 'external-contract',
-              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
+              affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
               options: [
-                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。', effect: 'waiting_external' },
-                { id: 'defer-scope', title: '拆至后续版本', tradeoffs: '当前范围缩小，需要后续跟踪。', effect: 'deferred' },
+                { id: 'formal-api', title: '采用正式 API', tradeoffs: '数据口径可联调验收，但需要补齐字段契约。' },
+                { id: 'mock-ui', title: '采用 Mock 验证界面', tradeoffs: '可以先验证界面，但不能证明正式接口已通过。' },
               ],
-              recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情与趋势接口。' },
+              recommendation: { optionId: 'formal-api', rationale: '当前仓库没有可信详情与趋势接口。' },
             },
           }];
         },
@@ -726,16 +726,13 @@ items:
     affects:
       acceptanceRefs: [AC-01]
       workUnits: [performance-overview]
-    status: proposed
     options:
       - id: wait-api
         title: 等待正式 API
         tradeoffs: 交付依赖后端排期，但数据口径一致。
-        effect: waiting_external
       - id: mock-ui
         title: 使用 Mock 验证界面
         tradeoffs: 可以提前验证界面，但不能完成端到端验收。
-        effect: resolved
     recommendation:
       optionId: wait-api
       rationale: 当前仓库没有可信详情与趋势接口。
