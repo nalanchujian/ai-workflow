@@ -25,4 +25,15 @@ describe('CLI error guidance', () => {
     expect(output).toContain('2. 将已有业务改动提交、暂存到其他工作区，或明确处理后再继续。');
     expect(output).toContain('3. aiw task run refund-123 verify');
   });
+
+  it('guides users to refresh a tampered source snapshot before retrying', () => {
+    const output = renderCliError(
+      new Error('来源「requirements」的快照内容哈希与 task.yaml 不一致；请通过 aiw task source refresh refund-123 requirements 重新固化需求来源后再运行。'),
+      ['task', 'run', 'refund-123', 'solution'],
+    );
+
+    expect(output).toContain('不要手动编辑 .aiw/tasks/ 下的 snapshot.md 或 meta.json。');
+    expect(output).toContain('执行错误信息中给出的 task source refresh 命令，重新读取并固化需求来源。');
+    expect(output).toContain('3. aiw task run refund-123 solution');
+  });
 });

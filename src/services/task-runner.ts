@@ -19,6 +19,7 @@ import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
 import { ImplementationWorkPlannerError, validateWorkBreakdown } from './implementation-work-planner.js';
 import { SkillRegistry } from './skill-registry.js';
+import { SourceSnapshotIntegrity, SourceSnapshotIntegrityError } from './source-snapshot-integrity.js';
 import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
 import { invalidateNodeAndDependents, transitionNode } from './task-state-machine.js';
@@ -26,7 +27,7 @@ import { TaskStore } from './task-store.js';
 import { loadRunCompletionBundle } from './run-completion-bundle.js';
 
 export class TaskRunnerError extends Error {
-  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'ARTIFACT_STALE' | 'WORKTREE_DIRTY' | 'RUN_RECOVERED', message: string) {
+  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'SOURCE_INTEGRITY_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'ARTIFACT_STALE' | 'WORKTREE_DIRTY' | 'RUN_RECOVERED', message: string) {
     super(message);
     this.name = 'TaskRunnerError';
   }
@@ -81,6 +82,7 @@ export class TaskRunner {
       }
     }
 
+    await this.assertSourceIntegrity(task);
     await this.assertUpstreamIntegrity(task, input.nodeId);
     const skill = await this.loadLockedSkill(node.skill);
     if (!skill.phases.includes(node.phase)) {
@@ -225,6 +227,19 @@ export class TaskRunner {
     const changed = await this.deps.changeInspector.changedPaths({ projectRoot: this.deps.taskStore.projectDirectory() });
     if (changed.length > 0) {
       throw new TaskRunnerError('WORKTREE_DIRTY', `业务仓库存在未提交变更，无法建立可信基线：${changed.join(', ')}`);
+    }
+  }
+
+  private async assertSourceIntegrity(task: Task): Promise<void> {
+    try {
+      await new SourceSnapshotIntegrity(this.deps.taskStore).assert(task);
+    } catch (error) {
+      const message = error instanceof SourceSnapshotIntegrityError ? error.message : '需求来源完整性校验失败';
+      const sourceId = error instanceof SourceSnapshotIntegrityError ? error.sourceId ?? '<source-id>' : '<source-id>';
+      throw new TaskRunnerError(
+        'SOURCE_INTEGRITY_INVALID',
+        `${message}；请通过 aiw task source refresh ${task.id} ${sourceId} 重新固化需求来源后再运行。`,
+      );
     }
   }
 

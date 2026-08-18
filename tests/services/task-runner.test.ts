@@ -196,6 +196,38 @@ describe('TaskRunner', () => {
     expect(fixture.processCalls).toHaveLength(0);
   });
 
+  it('stops before Codex when a committed source snapshot no longer matches its task hash', async () => {
+    const fixture = await createRunnerFixture({});
+    const task = await fixture.taskStore.load('refund-123');
+    const original = '# 原始需求\n';
+    const contentSha256 = createHash('sha256').update(original, 'utf8').digest('hex');
+    task.sources.requirements = {
+      kind: 'connected-document',
+      origin: 'https://example.test/requirements',
+      revision: 1,
+      snapshotPath: 'sources/requirements/r1/snapshot.md',
+      metaPath: 'sources/requirements/r1/meta.json',
+      contentSha256,
+    };
+    await fixture.taskStore.update(task);
+    const sourceDirectory = join(fixture.taskStore.taskDirectory(task.id), 'sources', 'requirements', 'r1');
+    await mkdir(sourceDirectory, { recursive: true });
+    await writeFile(join(sourceDirectory, 'snapshot.md'), '# 被手动改写的需求\n', 'utf8');
+    await writeFile(join(sourceDirectory, 'meta.json'), JSON.stringify({
+      sourceId: 'requirements',
+      kind: 'connected-document',
+      origin: 'https://example.test/requirements',
+      revision: 1,
+      fetchedAt: '2026-08-18T00:00:00.000Z',
+      contentSha256,
+      extractor: 'test/fixture',
+    }) + '\n', 'utf8');
+
+    await expect(fixture.runner.run({ taskId: task.id, nodeId: 'clarify', dryRun: false, includes: [] }))
+      .rejects.toMatchObject({ code: 'SOURCE_INTEGRITY_INVALID', message: expect.stringContaining('task source refresh') });
+    expect(fixture.processCalls).toHaveLength(0);
+  });
+
   it('allows business code changes outside a predeclared path and records them as evidence', async () => {
     const fixture = await createRunnerFixture({
       changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', 'src/unapproved.ts']],

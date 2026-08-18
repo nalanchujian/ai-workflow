@@ -175,7 +175,7 @@ aiw task source refresh refund-123 requirements
 | `<task-id>` | 必填。目标任务。 |
 | `<source-id>` | 必填。任务中的来源标识。 |
 
-若正文哈希不变，命令返回“未变化”，不创建新 revision，也不改变任务状态。若正文变化，命令在 `sources/<source-id>/r<revision>/` 创建新快照和元数据，保留旧 revision，更新 `intake` 的当前输出，并从 `clarify` 重新排队受影响流程。旧 `decisions/**` 与 `approvals/**` 文件继续保留审计，但不再被 `task.yaml` 视为当前决策或当前审批；新的 `clarify` 必须重新确认。调用者必须提交新 revision 与状态变化，才能运行新的 `clarify`。
+若正文哈希不变，命令返回“未变化”，不创建新 revision，也不改变任务状态。若正文变化，命令在 `sources/<source-id>/r<revision>/` 创建新快照和元数据，保留旧 revision，更新 `intake` 的当前输出，并从 `clarify` 重新排队受影响流程。旧 `decisions/**` 与 `approvals/**` 文件继续保留审计，但不再被 `task.yaml` 视为当前决策或当前审批；新的 `clarify` 必须重新确认。每个非 `intake` 节点运行前都会核验 `task.yaml`、`meta.json` 与快照正文的内容哈希和来源身份；发现手动改写或不一致时，也必须使用此命令重新固化来源。调用者必须提交新 revision 与状态变化，才能运行新的 `clarify`。
 
 来源不存在、公共 URL 不符合安全规则、匹配连接器不可用或无权限、正文为空或超限时，命令失败且不改变已有快照或任务状态。
 

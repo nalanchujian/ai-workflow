@@ -23,6 +23,13 @@ function guidanceFor(message: string, args: string[]): string[] {
       retry,
     ];
   }
+  if (message.includes('重新固化需求来源后再运行。')) {
+    return [
+      '不要手动编辑 .aiw/tasks/ 下的 snapshot.md 或 meta.json。',
+      '执行错误信息中给出的 task source refresh 命令，重新读取并固化需求来源。',
+      retry,
+    ];
+  }
   if (message.includes('上下文超过预算')) {
     return ['精简上游交接包，或将实施计划拆为更小的工作单元后重试当前节点。'];
   }
