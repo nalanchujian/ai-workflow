@@ -6,9 +6,10 @@ import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
 import { type Task, type TaskNode } from '../domain/task.js';
+import { ApprovalFactSchema } from '../domain/approval.js';
 import { outputPathsForCompletedRun } from '../domain/handoff.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
-import { transitionNode } from '../services/task-state-machine.js';
+import { invalidateNodeAndDependents, transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
 import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
@@ -19,16 +20,6 @@ import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
 import { type ProgressReporter } from './progress-reporter.js';
 import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js';
-
-const ApprovalFactSchema = z.object({
-  nodeId: z.string().min(1),
-  nodeRevision: z.number().int().positive(),
-  artifactHashes: z.record(z.string(), z.string().regex(/^sha256:[a-f0-9]{64}$/)),
-  decision: z.literal('approved'),
-  actor: z.string().min(1),
-  at: z.string().datetime(),
-  note: z.string().optional(),
-});
 
 type ClarifyDecisionSelection = {
   decisionId: string;
@@ -124,7 +115,7 @@ export class TaskStateCommands {
     if (selectedIds.size !== selections.length || outstanding.length !== selections.length || outstanding.some(({ item }) => !selectedIds.has(item.id))) {
       throw new Error('需求澄清确认必须逐项处理所有待决策事项');
     }
-    const completionBundle = await loadRunCompletionBundle(task, this.deps.taskStore, 'clarify');
+    const completionBundle = await this.completionBundleOrInvalidate(task, 'clarify');
     await this.deps.taskFactGuard.assertCommitted({
       task,
       projectRoot: this.deps.taskStore.projectDirectory(),
@@ -174,7 +165,7 @@ export class TaskStateCommands {
       throw new Error('只能审批等待审批的节点');
     }
     const note = options.note?.trim();
-    const completionBundle = await loadRunCompletionBundle(task, this.deps.taskStore, nodeId);
+    const completionBundle = await this.completionBundleOrInvalidate(task, nodeId);
     if (!internal.skipCommittedCheck) {
       await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: ['task.yaml', ...completionBundle.paths] });
     }
@@ -230,6 +221,16 @@ export class TaskStateCommands {
       projectRoot: this.deps.taskStore.projectDirectory(),
       paths: ['task.yaml', 'artifacts/decision-register.yaml'],
     });
+  }
+
+  private async completionBundleOrInvalidate(task: Task, nodeId: string) {
+    try {
+      return await loadRunCompletionBundle(task, this.deps.taskStore, nodeId);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : '节点 ' + nodeId + ' 的运行完成包无法验证';
+      await this.deps.taskStore.update(invalidateNodeAndDependents(task, nodeId, '完成产物完整性校验失败：' + reason));
+      throw error;
+    }
   }
 
 }
@@ -349,13 +350,17 @@ function renderTaskOutput(
         ...(uncommittedTaskPaths === undefined || uncommittedTaskPaths.length > 0 ? [`git add .aiw && git commit -m "chore(aiw): record ${cancelled[0]} cancellation"`] : []),
         `重新执行「${cancelled[1].title}」：aiw task run ${task.id} ${cancelled[0]}`,
       ]),
-      ...(invalidated === undefined ? [] : sourceRefreshNextSteps(task)),
+      ...(invalidated === undefined ? [] : invalidatedNextSteps(task)),
     ],
   };
 }
 
-function sourceRefreshNextSteps(task: Task): string[] {
-  return Object.keys(task.sources).map((sourceId) => `需求来源变更后：aiw task source refresh ${task.id} ${sourceId}`);
+function invalidatedNextSteps(task: Task): string[] {
+  const candidates = Object.entries(task.nodes)
+    .filter(([, node]) => node.status === 'invalidated')
+    .filter(([, node]) => node.dependsOn.every((dependency) => task.nodes[dependency]?.status !== 'invalidated'));
+  const [nodeId, node] = candidates[0] ?? Object.entries(task.nodes).find(([, item]) => item.status === 'invalidated')!;
+  return [`重新执行已失效节点「${node.title}」：aiw task run ${task.id} ${nodeId}`];
 }
 
 function nodeSections(task: Task): Array<NonNullable<HumanOutput['sections']>[number]> {

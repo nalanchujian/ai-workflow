@@ -74,7 +74,7 @@
 - `intake` 不允许通过 `task run` 启动；`clarify`、`solution`、`plan`、`implement`、`verify`、`test` 只允许使用适配其阶段的技能。
 - 单次上下文预算默认 12,000 tokens；估算超限必须失败并列出超限文件，不得静默截断。
 - `--include <relative-path>` 允许显式增加项目内文件，必须写入 manifest；任务目录外和项目根目录外的路径必须拒绝。
-- 下游节点运行前，Runner 必须拒绝未提交的上游产物、审批文件或状态变化；`aiw` 不自动执行 Git 提交、推送或 PR 操作。
+- 下游节点运行前，Runner 必须拒绝未提交的上游产物、审批文件或状态变化，并逐项核对当前产物、成功运行记录和审批事实的 SHA-256；任一不一致必须使对应节点及下游失效，不得使用被改写的产物。`aiw` 不自动执行 Git 提交、推送或 PR 操作。
 - dry-run 输出符合 `aiw.run-result/v1` 的 `RunResult`，状态为 `succeeded`；上下文文件和最终 Prompt 预算见共享 `context-manifest.json`，将调用的 Codex 参数仅保留在本机 `request.json`。
 
 ### FR-6：Codex Adapter 执行接口

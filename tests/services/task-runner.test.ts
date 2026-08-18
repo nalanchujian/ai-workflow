@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { CodexAdapter } from '../../src/adapters/codex-adapter.js';
@@ -7,7 +8,7 @@ import { ContextBuilder } from '../../src/services/context-builder.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { TaskRunner, handoffEvidencePaths } from '../../src/services/task-runner.js';
 import { TaskStore } from '../../src/services/task-store.js';
-import { handoffPath, validateHandoff } from '../../src/domain/handoff.js';
+import { handoffPath, outputPathsForCompletedRun, validateHandoff } from '../../src/domain/handoff.js';
 import { ExecutableNotFoundError } from '../../src/ports/process-runner.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
@@ -133,6 +134,44 @@ describe('TaskRunner', () => {
     await expect(fixture.runner.run({ taskId: 'refund-123', nodeId: 'solution', dryRun: false, includes: [] }))
       .rejects.toMatchObject({ code: 'NODE_NOT_RUNNABLE' });
     expect(fixture.processCalls).toHaveLength(0);
+  });
+
+  it('invalidates an upstream stage before a downstream run when its approved artifact was changed', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+    });
+    await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    const completed = await fixture.taskStore.load('refund-123');
+    const clarify = completed.nodes.clarify!;
+    const artifactHashes = Object.fromEntries(await Promise.all(
+      outputPathsForCompletedRun('clarify', clarify).map(async (path) => [
+        path,
+        'sha256:' + createHash('sha256').update(await readFile(join(fixture.taskStore.taskDirectory(completed.id), path))).digest('hex'),
+      ]),
+    ));
+    completed.nodes.clarify!.status = 'completed';
+    completed.nodes.solution!.status = 'ready';
+    completed.approvalRefs = ['approvals/clarify/r1.yaml'];
+    await fixture.taskStore.createFact(completed.id, 'approvals/clarify/r1.yaml', JSON.stringify({
+      nodeId: 'clarify',
+      nodeRevision: 1,
+      artifactHashes,
+      decision: 'approved',
+      actor: 'tech-lead',
+      at: '2026-08-18T00:00:00.000Z',
+    }) + '\n');
+    await fixture.taskStore.update(completed);
+    await writeFile(join(fixture.taskStore.taskDirectory(completed.id), 'artifacts', 'brief.md'), validBrief('审批后被改写的需求结论。'), 'utf8');
+
+    await expect(fixture.runner.run({ taskId: completed.id, nodeId: 'solution', dryRun: false, includes: [] }))
+      .rejects.toMatchObject({ code: 'ARTIFACT_STALE', message: expect.stringContaining('已标记失效') });
+
+    const invalidated = await fixture.taskStore.load(completed.id);
+    expect(invalidated.nodes.clarify?.status).toBe('invalidated');
+    expect(invalidated.nodes.solution?.status).toBe('invalidated');
+    expect(fixture.processCalls).toHaveLength(1);
   });
 
   it('blocks execution when the business working tree already has uncommitted changes', async () => {

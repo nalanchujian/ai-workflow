@@ -27,10 +27,10 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       }
       break;
     case 'start':
-      if (node.phase !== 'intake' && ['completed', 'awaiting_approval', 'cancelled'].includes(node.status)) {
+      if (node.phase !== 'intake' && ['completed', 'awaiting_approval', 'cancelled', 'invalidated'].includes(node.status)) {
         resetForOverwrite(next, nodeId);
       } else {
-        assertStatus(node, ['ready', 'failed'], '只能启动已就绪、可重试、已完成或待审批节点');
+        assertStatus(node, ['ready', 'failed'], '只能启动已就绪、可重试、已完成、待审批或已失效节点');
       }
       node.status = 'running';
       addEvent(next, 'start', nodeId, { runId: event.runId });
@@ -93,6 +93,29 @@ export function invalidateDependents(task: Task, upstreamNodeId: string, reason:
     }
   }
 
+  return TaskSchema.parse(deriveTaskStatus(next));
+}
+
+/**
+ * A completed artifact is no longer trustworthy when its current bytes differ
+ * from the successful run or its approval record.  Keep the old facts for
+ * audit, but make the affected stage and every downstream stage unusable until
+ * the upstream stage is run again.
+ */
+export function invalidateNodeAndDependents(task: Task, nodeId: string, reason: string): Task {
+  const next = TaskSchema.parse(task);
+  getNode(next, nodeId);
+  const affected = [nodeId, ...downstreamNodeIds(next, nodeId)];
+
+  for (const id of affected) {
+    const node = next.nodes[id];
+    if (node === undefined || node.status === 'superseded' || node.status === 'invalidated') continue;
+    node.status = 'invalidated';
+    addEvent(next, 'invalidate', id, { reason });
+  }
+
+  next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
+  if (affected.includes('test')) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 

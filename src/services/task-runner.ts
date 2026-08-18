@@ -21,7 +21,7 @@ import { ImplementationWorkPlannerError, validateWorkBreakdown } from './impleme
 import { SkillRegistry } from './skill-registry.js';
 import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
-import { overwriteCleanupPaths, transitionNode } from './task-state-machine.js';
+import { invalidateNodeAndDependents, overwriteCleanupPaths, transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 import { loadRunCompletionBundle } from './run-completion-bundle.js';
 
@@ -70,11 +70,12 @@ export class TaskRunner {
       await this.deps.taskStore.update(recovered);
       throw new TaskRunnerError('RUN_RECOVERED', '上次运行未正常结束，节点已自动标记失败；提交失败证据后可直接再次执行 task run 重试');
     }
-    const canOverwrite = node !== undefined && node.phase !== 'intake' && ['completed', 'awaiting_approval', 'cancelled'].includes(node.status);
+    const canOverwrite = node !== undefined && node.phase !== 'intake' && ['completed', 'awaiting_approval', 'cancelled', 'invalidated'].includes(node.status);
     if (node === undefined || node.phase === 'intake' || (!['ready', 'failed'].includes(node.status) && !canOverwrite) || node.skill === undefined) {
-      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪、可重试、已完成或待审批节点');
+      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '只能运行已就绪、可重试、已完成、待审批或已失效节点');
     }
 
+    await this.assertUpstreamIntegrity(task, input.nodeId);
     const skill = await this.loadLockedSkill(node.skill);
     if (!skill.phases.includes(node.phase)) {
       throw new TaskRunnerError('SKILL_LOCK_INVALID', '已锁定技能与当前节点阶段不兼容');
@@ -221,6 +222,23 @@ export class TaskRunner {
     const changed = await this.deps.changeInspector.changedPaths({ projectRoot: this.deps.taskStore.projectDirectory() });
     if (changed.length > 0) {
       throw new TaskRunnerError('WORKTREE_DIRTY', `业务仓库存在未提交变更，无法建立可信基线：${changed.join(', ')}`);
+    }
+  }
+
+  private async assertUpstreamIntegrity(task: Task, nodeId: string): Promise<void> {
+    const completedDependencies = dependencyClosure(task, nodeId)
+      .filter((dependency) => task.nodes[dependency]?.phase !== 'intake' && task.nodes[dependency]?.status === 'completed');
+    for (const dependency of completedDependencies) {
+      try {
+        await loadRunCompletionBundle(task, this.deps.taskStore, dependency);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : '上游运行完成包无法验证';
+        await this.deps.taskStore.update(invalidateNodeAndDependents(task, dependency, '完成产物完整性校验失败：' + reason));
+        throw new TaskRunnerError(
+          'ARTIFACT_STALE',
+          '上游节点 ' + dependency + ' 的当前产物与完成运行或审批记录不一致，已标记失效：' + reason,
+        );
+      }
     }
   }
 

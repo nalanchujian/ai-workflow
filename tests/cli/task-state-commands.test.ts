@@ -7,6 +7,7 @@ import { createTaskStateCommand, TaskStateCommands } from '../../src/cli/task-st
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { TaskDecisionService } from '../../src/services/task-decision-service.js';
+import { loadRunCompletionBundle } from '../../src/services/run-completion-bundle.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 import { handoffPath, outputPathsForCompletedRun } from '../../src/domain/handoff.js';
@@ -73,9 +74,49 @@ describe('TaskStateCommands', () => {
       .rejects.toThrow('需求澄清请使用 aiw task review refund-123');
   });
 
+  it('invalidates an approval stage when an artifact changed after its successful run', async () => {
+    const { store, directory } = await createApprovalTask('plan');
+    await writeFile(join(directory, 'artifacts', 'implementation-plan.md'), '# 被人工改写的实施计划\n', 'utf8');
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    await expect(commands.approve('refund-123', 'plan', { note: '批准实施计划' }))
+      .rejects.toThrow('完成产物哈希不一致');
+
+    const invalidated = await store.load('refund-123');
+    expect(invalidated.nodes.plan?.status).toBe('invalidated');
+    expect(invalidated.nodes.implement?.status).toBe('invalidated');
+    expect(invalidated.approvalRefs).not.toContain('approvals/plan/r1.yaml');
+  });
+
+  it('rejects a downstream completion bundle when its approval hashes do not match the completed run', async () => {
+    const { store } = await createApprovalTask('plan');
+    const task = await store.load('refund-123');
+    const plan = task.nodes.plan!;
+    plan.status = 'completed';
+    task.approvalRefs = ['approvals/plan/r1.yaml'];
+    await store.createFact(task.id, 'approvals/plan/r1.yaml', [
+      'nodeId: plan',
+      'nodeRevision: 1',
+      'artifactHashes:',
+      ...outputPathsForCompletedRun('plan', plan).map((path) => `  ${path}: sha256:${'f'.repeat(64)}`),
+      'decision: approved',
+      'actor: tech-lead',
+      'at: 2026-08-18T00:00:00.000Z',
+      '',
+    ].join('\n'));
+    await store.update(task);
+
+    await expect(loadRunCompletionBundle(await store.load(task.id), store, 'plan'))
+      .rejects.toThrow('审批记录与完成运行不一致');
+  });
+
   it('records every clarify decision and approval in one review', async () => {
     const { store, directory } = await createApprovalTask('clarify');
     await writeDecisionRegister(directory);
+    await refreshCompletionHashes(store, 'clarify');
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
@@ -96,6 +137,7 @@ describe('TaskStateCommands', () => {
   it('records a human-written clarify conclusion outside the proposed options', async () => {
     const { store, directory } = await createApprovalTask('clarify');
     await writeDecisionRegister(directory);
+    await refreshCompletionHashes(store, 'clarify');
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
@@ -176,6 +218,7 @@ describe('TaskStateCommands', () => {
       '    disposition: implement',
       '    workUnitIds: [export]',
     ].join('\n') + '\n', 'utf8');
+    await refreshCompletionHashes(store, 'plan');
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
@@ -215,6 +258,7 @@ describe('TaskStateCommands', () => {
       '    disposition: implement',
       '    workUnitIds: [page]',
     ].join('\n') + '\n', 'utf8');
+    await refreshCompletionHashes(store, 'plan');
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
@@ -561,6 +605,17 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
     }
   }
   return { store, directory: taskDirectory };
+}
+
+async function refreshCompletionHashes(store: TaskStore, nodeId: string): Promise<void> {
+  const task = await store.load('refund-123');
+  const event = [...task.events].reverse().find((item) => item.type === 'succeed' && item.nodeId === nodeId);
+  if (event?.outputs === undefined) throw new Error('测试夹具缺少完成事件');
+  event.outputs = await Promise.all(event.outputs.map(async ({ path }) => ({
+    path,
+    sha256: createHash('sha256').update(await readFile(join(store.taskDirectory(task.id), path))).digest('hex'),
+  })));
+  await store.update(task);
 }
 
 async function writeDecisionRegister(directory: string): Promise<void> {
