@@ -45,6 +45,7 @@ describe('TaskDecisionService', () => {
     waiting.nodes.plan!.status = 'completed';
     waiting.nodes.implement!.status = 'blocked';
     waiting.nodes.implement!.blockedByDecisionIds = ['DEC-API-01'];
+    waiting.nodes.implement!.decisionRefs = ['DEC-API-01'];
     waiting.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml'];
     await store.update(waiting);
 
@@ -90,6 +91,7 @@ describe('TaskDecisionService', () => {
       ...waiting.nodes.implement,
       status: 'blocked',
       blockedByDecisionIds: ['DEC-API-01'],
+      decisionRefs: ['DEC-API-01'],
     };
     await store.update(waiting);
 
@@ -117,6 +119,33 @@ async function fixture(): Promise<{ store: TaskStore; service: TaskDecisionServi
   await store.create(task);
   const registerPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/decision-register.yaml');
   await mkdir(join(store.taskDirectory(task.id), registerPath, '..'), { recursive: true });
-  await writeFile(join(store.taskDirectory(task.id), registerPath), `schemaVersion: aiw.decision-register/v1\nitems:\n  - id: DEC-API-01\n    title: 详情趋势数据来源\n    detail:\n      question: 详情趋势与导出本期使用哪一套服务端接口？\n      background: 当前需求与仓库未提供趋势、导出和日期聚合的统一契约。\n      impact: 不确认会使页面、导出与验收采用不同的数据口径。\n    type: external-contract\n    affects:\n      acceptanceRefs: [AC-07]\n      workUnits: [performance-overview]\n    status: proposed\n    options:\n      - id: wait-api\n        title: 等待正式 API\n        tradeoffs: 交付依赖后端排期，但数据口径一致。\n        effect: waiting_external\n      - id: defer-scope\n        title: 拆至后续版本\n        tradeoffs: 当前范围缩小，需要后续跟踪。\n        effect: deferred\n    recommendation:\n      optionId: wait-api\n      rationale: 当前仓库没有可信详情与趋势接口。\n`, 'utf8');
+  await writeFile(join(store.taskDirectory(task.id), registerPath), [
+    'schemaVersion: aiw.decision-register/v1',
+    'items:',
+    '  - id: DEC-API-01',
+    '    title: 详情趋势数据来源',
+    '    detail:',
+    '      question: 详情趋势与导出本期使用哪一套服务端接口？',
+    '      background: 当前需求与仓库未提供趋势、导出和日期聚合的统一契约。',
+    '      impact: 不确认会使页面、导出与验收采用不同的数据口径。',
+    '    type: external-contract',
+    '    factRefs: [FACT-API-01]',
+    '    affects:',
+    '      acceptanceRefs: [AC-07]',
+    '      workUnits: [performance-overview]',
+    '    status: proposed',
+    '    options:',
+    '      - id: wait-api',
+    '        title: 等待正式 API',
+    '        tradeoffs: 交付依赖后端排期，但数据口径一致。',
+    '        effect: waiting_external',
+    '      - id: defer-scope',
+    '        title: 拆至后续版本',
+    '        tradeoffs: 当前范围缩小，需要后续跟踪。',
+    '        effect: deferred',
+    '    recommendation:',
+    '      optionId: wait-api',
+    '      rationale: 当前仓库没有可信详情与趋势接口。',
+  ].join('\n') + '\n', 'utf8');
   return { store, service: new TaskDecisionService({ taskStore: store }) };
 }

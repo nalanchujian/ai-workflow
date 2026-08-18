@@ -11,6 +11,7 @@ describe('DecisionRegisterSchema', () => {
         title: '详情趋势数据来源',
         detail: decisionDetail(),
         type: 'external-contract',
+        factRefs: ['FACT-API-01'],
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
         status: 'resolved',
         options: [
@@ -33,6 +34,7 @@ describe('DecisionRegisterSchema', () => {
         title: '详情趋势数据来源',
         detail: decisionDetail(),
         type: 'external-contract',
+        factRefs: ['FACT-API-01'],
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
         status: 'waiting_external',
         options: [
@@ -51,7 +53,7 @@ describe('DecisionRegisterSchema', () => {
     expect(() => DecisionRegisterSchema.parse({
       schemaVersion: 'aiw.decision-register/v1',
       items: [{
-        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract',
+        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract', factRefs: ['FACT-API-01'],
         affects: { acceptanceRefs: ['AC-07', 'AC-08'], workUnits: ['performance-overview'] }, status: 'proposed',
         options: [{ id: 'mock-ui', title: '使用 Mock', tradeoffs: '可以先验证界面，但不能完成接口验收。', effect: 'resolved' }],
         recommendation: { optionId: 'mock-ui', rationale: '当前没有可信详情接口。' },
@@ -67,6 +69,7 @@ describe('DecisionRegisterSchema', () => {
         title: '详情趋势数据来源',
         detail: decisionDetail(),
         type: 'external-contract',
+        factRefs: ['FACT-API-01'],
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
         status: 'resolved',
         options: [
@@ -83,7 +86,7 @@ describe('DecisionRegisterSchema', () => {
     expect(() => DecisionRegisterSchema.parse({
       schemaVersion: 'aiw.decision-register/v1',
       items: [{
-        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract',
+        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract', factRefs: ['FACT-API-01'],
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
         options: [{ id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期。', effect: 'waiting_external' }],
         recommendation: { optionId: 'wait-api', rationale: '现有接口不能满足验收。' },
@@ -95,7 +98,7 @@ describe('DecisionRegisterSchema', () => {
     expect(() => DecisionRegisterSchema.parse({
       schemaVersion: 'aiw.decision-register/v1',
       items: [{
-        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract',
+        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract', factRefs: ['FACT-API-01'],
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
         options: [
           { id: 'formal-api', title: '使用正式接口', tradeoffs: '可完成联调，但需要确认字段粒度。', effect: 'resolved' },
@@ -111,7 +114,7 @@ describe('DecisionRegisterSchema', () => {
     expect(() => DecisionRegisterSchema.parse({
       schemaVersion: 'aiw.decision-register/v1',
       items: [{
-        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract',
+        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract', factRefs: ['FACT-API-01'],
         affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
         options: [
           { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但口径一致。' },

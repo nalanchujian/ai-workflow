@@ -362,6 +362,7 @@ items:
       background: 当前仓库没有可确认的接口字段与错误码约定。
       impact: 不确认会导致页面行为和验收标准无法对齐。
     type: external-contract
+    factRefs: [FACT-REFUND-01]
     affects:
       acceptanceRefs: [AC-01]
       workUnits: [implement]
@@ -474,7 +475,8 @@ openRisks: []
     await writeFile(join(staleArtifacts, 'brief.md'), validBrief('这是上一次运行遗留的产物。'), 'utf8');
     await writeFile(join(staleArtifacts, 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n后续可以按验收清单继续推进。\n', 'utf8');
     await writeFile(join(staleArtifacts, 'acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
-    await writeFile(join(staleArtifacts, 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
+    await writeFile(join(staleArtifacts, 'fact-register.yaml'), 'schemaVersion: aiw.fact-register/v1\nitems:\n  - id: FACT-REFUND-01\n    kind: confirmed\n    statement: 用户能够提交退款申请并查看退款处理结果。\n    confidence: high\n    evidence:\n      - sourceId: requirements\n        path: sources/requirements/r1/snapshot.md\n', 'utf8');
+    await writeFile(join(staleArtifacts, 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n', 'utf8');
     await writeFile(join(staleArtifacts, 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
     await writeHandoff(fixture.taskStore, 'refund-123');
 
@@ -503,7 +505,27 @@ async function createRunnerFixture(options: {
   const taskStore = new TaskStore(projectRoot);
   const task = createSevenPhaseTask();
   task.repository = projectRoot;
+  const snapshot = '# 退款需求\n\n用户可以提交退款申请并查看处理结果。\n';
+  const contentSha256 = createHash('sha256').update(snapshot).digest('hex');
+  task.sources.requirements = {
+    kind: 'local-file',
+    origin: 'requirements.md',
+    revision: 1,
+    snapshotPath: 'sources/requirements/r1/snapshot.md',
+    metaPath: 'sources/requirements/r1/meta.json',
+    contentSha256,
+  };
   await taskStore.create(task);
+  await taskStore.createFact(task.id, 'sources/requirements/r1/snapshot.md', snapshot);
+  await taskStore.createFact(task.id, 'sources/requirements/r1/meta.json', JSON.stringify({
+    sourceId: 'requirements',
+    kind: 'local-file',
+    origin: 'requirements.md',
+    revision: 1,
+    fetchedAt: '2026-08-18T00:00:00.000Z',
+    contentSha256,
+    extractor: 'fixture',
+  }) + '\n');
   await writeFile(join(taskStore.taskDirectory(task.id), 'task.md'), '# 退款需求\n', 'utf8');
 
   const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
@@ -543,8 +565,9 @@ async function createRunnerFixture(options: {
           await mkdir(join(artifact('brief.md'), '..'), { recursive: true });
           await writeFile(artifact('brief.md'), options.writeArtifact === 'done\n' ? options.writeArtifact : validBrief(options.writeArtifact), 'utf8');
           await writeFile(artifact('questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n可按照验收清单继续完成技术方案。\n', 'utf8');
+          await writeFile(artifact('fact-register.yaml'), 'schemaVersion: aiw.fact-register/v1\nitems:\n  - id: FACT-REFUND-01\n    kind: confirmed\n    statement: 用户能够提交退款申请并查看退款处理结果。\n    confidence: high\n    evidence:\n      - sourceId: requirements\n        path: sources/requirements/r1/snapshot.md\n', 'utf8');
           await writeFile(artifact('acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
-          await writeFile(artifact('acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
+          await writeFile(artifact('acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n', 'utf8');
           await writeFile(artifact('decision-register.yaml'), options.decisionRegister ?? 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
           await writeHandoff(taskStore, task.id, options.writeHandoff);
         }

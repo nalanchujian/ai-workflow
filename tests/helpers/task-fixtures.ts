@@ -45,11 +45,11 @@ export function createSevenPhaseTask(): Task {
     sources: {},
     nodes: {
       intake: node('接入资料', 'intake', [], 'completed', false, ['sources/requirements/r1/snapshot.md']),
-      clarify: node('澄清需求', 'clarify', ['intake'], 'ready', true, ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml'], createSkillLock('requirements-clarification')),
+      clarify: node('澄清需求', 'clarify', ['intake'], 'ready', true, ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/fact-register.yaml', 'artifacts/acceptance.md', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml'], createSkillLock('requirements-clarification')),
       solution: node('形成技术方案', 'solution', ['clarify'], 'pending', false, ['artifacts/solution.md'], createSkillLock('technical-solution')),
       plan: node('制定实施计划', 'plan', ['solution'], 'pending', true, ['artifacts/implementation-plan.md', 'artifacts/work-breakdown.yaml'], createSkillLock('implementation-planning')),
       // This is an internal anchor.  Approved plans replace it with delivery-<unit> nodes.
-      implement: node('交付业务单元', 'implement', ['plan'], 'pending', true, ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'], createSkillLock('typescript-web-implementation')),
+      implement: node('交付业务单元', 'implement', ['plan'], 'pending', true, ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'], createSkillLock('typescript-web-implementation')),
     },
     approvalRefs: [],
     decisions: [],
@@ -75,6 +75,8 @@ function node(
     outputs,
     requiresApproval,
     acceptanceRefs: [],
+    decisionRefs: [],
+    verificationCommands: phase === 'implement' ? ['pnpm test'] : [],
     ...(skill ? { skill } : {}),
   };
 }

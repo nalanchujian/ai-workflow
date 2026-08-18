@@ -7,6 +7,8 @@ import { ApprovalFactSchema } from '../domain/approval.js';
 import type { Task } from '../domain/task.js';
 import { outputPathsForCompletedRun } from '../domain/handoff.js';
 import { TaskStore } from './task-store.js';
+import { TestResultsSchema } from '../domain/test-results.js';
+import { testEvidencePaths } from '../domain/test-report.js';
 
 export class RunCompletionBundleError extends Error {
   constructor(message: string) {
@@ -38,6 +40,7 @@ export async function loadRunCompletionBundle(task: Task, taskStore: TaskStore, 
   if (event.evidencePath !== expectedEvidencePath || !samePaths(outputPaths, expectedCurrentPaths)) {
     throw new RunCompletionBundleError(`节点 ${nodeId} 的完成运行包与当前产物声明不一致`);
   }
+  const deliveryTestEvidence = await readDeliveryTestEvidencePaths(task, taskStore, nodeId, outputPaths);
   const paths = [
     ...outputPaths,
     `runs/${event.runId}/context-manifest.json`,
@@ -47,6 +50,7 @@ export async function loadRunCompletionBundle(task: Task, taskStore: TaskStore, 
     `runs/${event.runId}/change.patch`,
     expectedEvidencePath,
     `runs/${event.runId}/result.json`,
+    ...deliveryTestEvidence,
   ];
   const missing = await missingPaths(taskStore, task.id, paths);
   if (missing.length > 0) {
@@ -64,6 +68,29 @@ export async function loadRunCompletionBundle(task: Task, taskStore: TaskStore, 
     await assertApprovalMatchesCompletion(taskStore, task, nodeId, node.revision, event.outputs);
   }
   return { runId: event.runId, paths };
+}
+
+async function readDeliveryTestEvidencePaths(task: Task, taskStore: TaskStore, nodeId: string, outputPaths: string[]): Promise<string[]> {
+  const testResultsPath = outputPaths.find((path) => path.endsWith('/test-results.yaml'));
+  if (testResultsPath === undefined) return [];
+  try {
+    const results = TestResultsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), testResultsPath), 'utf8')));
+    const event = [...task.events].reverse().find((candidate) => candidate.type === 'succeed' && candidate.nodeId === nodeId);
+    if (event?.runId !== results.runId) {
+      throw new RunCompletionBundleError(`节点 ${nodeId} 的测试记录不属于当前成功运行`);
+    }
+    for (const item of results.items) {
+      const evidence = await readFile(join(taskStore.taskDirectory(task.id), item.evidencePath));
+      const actual = createHash('sha256').update(evidence).digest('hex');
+      if (actual !== item.evidenceSha256) {
+        throw new RunCompletionBundleError(`节点 ${nodeId} 的测试执行证据哈希不一致：${item.evidencePath}`);
+      }
+    }
+    return testEvidencePaths(results);
+  } catch (error) {
+    if (error instanceof RunCompletionBundleError) throw error;
+    throw new RunCompletionBundleError(`节点 ${nodeId} 缺少有效的 AIW 测试执行记录`);
+  }
 }
 
 async function artifactHashes(

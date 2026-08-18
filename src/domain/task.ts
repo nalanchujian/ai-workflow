@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { ImpactGraphReferenceSchema } from './impact-graph.js';
+
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const taskIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
@@ -114,7 +116,10 @@ export const TaskNodeSchema = z.object({
   outputs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
   contextPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
   generatedFromPlanRevision: z.number().int().positive().optional(),
+  workUnitId: z.string().regex(/^[a-z][a-z0-9-]{0,40}$/, '工作单元 ID 格式无效').optional(),
+  verificationCommands: z.array(z.string().min(1)).default([]),
   acceptanceRefs: z.array(z.string().regex(/^AC-\d{2,}$/, '验收项 ID 格式无效')).default([]),
+  decisionRefs: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   blockedByDecisionIds: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).optional(),
 });
 
@@ -128,6 +133,7 @@ export const TaskEventSchema = z.object({
     'cancel',
     'invalidate',
     'materialize_implementation',
+    'materialize_impact_graph',
     'migrate_handoff',
     'supersede',
     'choose_decision',
@@ -155,6 +161,7 @@ const TaskBaseSchema = z.object({
   deliveryStatus: DeliveryStatusSchema,
   skillProfile: WorkflowProfileLockSchema,
   sources: z.record(z.string().min(1), SourceReferenceSchema),
+  impactGraph: ImpactGraphReferenceSchema.optional(),
   nodes: z.record(z.string().min(1), TaskNodeSchema),
   approvalRefs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
   decisions: z.array(DecisionResolutionSchema),
@@ -175,6 +182,15 @@ export const TaskSchema = TaskBaseSchema.superRefine((task, context) => {
 
     if (node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.acceptanceRefs.length === 0) {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'acceptanceRefs'], message: '交付单元必须声明至少一个验收项' });
+    }
+    if (node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.workUnitId === undefined) {
+      context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'workUnitId'], message: '交付单元必须声明工作单元 ID' });
+    }
+    if (node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.verificationCommands.length === 0) {
+      context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'verificationCommands'], message: '交付单元必须声明至少一条由 AIW 执行的验证命令' });
+    }
+    if (node.blockedByDecisionIds?.some((id) => !node.decisionRefs.includes(id))) {
+      context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'decisionRefs'], message: 'blockedByDecisionIds 中的决策必须同时出现在 decisionRefs' });
     }
 
     for (const dependency of node.dependsOn) {

@@ -16,7 +16,10 @@ import { TaskCancellationService } from '../services/task-cancellation-service.j
 import { materializeImplementationWork, readWorkBreakdown, validatePlanAcceptanceCoverage } from '../services/implementation-work-planner.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
+import { TestResultsSchema } from '../domain/test-results.js';
+import { validateAcceptanceTestEvidence } from '../domain/test-report.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
+import { readClarificationImpactArtifacts, materializeImpactGraph, validatePlanImpact } from '../services/task-impact-service.js';
 import { type HumanOutput, writeCommandResult } from './output.js';
 import { type ProgressReporter } from './progress-reporter.js';
 import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js';
@@ -128,6 +131,7 @@ export class TaskStateCommands {
       throw new Error('需求澄清确认必须逐项处理所有待决策事项');
     }
     const completionBundle = await this.completionBundleOrInvalidate(task, 'clarify');
+    await readClarificationImpactArtifacts(task, this.deps.taskStore);
     await this.deps.taskFactGuard.assertCommitted({
       task,
       projectRoot: this.deps.taskStore.projectDirectory(),
@@ -191,6 +195,7 @@ export class TaskStateCommands {
     }
     if (nodeId === 'plan' && decision === 'approved') {
       await validatePlanAcceptanceCoverage(task, this.deps.taskStore);
+      await validatePlanImpact(task, this.deps.taskStore);
     }
     const artifactHashes = await outputHashes(task, this.deps.taskStore, nodeId);
     const approvalPath = `approvals/${nodeId}/r${node.revision}.yaml`;
@@ -214,6 +219,15 @@ export class TaskStateCommands {
       const materialized = await materializeImplementationWork(next, this.deps.taskStore);
       next = materialized.task;
       generatedFacts.push(...materialized.facts);
+      const graph = await materializeImpactGraph(next, this.deps.taskStore);
+      next.impactGraph = {
+        path: graph.path,
+        sha256: graph.sha256,
+        clarifyRevision: next.nodes.clarify!.revision,
+        planRevision: next.nodes.plan!.revision,
+      };
+      next.events.push({ type: 'materialize_impact_graph', at: new Date().toISOString(), note: `计划 r${next.nodes.plan!.revision} 已生成来源—事实—决策—验收—交付单元影响图` });
+      generatedFacts.push({ path: graph.path, content: graph.content });
     }
     if (deliveryUnit) {
       next.deliveryStatus = await readDeliveryStatus(next, this.deps.taskStore);
@@ -618,15 +632,27 @@ async function readDeliveryUnitResults(task: Task, taskStore: TaskStore, nodeId:
   try {
     const path = completedArtifactPath(nodeId, node, 'artifacts/acceptance-results.yaml');
     const results = AcceptanceResultsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), path), 'utf8')));
+    const testResultsPath = completedArtifactPath(nodeId, node, 'artifacts/test-results.yaml');
+    const deliveryPath = completedArtifactPath(nodeId, node, 'artifacts/delivery.md');
+    const tests = TestResultsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), testResultsPath), 'utf8')));
+    const report = await readFile(join(taskStore.taskDirectory(task.id), deliveryPath), 'utf8');
     const actual = new Set(results.items.map((item) => item.id));
     const missing = node.acceptanceRefs.filter((id) => !actual.has(id));
     const unknown = [...actual].filter((id) => !node.acceptanceRefs.includes(id));
     if (missing.length > 0 || unknown.length > 0) {
       throw new Error(`验收项不一致：${[...(missing.length === 0 ? [] : [`缺少 ${missing.join('、')}`]), ...(unknown.length === 0 ? [] : [`包含非本单元验收项 ${unknown.join('、')}`])].join('；')}`);
     }
+    validateAcceptanceTestEvidence({ report, acceptance: results, tests });
+    for (const test of tests.items) {
+      const evidence = await readFile(join(taskStore.taskDirectory(task.id), test.evidencePath));
+      const actualHash = createHash('sha256').update(evidence).digest('hex');
+      if (actualHash !== test.evidenceSha256) {
+        throw new Error(`测试记录 ${test.id} 的 AIW 执行证据哈希不一致：${test.evidencePath}`);
+      }
+    }
     return results;
   } catch (error) {
-    throw new Error(`交付单元 ${nodeId} 缺少有效的 artifacts/acceptance-results.yaml：${error instanceof Error ? error.message : '无法读取'}`);
+    throw new Error(`交付单元 ${nodeId} 缺少有效的验收与测试证据：${error instanceof Error ? error.message : '无法读取'}`);
   }
 }
 

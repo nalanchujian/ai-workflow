@@ -120,12 +120,14 @@ describe('CodexAdapter', () => {
       processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
     });
     const request = runRequest({ projectRoot, runDirectory });
-    request.artifacts.push('artifacts/acceptance.yaml', 'artifacts/decision-register.yaml');
+    request.artifacts.push('artifacts/fact-register.yaml', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml');
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('artifacts/decision-register.yaml');
+    expect(context).toContain('正式事实引用规则优先于上文示例');
+    expect(context).toContain('验收项允许字段为 `id`、`title`、`description`、`factRefs`');
     expect(context).toContain('每个方案都必须使用 `effect: resolved`');
     expect(context).toContain('一至两个本期继续的 AI 方案');
     expect(context).toContain('第一层自动记录为外部等待');
@@ -141,14 +143,15 @@ describe('CodexAdapter', () => {
       processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
     });
     const request = runRequest({ projectRoot, runDirectory });
-    request.task = { ...request.task, nodeId: 'delivery-list', phase: 'implement' };
-    request.artifacts = ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'];
+    request.task = { ...request.task, nodeId: 'delivery-list', phase: 'implement', testPlan: [{ id: 'TEST-LIST-01', command: 'pnpm test -- list' }] };
+    request.artifacts = ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'];
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('artifacts/acceptance-results.yaml');
-    expect(context).toContain('没有真实测试证据不得写 `passed`');
+    expect(context).toContain('artifacts/test-results.yaml');
+    expect(context).toContain('AIW 会在 Codex 结束后**自行执行**');
     expect(context).toContain('本次运行中完成代码实现、工程验证和验收测试');
   });
 
@@ -205,7 +208,7 @@ function runRequest(input: { projectRoot: string; runDirectory: string }): RunRe
   return {
     schemaVersion: 'aiw.run/v2',
     runId: 'run-1',
-    task: { id: 'refund-123', nodeId: 'clarify', phase: 'clarify', nodeRevision: 0, projectRoot: input.projectRoot },
+    task: { id: 'refund-123', nodeId: 'clarify', phase: 'clarify', nodeRevision: 0, projectRoot: input.projectRoot, testPlan: [] },
     instruction: '澄清退款需求。',
     contextManifestPath: '.aiw/tasks/refund-123/runs/run-1/context-manifest.json',
     runDirectory: input.runDirectory,

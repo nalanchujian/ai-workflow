@@ -228,13 +228,13 @@ function isUnfinished(task: Task): boolean {
 
 function createNodes(skills: Record<(typeof executableStages)[number], InstalledSkill>): Record<string, TaskNode> {
   const stageDefinitions: Array<{ id: (typeof executableStages)[number]; title: string; outputs: string[]; requiresApproval: boolean }> = [
-    { id: 'clarify', title: '澄清需求', outputs: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml'], requiresApproval: true },
+    { id: 'clarify', title: '澄清需求', outputs: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/fact-register.yaml', 'artifacts/acceptance.md', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml'], requiresApproval: true },
     { id: 'solution', title: '形成技术方案', outputs: ['artifacts/solution.md'], requiresApproval: false },
     { id: 'plan', title: '制定实施计划', outputs: ['artifacts/implementation-plan.md', 'artifacts/work-breakdown.yaml'], requiresApproval: true },
-    { id: 'implement', title: '交付业务单元', outputs: ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'], requiresApproval: true },
+    { id: 'implement', title: '交付业务单元', outputs: ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'], requiresApproval: true },
   ];
   const nodes: Record<string, TaskNode> = {
-    intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', revision: 1, outputs: ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'], acceptanceRefs: [] },
+    intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', revision: 1, outputs: ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'], verificationCommands: [], acceptanceRefs: [], decisionRefs: [] },
   };
   let dependency = 'intake';
   for (const definition of stageDefinitions) {
@@ -247,7 +247,9 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
       status: definition.id === 'clarify' ? 'ready' : 'pending',
       revision: 0,
       outputs: definition.outputs,
+      verificationCommands: [],
       acceptanceRefs: [],
+      decisionRefs: [],
     };
     dependency = definition.id;
   }

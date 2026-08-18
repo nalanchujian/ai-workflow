@@ -128,11 +128,24 @@ export class ContextBuilder {
     }));
     if (phase === 'solution' || phase === 'plan') {
       const clarify = task.nodes.clarify;
-      const decisionRegister = clarify === undefined || clarify.revision === 0
-        ? undefined
-        : await this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/decision-register.yaml'));
-      if (decisionRegister !== undefined) files.push(decisionRegister);
+      if (clarify !== undefined && clarify.revision > 0) {
+        const [factRegister, acceptanceCatalog, decisionRegister] = await Promise.all([
+          this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/fact-register.yaml')),
+          this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml')),
+          this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/decision-register.yaml')),
+        ]);
+        files.push(...[factRegister, acceptanceCatalog, decisionRegister].filter((file): file is ContextFileWithContent => file !== undefined));
+      }
       files.push(...await Promise.all(registeredDecisionFactPaths(task).map((path) => this.requiredTaskFact(taskDirectory, path))));
+    }
+    if (phase === 'implement') {
+      const decisionRefs = task.nodes[nodeId]?.decisionRefs ?? [];
+      const byId = new Map(task.decisions.map((decision) => [decision.id, decision]));
+      files.push(...await Promise.all(decisionRefs
+        .map((id) => byId.get(id))
+        .filter((decision): decision is NonNullable<typeof decision> => decision !== undefined)
+        .flatMap((decision) => [decision.factPath, ...(decision.inputFactPath === undefined ? [] : [decision.inputFactPath])])
+        .map((path) => this.requiredTaskFact(taskDirectory, path))));
     }
     return files;
   }

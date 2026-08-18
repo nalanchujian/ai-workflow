@@ -135,6 +135,11 @@ export class TaskDecisionService {
     });
     const requiresReplan = previous?.status === 'waiting_external' && resolution.status === 'resolved' && resolution.resolutionImpact === 'replan';
     const next = requiresReplan
+      // A replan introduces a new business input. Although the impact graph can
+      // identify the candidate units, today's solution and plan are shared,
+      // revisioned artifacts; letting a unit run against their old revision
+      // would make the graph look precise while using a stale design. Only the
+      // execution-only path may unlock a unit directly.
       ? invalidateNodeAndDependents(task, 'solution', `决策 ${proposal.id} 已补充影响方案的新事实；必须重新生成技术方案和实施计划`)
       : resolution.status === 'resolved' || resolution.status === 'waived' || resolution.status === 'deferred'
         ? reconcileDecisionBlocks(task, proposal.id)

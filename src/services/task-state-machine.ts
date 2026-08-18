@@ -103,9 +103,16 @@ export function invalidateDependents(task: Task, upstreamNodeId: string, reason:
  * the upstream stage is run again.
  */
 export function invalidateNodeAndDependents(task: Task, nodeId: string, reason: string): Task {
+  return invalidateNodesAndDependents(task, [nodeId], reason);
+}
+
+/** Invalidates only selected roots and their true DAG dependents. */
+export function invalidateNodesAndDependents(task: Task, nodeIds: string[], reason: string): Task {
   const next = TaskSchema.parse(task);
-  getNode(next, nodeId);
-  const affected = [nodeId, ...downstreamNodeIds(next, nodeId)];
+  const affected = [...new Set(nodeIds.flatMap((nodeId) => {
+    getNode(next, nodeId);
+    return [nodeId, ...downstreamNodeIds(next, nodeId)];
+  }))];
 
   for (const id of affected) {
     const node = next.nodes[id];
@@ -115,6 +122,12 @@ export function invalidateNodeAndDependents(task: Task, nodeId: string, reason: 
   }
 
   next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
+  // The graph is a projection of the currently approved clarification and
+  // plan. Once either upstream artifact is invalidated, it must not remain a
+  // seemingly valid pointer in task.yaml while a replan is pending.
+  if (affected.some((id) => ['clarify', 'solution', 'plan'].includes(id))) {
+    next.impactGraph = undefined;
+  }
   if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
 }
@@ -135,6 +148,7 @@ export function restartDependentsForSourceChange(task: Task, upstreamNodeId: str
   // Files remain immutable audit history, but no prior decision or approval may be
   // treated as current after its upstream source snapshot changes.
   next.decisions = [];
+  next.impactGraph = undefined;
   next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((nodeId) => path.startsWith(`approvals/${nodeId}/`)));
   if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
@@ -228,6 +242,7 @@ function resetForOverwrite(task: Task, nodeId: string): void {
   }
 
   if (affectedSet.has('clarify')) task.decisions = [];
+  if (affectedSet.has('clarify') || affectedSet.has('plan')) task.impactGraph = undefined;
   if (affectsDelivery(task, affected)) task.deliveryStatus = 'not_assessed';
   task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
 }

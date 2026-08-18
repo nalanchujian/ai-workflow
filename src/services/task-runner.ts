@@ -7,10 +7,12 @@ import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.
 import type { ContextManifest } from '../domain/context.js';
 import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
 import { declaredOutputPath, handoffPath, nextArtifactPath, outputPathsForCompletedRun, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
-import { hasTestExecutionEvidence } from '../domain/test-report.js';
+import { hasTestExecutionEvidence, validateAcceptanceTestEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
+import { TestResultsSchema } from '../domain/test-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
+import { FactRegisterSchema } from '../domain/fact-register.js';
 import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { validateMarkdownArtifactContract } from '../domain/artifact-contracts.js';
 import { parse } from 'yaml';
@@ -25,6 +27,8 @@ import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
 import { invalidateNodeAndDependents, transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 import { loadRunCompletionBundle } from './run-completion-bundle.js';
+import { TaskImpactError, readCurrentImpactGraph, validateClarificationImpactArtifacts } from './task-impact-service.js';
+import { DeliveryTestExecutor, deliveryTestPlan } from './delivery-test-executor.js';
 
 export class TaskRunnerError extends Error {
   constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'SOURCE_INTEGRITY_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'ARTIFACT_STALE' | 'WORKTREE_DIRTY' | 'RUN_RECOVERED', message: string) {
@@ -44,6 +48,7 @@ export class TaskRunner {
     taskFactGuard: TaskFactGuard;
     changeInspector: WorkingTreeStatus;
     adapter: CodexAdapter;
+    deliveryTestExecutor?: DeliveryTestExecutor;
     runtimeRoot: string;
     runIdFactory?: () => string;
     runLock?: TaskRunLock;
@@ -84,6 +89,7 @@ export class TaskRunner {
 
     await this.assertSourceIntegrity(task);
     await this.assertUpstreamIntegrity(task, input.nodeId);
+    await this.assertDeliveryUnitImpact(task, input.nodeId);
     const skill = await this.loadLockedSkill(node.skill);
     if (!skill.phases.includes(node.phase)) {
       throw new TaskRunnerError('SKILL_LOCK_INVALID', '已锁定技能与当前节点阶段不兼容');
@@ -113,7 +119,14 @@ export class TaskRunner {
     const request: RunRequest = {
       schemaVersion: 'aiw.run/v2',
       runId,
-      task: { id: task.id, nodeId: input.nodeId, phase: node.phase, nodeRevision: node.revision, projectRoot: this.deps.taskStore.projectDirectory() },
+      task: {
+        id: task.id,
+        nodeId: input.nodeId,
+        phase: node.phase,
+        nodeRevision: node.revision,
+        projectRoot: this.deps.taskStore.projectDirectory(),
+        testPlan: isDeliveryUnit(node) ? deliveryTestPlan(node) : [],
+      },
       instruction: node.title,
       contextManifestPath: join(this.deps.taskStore.taskDirectory(task.id), contextManifestFactPath),
       runDirectory,
@@ -196,6 +209,19 @@ export class TaskRunner {
     }
     let evidence: ChangeEvidence | undefined;
     try {
+      if (isDeliveryUnit(task.nodes[nodeId]!)) {
+        if (this.deps.deliveryTestExecutor === undefined) {
+          throw new TaskRunnerError('ARTIFACT_INVALID', '当前环境未配置 AIW 测试执行器，无法生成可验证的交付验收证据');
+        }
+        await this.deps.deliveryTestExecutor.execute({
+          task,
+          nodeId,
+          node: task.nodes[nodeId]!,
+          runId: request.runId,
+          taskStore: this.deps.taskStore,
+          projectRoot: this.deps.taskStore.projectDirectory(),
+        });
+      }
       evidence = await this.recordChangeEvidence(task, request, scope, result, baseline);
       if (evidence.git.historyChanged) {
         const message = '检测到 Codex 修改了 Git 提交或分支，当前运行已停止';
@@ -257,6 +283,33 @@ export class TaskRunner {
           '上游节点 ' + dependency + ' 的当前产物与完成运行或审批记录不一致，已标记失效：' + reason,
         );
       }
+    }
+  }
+
+  /** A generated delivery node is executable only when the approved plan's
+   * immutable graph still identifies the exact unit, AC set and decisions it
+   * is about to deliver. */
+  private async assertDeliveryUnitImpact(task: Task, nodeId: string): Promise<void> {
+    const node = task.nodes[nodeId];
+    if (node?.phase !== 'implement' || node.generatedFromPlanRevision === undefined || node.workUnitId === undefined) return;
+    try {
+      const graph = await readCurrentImpactGraph(task, this.deps.taskStore);
+      const unit = graph?.units.find((item) => item.id === node.workUnitId);
+      if (unit === undefined || unit.deliveryNodeId !== nodeId) {
+        throw new Error(`交付单元 ${node.workUnitId} 未在当前影响图中登记`);
+      }
+      if (unit.acceptanceRefs.length !== node.acceptanceRefs.length || unit.acceptanceRefs.some((id) => !node.acceptanceRefs.includes(id))) {
+        throw new Error(`交付单元 ${node.workUnitId} 的验收项与当前影响图不一致`);
+      }
+      if (unit.decisionIds.length !== node.decisionRefs.length || unit.decisionIds.some((id) => !node.decisionRefs.includes(id))) {
+        throw new Error(`交付单元 ${node.workUnitId} 的决策引用与当前影响图不一致`);
+      }
+      if (unit.verificationCommands.length !== node.verificationCommands.length || unit.verificationCommands.some((command) => !node.verificationCommands.includes(command))) {
+        throw new Error(`交付单元 ${node.workUnitId} 的测试命令与当前影响图不一致`);
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : '无法校验影响图';
+      throw new TaskRunnerError('ARTIFACT_INVALID', `交付单元影响图无效：${reason}；请重新运行并批准 plan 以生成当前业务单元图。`);
     }
   }
 
@@ -475,6 +528,23 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       }));
     }
   }
+  if (declaredPath === 'artifacts/fact-register.yaml') {
+    try {
+      FactRegisterSchema.parse(parse(content));
+      return;
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', formatSchemaDiagnostics({
+        title: '事实登记',
+        error,
+        aliases: {
+          status: '不能使用 status；请改为 kind。',
+          source: '不能使用 source；请改为 evidence。',
+          confidenceLevel: '不能使用 confidenceLevel；请改为 confidence。',
+        },
+        itemLabel: '事实项',
+      }));
+    }
+  }
   if (declaredPath === 'artifacts/acceptance.yaml') {
     try {
       AcceptanceCatalogSchema.parse(parse(content));
@@ -509,6 +579,23 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       }));
     }
   }
+  if (declaredPath === 'artifacts/test-results.yaml') {
+    try {
+      TestResultsSchema.parse(parse(content));
+      return;
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', formatSchemaDiagnostics({
+        title: '测试执行结果',
+        error,
+        aliases: {
+          testId: '不能使用 testId；请改为 id。',
+          result: '不能使用 result；请改为 status。',
+          exit_code: '不能使用 exit_code；请改为 exitCode。',
+        },
+        itemLabel: '测试记录',
+      }));
+    }
+  }
   if (content.trim().length < 24) {
     throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物内容不足：${path}`);
   }
@@ -528,20 +615,25 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
   if (node.phase === 'clarify') {
     const catalogContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance.yaml'));
     const registerContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/decision-register.yaml'));
-    if (catalogContent === undefined || registerContent === undefined) return;
+    const factsContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/fact-register.yaml'));
+    if (catalogContent === undefined || registerContent === undefined || factsContent === undefined) return;
     const catalog = AcceptanceCatalogSchema.parse(parse(catalogContent));
     const register = DecisionRegisterSchema.parse(parse(registerContent));
+    const facts = FactRegisterSchema.parse(parse(factsContent));
     validateClarifyDecisionChoices(register);
-    const acceptanceIds = new Set(catalog.items.map((item) => item.id));
-    const unknown = register.items.flatMap((item) => item.affects.acceptanceRefs.filter((id) => !acceptanceIds.has(id)).map((id) => `${item.id} → ${id}`));
-    if (unknown.length > 0) {
-      throw new TaskRunnerError('ARTIFACT_INVALID', `决策登记引用了验收清单中不存在的验收项：${unknown.join('、')}。请先在 artifacts/acceptance.yaml 声明该 AC，或修正 affects.acceptanceRefs。`);
+    try {
+      validateClarificationImpactArtifacts({ task, facts, decisions: register, acceptance: catalog });
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof TaskImpactError ? error.message : '事实与影响关系无效');
     }
   }
   if (isDeliveryUnit(node)) {
     const resultContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance-results.yaml'));
-    if (resultContent === undefined) return;
+    const testContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/test-results.yaml'));
+    const deliveryContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/delivery.md'));
+    if (resultContent === undefined || testContent === undefined || deliveryContent === undefined) return;
     const results = AcceptanceResultsSchema.parse(parse(resultContent));
+    const tests = TestResultsSchema.parse(parse(testContent));
     const expected = new Set(node.acceptanceRefs);
     const actual = new Set(results.items.map((item) => item.id));
     const missing = [...expected].filter((id) => !actual.has(id));
@@ -552,6 +644,27 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
         ...(unknown.length === 0 ? [] : [`不存在的验收项：${unknown.join('、')}`]),
       ];
       throw new TaskRunnerError('ARTIFACT_INVALID', `交付单元验收结果必须与其所属验收项逐项一一对应：${parts.join('；')}。`);
+    }
+    try {
+      validateAcceptanceTestEvidence({ report: deliveryContent, acceptance: results, tests });
+      await assertTestEvidenceIntegrity(task, taskStore, tests);
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : '验收项未绑定有效测试结果');
+    }
+  }
+}
+
+async function assertTestEvidenceIntegrity(task: Task, taskStore: TaskStore, tests: import('../domain/test-results.js').TestResults): Promise<void> {
+  for (const test of tests.items) {
+    let content: Buffer;
+    try {
+      content = await readFile(join(taskStore.taskDirectory(task.id), test.evidencePath));
+    } catch {
+      throw new Error(`测试记录 ${test.id} 缺少 AIW 执行证据：${test.evidencePath}`);
+    }
+    const actual = createHash('sha256').update(content).digest('hex');
+    if (actual !== test.evidenceSha256) {
+      throw new Error(`测试记录 ${test.id} 的执行证据哈希不一致：${test.evidencePath}`);
     }
   }
 }

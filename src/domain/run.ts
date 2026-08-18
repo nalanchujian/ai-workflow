@@ -21,6 +21,10 @@ export const RunRequestSchema = z.object({
     phase: z.enum(['clarify', 'solution', 'plan', 'implement']),
     nodeRevision: z.number().int().nonnegative(),
     projectRoot: z.string().min(1),
+    testPlan: z.array(z.object({
+      id: z.string().regex(/^TEST-[A-Z0-9-]+$/),
+      command: z.string().min(1),
+    }).strict()).default([]),
   }),
   instruction: z.string().min(1),
   contextManifestPath: z.string().min(1),

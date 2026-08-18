@@ -7,8 +7,8 @@ describe('AcceptanceResultsSchema', () => {
     const results = AcceptanceResultsSchema.parse({
       schemaVersion: 'aiw.acceptance-results/v1',
       items: [
-        { id: 'AC-01', status: 'passed', evidence: ['artifacts/test-report.md'] },
-        { id: 'AC-02', status: 'deferred', evidence: ['decisions/DEC-API-01/r1.yaml'] },
+        { id: 'AC-01', status: 'passed', evidence: ['artifacts/test-report.md'], testResultRefs: ['TEST-REFUND-01'] },
+        { id: 'AC-02', status: 'deferred', evidence: ['decisions/DEC-API-01/r1.yaml'], testResultRefs: [] },
       ],
     });
 
@@ -19,11 +19,18 @@ describe('AcceptanceResultsSchema', () => {
     const results = AcceptanceResultsSchema.parse({
       schemaVersion: 'aiw.acceptance-results/v1',
       items: [
-        { id: 'AC-01', status: 'passed', evidence: ['artifacts/test-report.md'] },
-        { id: 'AC-02', status: 'blocked', evidence: ['artifacts/test-report.md'] },
+        { id: 'AC-01', status: 'passed', evidence: ['artifacts/test-report.md'], testResultRefs: ['TEST-REFUND-01'] },
+        { id: 'AC-02', status: 'blocked', evidence: ['artifacts/test-report.md'], testResultRefs: [] },
       ],
     });
 
     expect(deliveryStatusFromAcceptanceResults(results)).toBe('not_ready');
+  });
+
+  it('rejects a passed acceptance item without a real test record reference', () => {
+    expect(() => AcceptanceResultsSchema.parse({
+      schemaVersion: 'aiw.acceptance-results/v1',
+      items: [{ id: 'AC-01', status: 'passed', evidence: ['artifacts/delivery.md'], testResultRefs: [] }],
+    })).toThrow('通过的验收项必须引用至少一条实际通过的测试记录');
   });
 });

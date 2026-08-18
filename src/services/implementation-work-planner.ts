@@ -6,6 +6,8 @@ import { parse } from 'yaml';
 import { z } from 'zod';
 
 import { AcceptanceCatalogSchema, type AcceptanceCatalog } from '../domain/acceptance-catalog.js';
+import { DecisionRegisterSchema } from '../domain/decision-register.js';
+import { FactRegisterSchema } from '../domain/fact-register.js';
 import { completedArtifactPath } from '../domain/handoff.js';
 import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
@@ -19,6 +21,8 @@ const WorkUnitSchema = z.object({
   title: z.string().min(1),
   goal: z.string().min(1),
   acceptanceRefs: z.array(z.string().min(1)).min(1),
+  factRefs: z.array(z.string().regex(/^FACT-[A-Z0-9-]+$/, '事实引用格式无效')).min(1),
+  decisionRefs: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   steps: z.array(z.string().min(1)).min(1),
   verification: z.array(z.string().min(1)).min(1),
   blockedBy: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
@@ -46,6 +50,15 @@ export const WorkBreakdownSchema = z.object({
       if (!ids.has(dependency) || dependency === unit.id) {
         context.addIssue({ code: 'custom', path: ['units', index, 'dependsOn'], message: '工作单元依赖必须指向其他已声明单元' });
       }
+    }
+    if (new Set(unit.factRefs).size !== unit.factRefs.length) {
+      context.addIssue({ code: 'custom', path: ['units', index, 'factRefs'], message: '工作单元引用的事实 ID 必须唯一' });
+    }
+    if (new Set(unit.decisionRefs).size !== unit.decisionRefs.length) {
+      context.addIssue({ code: 'custom', path: ['units', index, 'decisionRefs'], message: '工作单元引用的决策 ID 必须唯一' });
+    }
+    if (unit.blockedBy.some((id) => !unit.decisionRefs.includes(id))) {
+      context.addIssue({ code: 'custom', path: ['units', index, 'decisionRefs'], message: 'blockedBy 中的决策必须同时出现在 decisionRefs' });
     }
   }
   if (hasCycle(breakdown.units.map((unit) => ({ id: unit.id, dependsOn: unit.dependsOn })))) {
@@ -127,6 +140,16 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
   const breakdownPath = completedArtifactPath('plan', plan, 'artifacts/work-breakdown.yaml');
   const planHash = createHash('sha256').update(await readFile(join(taskDirectory, planPath))).digest('hex');
   const breakdownHash = createHash('sha256').update(await readFile(join(taskDirectory, breakdownPath))).digest('hex');
+  const clarify = next.nodes.clarify;
+  if (clarify === undefined || clarify.revision === 0) {
+    throw new ImplementationWorkPlannerError('需求澄清事实尚未生成，无法构建交付单元上下文');
+  }
+  const [factContent, decisionContent] = await Promise.all([
+    readFile(join(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/fact-register.yaml')), 'utf8'),
+    readFile(join(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/decision-register.yaml')), 'utf8'),
+  ]);
+  const factsById = new Map(FactRegisterSchema.parse(parse(factContent)).items.map((fact) => [fact.id, fact]));
+  const decisionsById = new Map(DecisionRegisterSchema.parse(parse(decisionContent)).items.map((decision) => [decision.id, decision]));
 
   for (const unit of breakdown.units) {
     const nodeId = nodeIds.get(unit.id)!;
@@ -145,14 +168,17 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       requiresApproval: true,
       status: deferred ? 'superseded' : blockedByDecisionIds.length > 0 ? 'blocked' : dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
       revision: 0,
-      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-results.yaml'],
+      outputs: ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
       contextPath,
       generatedFromPlanRevision: planRevision,
+      workUnitId: unit.id,
+      verificationCommands: unit.verification,
       acceptanceRefs: unit.acceptanceRefs,
+      decisionRefs: unit.decisionRefs,
       ...(blockedByDecisionIds.length === 0 || deferred ? {} : { blockedByDecisionIds }),
     };
     next.nodes[nodeId] = node;
-    facts.push({ path: contextPath, content: renderUnitContext(unit, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash) });
+    facts.push({ path: contextPath, content: renderUnitContext(unit, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash, factsById, decisionsById, next) });
     next.events.push({ type: 'materialize_implementation', nodeId, at: new Date().toISOString(), note: `计划 r${planRevision}；工作单元：${unit.id}` });
   }
   return { task: TaskSchema.parse(deriveTaskStatus(next)), facts };
@@ -323,6 +349,9 @@ function renderUnitContext(
   breakdownPath: string,
   planHash: string,
   breakdownHash: string,
+  factsById: Map<string, { kind: string; statement: string }>,
+  decisionsById: Map<string, { title: string }>,
+  task: Task,
 ): string {
   return [
     `# 交付单元上下文：${unit.title}`,
@@ -337,6 +366,23 @@ function renderUnitContext(
     '',
     '## 验收项',
     ...unit.acceptanceRefs.map((reference) => `- ${reference}`),
+    '',
+    '## 关联事实',
+    ...unit.factRefs.map((reference) => {
+      const fact = factsById.get(reference);
+      if (fact === undefined) throw new ImplementationWorkPlannerError(`工作单元 ${unit.id} 引用了不存在的事实 ${reference}`);
+      return `- ${reference}（${fact.kind}）：${fact.statement}`;
+    }),
+    '',
+    '## 关联决策',
+    ...(unit.decisionRefs.length === 0
+      ? ['- 无。']
+      : unit.decisionRefs.map((reference) => {
+        const decision = decisionsById.get(reference);
+        if (decision === undefined) throw new ImplementationWorkPlannerError(`工作单元 ${unit.id} 引用了不存在的决策 ${reference}`);
+        const resolution = task.decisions.find((item) => item.id === reference);
+        return `- ${reference}：${decision.title}（当前处理：${resolution?.status ?? '尚未处理'}）`;
+      })),
     '',
     '## 交付步骤',
     ...unit.steps.map((step, index) => `${index + 1}. ${step}`),

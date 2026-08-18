@@ -28,6 +28,7 @@ export const DecisionItemSchema = z.object({
     impact: z.string().min(12),
   }).strict(),
   type: z.enum(['business-rule', 'technical-contract', 'external-contract', 'engineering-baseline']),
+  factRefs: z.array(z.string().regex(/^FACT-[A-Z0-9-]+$/, '事实引用格式无效')).min(1),
   affects: z.object({
     acceptanceRefs: z.array(z.string().min(1)).length(1, '每个决策项只能关联一个验收项'),
     workUnits: z.array(z.string().regex(workUnitIdPattern, '工作单元 ID 格式无效')).min(1),
@@ -57,6 +58,9 @@ export const DecisionItemSchema = z.object({
   }
   if (item.status === 'waiting_external' && (item.resolution?.owner === undefined || item.resolution.unblockCondition === undefined)) {
     context.addIssue({ code: 'custom', path: ['resolution'], message: '外部等待事项必须记录责任人和解除条件' });
+  }
+  if (new Set(item.factRefs).size !== item.factRefs.length) {
+    context.addIssue({ code: 'custom', path: ['factRefs'], message: '决策引用的事实 ID 必须唯一' });
   }
 });
 

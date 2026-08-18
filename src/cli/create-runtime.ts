@@ -25,6 +25,7 @@ import { TaskInitializer } from '../services/task-initializer.js';
 import { TaskRunner } from '../services/task-runner.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
+import { DeliveryTestExecutor } from '../services/delivery-test-executor.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
 import type { GitClient } from '../ports/git-client.js';
@@ -113,6 +114,7 @@ export function createCliRuntime(input: {
     taskFactGuard,
     changeInspector: input.ports.repositoryStatus,
     adapter: codexAdapter,
+    deliveryTestExecutor: new DeliveryTestExecutor({ processRunner: input.ports.processRunner }),
     runtimeRoot: join(input.homeDirectory, 'runtime'),
   });
   return {

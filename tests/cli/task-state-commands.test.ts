@@ -166,6 +166,39 @@ describe('TaskStateCommands', () => {
     expect((await store.load('refund-123')).nodes['delivery-main']?.status).toBe('awaiting_approval');
   });
 
+  it('does not approve a passed AC when its cited test did not actually pass', async () => {
+    const { store, directory } = await createApprovalTask('delivery-main');
+    const task = await store.load('refund-123');
+    const node = task.nodes['delivery-main']!;
+    const path = completedArtifactPath('delivery-main', node, 'artifacts/test-results.yaml');
+    const evidencePath = 'runs/delivery-main-run-1/tests/TEST-REFUND-01.json';
+    const evidence = JSON.stringify({ schemaVersion: 'aiw.test-execution-evidence/v1', runId: 'delivery-main-run-1', testId: 'TEST-REFUND-01', command: 'pnpm test', status: 'failed', exitCode: 1 }, null, 2) + '\n';
+    await writeFile(join(directory, evidencePath), evidence, 'utf8');
+    await writeFile(join(directory, path), `schemaVersion: aiw.test-results/v1\nrunId: delivery-main-run-1\nitems:\n  - id: TEST-REFUND-01\n    command: pnpm test\n    status: failed\n    exitCode: 1\n    summary: 已执行退款功能测试，但存在失败用例。\n    evidencePath: ${evidencePath}\n    evidenceSha256: ${createHash('sha256').update(evidence).digest('hex')}\n`, 'utf8');
+    await refreshCompletionHashes(store, 'delivery-main');
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    await expect(commands.approve('refund-123', 'delivery-main', { note: '查看报告' }))
+      .rejects.toThrow('实际通过且退出码为 0');
+    expect((await store.load('refund-123')).nodes['delivery-main']?.status).toBe('awaiting_approval');
+  });
+
+  it('invalidates a delivery unit when its AIW test execution evidence was modified', async () => {
+    const { store, directory } = await createApprovalTask('delivery-main');
+    await writeFile(join(directory, 'runs/delivery-main-run-1/tests/TEST-REFUND-01.json'), '{"tampered":true}\n', 'utf8');
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    await expect(commands.approve('refund-123', 'delivery-main', { note: '查看报告' }))
+      .rejects.toThrow('测试执行证据哈希不一致');
+    expect((await store.load('refund-123')).nodes['delivery-main']?.status).toBe('invalidated');
+  });
+
   it('records an explicit risk acceptance before closing a blocked delivery unit', async () => {
     const { store, directory } = await createApprovalTask('delivery-main', { acceptanceStatus: 'blocked' });
     const commands = new TaskStateCommands({
@@ -204,12 +237,16 @@ describe('TaskStateCommands', () => {
       '    title: 实现页面筛选',
       '    goal: 提供可筛选的列表页面',
       '    acceptanceRefs: [AC-01]',
+      '    factRefs: [FACT-REFUND-01]',
+      '    decisionRefs: []',
       '    steps: [实现筛选状态]',
       '    verification: [pnpm test -- links]',
       '  - id: export',
       '    title: 实现导出文件名',
       '    goal: 按筛选项生成导出名称',
       '    acceptanceRefs: [AC-02]',
+      '    factRefs: [FACT-REFUND-01]',
+      '    decisionRefs: []',
       '    steps: [实现文件名生成函数]',
       '    verification: [pnpm test -- export]',
       'acceptanceCoverage:',
@@ -239,8 +276,11 @@ describe('TaskStateCommands', () => {
       contextPath: 'artifacts/work-units/r1/delivery-export.md',
       status: 'ready',
     });
+    expect(updated.impactGraph).toMatchObject({ path: 'impact-graphs/plan-r1.yaml', clarifyRevision: 1, planRevision: 1 });
     await expect(readFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-export.md'), 'utf8'))
       .resolves.toContain('实现导出文件名');
+    await expect(readFile(join(directory, 'impact-graphs', 'plan-r1.yaml'), 'utf8'))
+      .resolves.toContain('delivery-export');
   });
 
   it('rejects plan approval when an acceptance item is not covered by work or an explicit decision', async () => {
@@ -253,6 +293,8 @@ describe('TaskStateCommands', () => {
       '    title: 实现页面筛选',
       '    goal: 提供可筛选的列表页面',
       '    acceptanceRefs: [AC-01]',
+      '    factRefs: [FACT-REFUND-01]',
+      '    decisionRefs: []',
       '    steps: [实现筛选状态]',
       '    verification: [pnpm test -- links]',
       'acceptanceCoverage:',
@@ -553,6 +595,14 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
   directories.push(directory);
   const store = new TaskStore(directory);
   const task = createSevenPhaseTask();
+  task.sources.requirements = {
+    kind: 'local-file',
+    origin: 'requirements.md',
+    revision: 1,
+    snapshotPath: 'sources/requirements/r1/snapshot.md',
+    metaPath: 'sources/requirements/r1/meta.json',
+    contentSha256: 'a'.repeat(64),
+  };
   if (nodeId === 'plan') {
     task.nodes.clarify = { ...task.nodes.clarify, status: 'completed', revision: 1 };
     task.nodes.solution.status = 'completed';
@@ -566,7 +616,9 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
       status: 'awaiting_approval',
       dependsOn: ['plan'],
       generatedFromPlanRevision: 1,
+      workUnitId: 'main',
       acceptanceRefs: ['AC-01'],
+      decisionRefs: [],
     };
   }
   task.nodes[nodeId]!.status = 'awaiting_approval';
@@ -583,31 +635,59 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
       '  - id: AC-01',
       '    title: 页面筛选',
       '    description: 用户可以按筛选条件查看列表页面。',
+      '    factRefs: [FACT-REFUND-01]',
       '  - id: AC-02',
       '    title: 导出文件名',
       '    description: 用户可以按筛选条件获取符合规则的导出文件名。',
+      '    factRefs: [FACT-REFUND-01]',
     ].join('\n') + '\n', 'utf8');
+    const factPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/fact-register.yaml');
+    const decisionPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/decision-register.yaml');
+    await writeFile(join(taskDirectory, factPath), [
+      'schemaVersion: aiw.fact-register/v1',
+      'items:',
+      '  - id: FACT-REFUND-01',
+      '    kind: confirmed',
+      '    statement: 用户可以通过页面筛选列表并按当前筛选导出文件。',
+      '    confidence: high',
+      '    evidence:',
+      '      - sourceId: requirements',
+      '        path: sources/requirements/r1/snapshot.md',
+    ].join('\n') + '\n', 'utf8');
+    await writeFile(join(taskDirectory, decisionPath), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
   }
   const node = task.nodes[nodeId];
   const outputs = outputPathsForCompletedRun(nodeId, node);
+  const runId = `${nodeId}-run-1`;
+  const testEvidencePath = `runs/${runId}/tests/TEST-REFUND-01.json`;
+  const testEvidenceContent = JSON.stringify({
+    schemaVersion: 'aiw.test-execution-evidence/v1', runId, testId: 'TEST-REFUND-01', command: 'pnpm test', status: 'passed', exitCode: 0, stdout: '', stderr: '', signal: null, timedOut: false,
+  }, null, 2) + '\n';
+  const testEvidenceSha256 = createHash('sha256').update(testEvidenceContent).digest('hex');
   for (const output of outputs) {
     await mkdir(join(taskDirectory, output, '..'), { recursive: true });
     const firstArtifact = outputs.find((path) => path.startsWith('artifacts/'))!;
     const content = output === handoffPath(nodeId, node.revision)
       ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
       : nodeId === 'delivery-main' && output.endsWith('/acceptance-results.yaml')
-        ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/delivery.md\n`
+        ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/delivery.md\n    testResultRefs: ${options.acceptanceStatus === undefined || options.acceptanceStatus === 'passed' ? '[TEST-REFUND-01]' : '[]'}\n`
+      : nodeId === 'delivery-main' && output.endsWith('/test-results.yaml')
+        ? `schemaVersion: aiw.test-results/v1\nrunId: ${runId}\nitems:\n  - id: TEST-REFUND-01\n    command: pnpm test\n    status: passed\n    exitCode: 0\n    summary: 已执行退款功能测试，目标用例均通过。\n    evidencePath: ${testEvidencePath}\n    evidenceSha256: ${testEvidenceSha256}\n`
       : nodeId === 'delivery-main' && output.endsWith('/delivery.md')
-          ? '# 交付报告\n\n## 实际变更\n\n已完成。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试命令\n\n`pnpm test`\n\n## 测试结果\n\n已执行，退出码 0。\n\n## 逐项验收\n\nAC-01 通过。\n\n## 未完成事项与风险\n\n无。\n'
-          : nodeId === 'clarify' && output.endsWith('/acceptance.yaml')
-            ? 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n'
+          ? '# 交付报告\n\n## 实际变更\n\n已完成。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试命令\n\n`pnpm test`\n\n## 测试结果\n\nTEST-REFUND-01：`pnpm test`；退出码：0。\n\n## 逐项验收\n\nAC-01 通过。\n\n## 未完成事项与风险\n\n无。\n'
+      : nodeId === 'clarify' && output.endsWith('/acceptance.yaml')
+            ? 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n'
+            : nodeId === 'clarify' && output.endsWith('/fact-register.yaml')
+              ? 'schemaVersion: aiw.fact-register/v1\nitems:\n  - id: FACT-REFUND-01\n    kind: confirmed\n    statement: 用户能够提交退款申请并查看退款处理结果。\n    confidence: high\n    evidence:\n      - sourceId: requirements\n        path: sources/requirements/r1/snapshot.md\n'
             : nodeId === 'clarify' && output.endsWith('/decision-register.yaml')
               ? 'schemaVersion: aiw.decision-register/v1\nitems: []\n'
           : `# ${output}\n`;
     await writeFile(join(taskDirectory, output), content, 'utf8');
   }
   if (options.completionBundle !== false) {
-    const runId = `${nodeId}-run-1`;
+    if (nodeId === 'delivery-main') {
+      await store.createFact(task.id, testEvidencePath, testEvidenceContent);
+    }
     task.events.push({
       type: 'succeed', nodeId, at: '2026-08-14T00:00:00.000Z', runId,
       outputs: await Promise.all(outputs.map(async (path) => ({ path, sha256: createHash('sha256').update(await readFile(join(taskDirectory, path))).digest('hex') }))),
@@ -642,8 +722,9 @@ items:
       background: 当前需求与仓库未提供趋势、导出和日期聚合的统一契约。
       impact: 不确认会使页面、导出与验收采用不同的数据口径。
     type: external-contract
+    factRefs: [FACT-REFUND-01]
     affects:
-      acceptanceRefs: [AC-07]
+      acceptanceRefs: [AC-01]
       workUnits: [performance-overview]
     status: proposed
     options:

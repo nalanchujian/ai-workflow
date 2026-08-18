@@ -47,6 +47,7 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
     await runCli(['task', 'init', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@2.0.0'], fixture.runtime);
     fixture.repository.commitTaskFacts();
     fixture.process.onRun = async (input) => {
+      if (input.stdin === '') return;
       const nodeId = /node="([a-z0-9-]+)"/.exec(input.stdin)?.[1];
       if (nodeId === undefined) {
         throw new Error('未找到当前节点');
@@ -85,7 +86,7 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
 
     const status = await runCli(['task', 'status', taskId, '--json'], fixture.runtime);
     expect(JSON.parse(status.stdout).nodes['delivery-main'].status).toBe('completed');
-    expect(fixture.process.calls).toHaveLength(4);
+    expect(fixture.process.calls).toHaveLength(5); // 4 个 Codex 节点 + AIW 执行的交付测试
   });
 
 });

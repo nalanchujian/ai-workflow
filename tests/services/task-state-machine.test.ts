@@ -54,6 +54,7 @@ describe('task state machine', () => {
     task.nodes.plan.status = 'completed';
     task.nodes.implement.status = 'blocked';
     task.nodes.implement.blockedByDecisionIds = ['DEC-API-01'];
+    task.nodes.implement.decisionRefs = ['DEC-API-01'];
     task.decisions = [{
       id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api', actor: 'backend-lead',
       at: '2026-08-14T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r2.yaml',
@@ -157,7 +158,9 @@ describe('task state machine', () => {
       status: 'ready',
       dependsOn: ['plan'],
       generatedFromPlanRevision: 1,
+      workUnitId: 'export',
       acceptanceRefs: ['AC-01'],
+      decisionRefs: [],
     };
 
     const next = transitionNode(task, 'plan', { type: 'start', runId: 'replace-plan-run' });
