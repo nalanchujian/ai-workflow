@@ -231,6 +231,39 @@ describe('TaskRunner', () => {
     expect(evidence).toMatchObject({ failure: { stage: 'artifact', code: 'ARTIFACT_INVALID' } });
   });
 
+  it('rejects clarify output that presents external waiting as an AI business option', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/decision-register.yaml']],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+      decisionRegister: `schemaVersion: aiw.decision-register/v1
+items:
+  - id: DEC-API-01
+    title: 退款接口契约
+    detail:
+      question: 本期使用哪一套退款接口？
+      background: 当前仓库没有可确认的接口字段与错误码约定。
+      impact: 不确认会导致页面行为和验收标准无法对齐。
+    type: external-contract
+    affects:
+      acceptanceRefs: [AC-01]
+      workUnits: [implement]
+    status: proposed
+    options:
+      - id: wait-api
+        title: 等待正式接口
+        tradeoffs: 接口口径可靠，但需要等待后端提供契约。
+        effect: waiting_external
+    recommendation:
+      optionId: wait-api
+      rationale: 当前没有可信的接口契约。
+`,
+    });
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_INVALID', message: expect.stringContaining('只能表示“本期继续”') } });
+  });
+
   it('rejects a malformed structured handoff and preserves failure evidence', async () => {
     const fixture = await createRunnerFixture({
       changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
@@ -284,6 +317,7 @@ async function createRunnerFixture(options: {
   signal?: string | null;
   writeArtifact?: string;
   writeHandoff?: string;
+  decisionRegister?: string;
 }) {
   const projectRoot = await temporaryDirectory();
   const taskStore = new TaskStore(projectRoot);
@@ -325,7 +359,7 @@ async function createRunnerFixture(options: {
           await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n可按照验收清单继续完成技术方案。\n', 'utf8');
           await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
           await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
+          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'decision-register.yaml'), options.decisionRegister ?? 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
           await writeHandoff(taskStore, task.id, options.writeHandoff);
         }
         return { exitCode: options.exitCode ?? 0, signal: options.signal ?? null, stdout: '', stderr: '', timedOut: false };

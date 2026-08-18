@@ -122,7 +122,9 @@ describe('CodexAdapter', () => {
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('artifacts/decision-register.yaml');
-    expect(context).toContain('选项、取舍、明确的 `effect` 与 AI 推荐');
+    expect(context).toContain('每个方案都必须使用 `effect: resolved`');
+    expect(context).toContain('一至两个本期继续的 AI 方案');
+    expect(context).toContain('第一层自动记录为外部等待');
     expect(context).toContain('detail:');
     expect(context).toContain('一次人工选择只能解决一个独立业务结论');
     expect(context).toContain('aiw.decision-register/v1');

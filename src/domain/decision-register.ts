@@ -33,7 +33,9 @@ export const DecisionItemSchema = z.object({
     workUnits: z.array(z.string().regex(workUnitIdPattern, '工作单元 ID 格式无效')).min(1),
   }).strict(),
   status: z.enum(['proposed', 'resolved', 'waiting_external', 'deferred', 'waived']),
-  options: z.array(DecisionOptionSchema).min(2, '至少两个选项才能形成可选择的决策'),
+  options: z.array(DecisionOptionSchema)
+    .min(1, '至少提供一个本期继续方案')
+    .max(2, 'AI 可选方案最多两个'),
   recommendation: z.object({ optionId: z.string().min(1), rationale: z.string().min(8) }).strict(),
   resolution: ResolutionSchema.optional(),
 }).strict().superRefine((item, context) => {

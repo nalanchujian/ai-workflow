@@ -477,6 +477,7 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
     if (catalogContent === undefined || registerContent === undefined) return;
     const catalog = AcceptanceCatalogSchema.parse(parse(catalogContent));
     const register = DecisionRegisterSchema.parse(parse(registerContent));
+    validateClarifyDecisionChoices(register);
     const acceptanceIds = new Set(catalog.items.map((item) => item.id));
     const unknown = register.items.flatMap((item) => item.affects.acceptanceRefs.filter((id) => !acceptanceIds.has(id)).map((id) => `${item.id} → ${id}`));
     if (unknown.length > 0) {
@@ -499,6 +500,28 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
         ...(unknown.length === 0 ? [] : [`不存在的验收项：${unknown.join('、')}`]),
       ];
       throw new TaskRunnerError('ARTIFACT_INVALID', `验收结果必须与验收清单逐项一一对应：${parts.join('；')}。`);
+    }
+  }
+}
+
+/**
+ * `task review` has a fixed two-level interaction: first choose whether this
+ * item continues in the current scope, then choose one of the AI's business
+ * alternatives.  Keep the generated register aligned with that interaction,
+ * rather than letting an old-style "wait/defer/waive" option leak into it.
+ */
+function validateClarifyDecisionChoices(register: import('../domain/decision-register.js').DecisionRegister): void {
+  for (const item of register.items) {
+    const nonContinuing = item.options.filter((option) => option.effect !== 'resolved');
+    if (nonContinuing.length > 0) {
+      throw new TaskRunnerError(
+        'ARTIFACT_INVALID',
+        `决策项 ${item.id} 的 AI 方案只能表示“本期继续”；等待外部条件由 task review 第一层处理。请将 ${nonContinuing.map((option) => option.id).join('、')} 改为可在本期执行的方案，或拆成独立决策项。`,
+      );
+    }
+    const recommended = item.options.find((option) => option.id === item.recommendation.optionId);
+    if (recommended?.effect !== 'resolved') {
+      throw new TaskRunnerError('ARTIFACT_INVALID', `决策项 ${item.id} 的 AI 推荐必须指向一个“本期继续”方案。`);
     }
   }
 }

@@ -342,7 +342,7 @@ describe('TaskStateCommands', () => {
     task.nodes.clarify.status = 'awaiting_approval';
     let output = '';
     let selections: unknown;
-    const answers = ['4', '详情页先复用现有聚合接口，趋势和导出等待下一期。', '1'];
+    const answers = ['1', '2', '1'];
     const command = createTaskStateCommand({
       commands: {
         async status() { return task; },
@@ -357,10 +357,10 @@ describe('TaskStateCommands', () => {
               },
               affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
               options: [
-                { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期，但数据口径一致。', effect: 'waiting_external' },
+                { id: 'use-existing-api', title: '复用现有聚合接口', tradeoffs: '可以立即实施，但需要限制为现有字段能力。', effect: 'resolved' },
                 { id: 'mock-ui', title: '使用 Mock 验证界面', tradeoffs: '可以提前验证界面，但不能完成端到端验收。', effect: 'resolved' },
               ],
-              recommendation: { optionId: 'wait-api', rationale: '当前仓库没有可信详情与趋势接口。' },
+              recommendation: { optionId: 'use-existing-api', rationale: '当前仓库已有可复用聚合接口，适合先完成本期交互。' },
             },
           }];
         },
@@ -377,28 +377,27 @@ describe('TaskStateCommands', () => {
 
     expect(output).toContain('需求澄清 · 待确认 1 项');
     expect(output).toContain('[1/1] 详情趋势数据来源');
-    expect(output).toContain('原因：当前仓库没有可信详情与趋势接口。');
-    expect(output).toContain('推荐\n    1. 等待正式 API');
-    expect(output).toContain('结果：等待外部条件，仅阻塞关联实施单元');
-    expect(output).toContain('备选\n    2. 使用 Mock 验证界面');
-    expect(output).toContain('结果：本期继续实施');
-    expect(output).toContain('取舍：交付依赖后端排期，但数据口径一致。');
+    expect(output).toContain('本期如何处理');
+    expect(output).toContain('1. 本期继续');
+    expect(output).toContain('2. 等待外部条件');
+    expect(output).toContain('本期采用什么结论');
+    expect(output).toContain('1. 复用现有聚合接口（AI 推荐）');
+    expect(output).toContain('2. 使用 Mock 验证界面（AI 备选）');
     expect(output).toContain('取舍：可以提前验证界面，但不能完成端到端验收。');
-    expect(output).toContain('3. 查看问题详情');
-    expect(output).toContain('4. 自定义结论');
+    expect(output).toContain('3. 人工输入结论');
     expect(output).toContain('全部事项已处理。是否确认并进入技术方案？');
     expect(selections).toEqual([{
       decisionId: 'DEC-API-01',
-      optionId: 'manual',
-      manualNote: '详情页先复用现有聚合接口，趋势和导出等待下一期。',
+      optionId: 'mock-ui',
+      status: 'resolved',
     }]);
   });
 
-  it('shows a plain-language decision detail without recording a selection', async () => {
+  it('shows decision context before choosing a workflow outcome', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'awaiting_approval';
     let selections: unknown;
-    const answers = ['3', '1', '1'];
+    const answers = ['2', '1'];
     let output = '';
     const command = createTaskStateCommand({
       commands: {
@@ -437,22 +436,21 @@ describe('TaskStateCommands', () => {
 
     await command.parseAsync(['node', 'task', 'review', 'refund-123']);
 
-    expect(output).toContain('问题详情');
-    expect(output).toContain('需要确认：用户可以选择哪些指标，以及刷新页面后是否保留选择？');
+    expect(output).toContain('待确认：用户可以选择哪些指标，以及刷新页面后是否保留选择？');
     expect(output).toContain('当前情况：需求只说明新增 Custom metrics，未说明字段白名单、默认顺序和持久化规则。');
     expect(output).toContain('不确认的影响：不确认会使列表展示和导出字段采用不同规则，造成返工和验收争议。');
     expect(output).toContain('关联验收：');
     expect(output).toContain('AC-01：Custom metrics 配置');
     expect(output).toContain('验收标准：用户可以配置允许展示的指标，并在刷新或切换 Creator 后保留选择。');
-    expect(selections).toEqual([{ decisionId: 'DEC-METRIC-01', optionId: 'confirm-product', status: 'waiting_external', owner: '待指定', unblockCondition: '已确认：Custom metrics 的配置规则' }]);
+    expect(selections).toEqual([{ decisionId: 'DEC-METRIC-01', optionId: 'manual', status: 'waiting_external', owner: '待指定', unblockCondition: '已确认：Custom metrics 的配置规则', manualNote: '人工选择等待外部条件。' }]);
   });
 
-  it('records the declared deferred effect and requires a scope-splitting note', async () => {
+  it('uses the generic wait outcome instead of exposing deferred choices', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'awaiting_approval';
     let selections: unknown;
     const prompts: string[] = [];
-    const answers = ['2', '详情趋势能力拆至下一期，本期不纳入验收。', '1'];
+    const answers = ['2', '1'];
     const command = createTaskStateCommand({
       commands: {
         async status() { return task; },
@@ -480,10 +478,11 @@ describe('TaskStateCommands', () => {
 
     await command.parseAsync(['node', 'task', 'review', 'refund-123']);
 
-    expect(prompts).toContain('请输入拆期说明：');
+    expect(prompts).toContain('请输入选择（1-2）：');
+    expect(prompts).not.toContain('请输入拆期说明：');
     expect(selections).toEqual([{
-      decisionId: 'DEC-API-01', optionId: 'defer-scope', status: 'deferred',
-      manualNote: '详情趋势能力拆至下一期，本期不纳入验收。',
+      decisionId: 'DEC-API-01', optionId: 'manual', status: 'waiting_external',
+      owner: '待指定', unblockCondition: '已确认：详情趋势数据来源', manualNote: '人工选择等待外部条件。',
     }]);
   });
 
@@ -576,6 +575,10 @@ async function writeDecisionRegister(directory: string): Promise<void> {
 items:
   - id: DEC-API-01
     title: 详情趋势数据来源
+    detail:
+      question: 详情趋势与导出本期使用哪一套服务端接口？
+      background: 当前需求与仓库未提供趋势、导出和日期聚合的统一契约。
+      impact: 不确认会使页面、导出与验收采用不同的数据口径。
     type: external-contract
     affects:
       acceptanceRefs: [AC-07]

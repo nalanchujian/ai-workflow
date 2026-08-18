@@ -425,53 +425,39 @@ async function promptClarifyReview(
   stdout: NodeJS.WritableStream,
   acceptanceDetails: Map<string, AcceptanceDetail>,
 ): Promise<ClarifyDecisionSelection[]> {
-  stdout.write(`需求澄清 · 待确认 ${decisions.length} 项\n按序号选择；不理解问题时可先选择“查看问题详情”。\n\n`);
+  stdout.write(`需求澄清 · 待确认 ${decisions.length} 项\n先确定本期处理方式；选择“本期继续”后再选择业务结论。\n\n`);
   const selections: ClarifyDecisionSelection[] = [];
   for (const [index, { item }] of decisions.entries()) {
-    const recommendation = item.options.find((option) => option.id === item.recommendation.optionId)!;
-    const alternatives = item.options.filter((option) => option.id !== recommendation.id);
     stdout.write(`[${index + 1}/${decisions.length}] ${item.title}\n`);
-    stdout.write(`  原因：${item.recommendation.rationale}\n`);
-    stdout.write(`  影响：${item.affects.acceptanceRefs.join('、')} · ${item.affects.workUnits.join('、')}\n`);
-    stdout.write(`  推荐\n    1. ${recommendation.title}\n       取舍：${recommendation.tradeoffs}\n       结果：${decisionEffectLabel(recommendation.effect)}\n`);
-    if (alternatives.length > 0) {
-      stdout.write('  备选\n');
-      alternatives.forEach((option, optionIndex) => stdout.write(`    ${optionIndex + 2}. ${option.title}\n       取舍：${option.tradeoffs}\n       结果：${decisionEffectLabel(option.effect)}\n`));
-    }
-    const detailChoice = alternatives.length + 2;
-    const customChoice = detailChoice + 1;
-    stdout.write(`    ${detailChoice}. 查看问题详情\n`);
-    stdout.write(`    ${customChoice}. 自定义结论\n`);
-    const choices = [recommendation, ...alternatives];
-    let answer: number;
-    while (true) {
-      answer = await askNumber(prompter, `请输入选择（1-${customChoice}）：`, customChoice);
-      if (answer !== detailChoice) break;
-      writeDecisionDetail(item, acceptanceDetails, stdout);
-    }
-    if (answer === customChoice) {
-      const manualNote = await askRequiredText(prompter, '请输入结论：');
-      selections.push({ decisionId: item.id, optionId: 'manual', manualNote });
+    writeDecisionContext(item, acceptanceDetails, stdout);
+    stdout.write('  本期如何处理\n    1. 本期继续\n    2. 等待外部条件\n');
+    const handling = await askNumber(prompter, '请输入选择（1-2）：', 2);
+    if (handling === 2) {
+      selections.push({
+        decisionId: item.id,
+        optionId: 'manual',
+        status: 'waiting_external',
+        owner: '待指定',
+        unblockCondition: `已确认：${item.title}`,
+        manualNote: '人工选择等待外部条件。',
+      });
       stdout.write('\n');
       continue;
     }
-    const choice = choices[answer - 1]!;
-    if (choice.effect === 'waiting_external') {
-      stdout.write('该方案需要等待外部信息。请输入负责团队（直接回车可稍后补充）：\n');
-      const owner = (await prompter.ask('等待对象：')).trim() || '待指定';
-      selections.push({
-        decisionId: item.id,
-        optionId: choice.id,
-        status: choice.effect,
-        owner,
-        unblockCondition: `已确认：${item.title}`,
-      });
-    } else if (choice.effect === 'deferred' || choice.effect === 'waived') {
-      const label = choice.effect === 'deferred' ? '拆期说明' : '风险豁免说明';
-      const manualNote = await askRequiredText(prompter, `请输入${label}：`);
-      selections.push({ decisionId: item.id, optionId: choice.id, status: choice.effect, manualNote });
+    const continued = continuationOptions(item);
+    stdout.write('  本期采用什么结论\n');
+    continued.forEach((option, optionIndex) => {
+      const recommendation = option.id === item.recommendation.optionId ? '（AI 推荐）' : '（AI 备选）';
+      stdout.write(`    ${optionIndex + 1}. ${option.title}${recommendation}\n       取舍：${option.tradeoffs}\n`);
+    });
+    const manualChoice = continued.length + 1;
+    stdout.write(`    ${manualChoice}. 人工输入结论\n`);
+    const answer = await askNumber(prompter, `请输入选择（1-${manualChoice}）：`, manualChoice);
+    if (answer === manualChoice) {
+      const manualNote = await askRequiredText(prompter, '请输入本期实施结论：');
+      selections.push({ decisionId: item.id, optionId: 'manual', status: 'resolved', manualNote });
     } else {
-      selections.push({ decisionId: item.id, optionId: choice.id, status: choice.effect });
+      selections.push({ decisionId: item.id, optionId: continued[answer - 1]!.id, status: 'resolved' });
     }
     stdout.write('\n');
   }
@@ -483,19 +469,19 @@ async function promptClarifyReview(
   return selections;
 }
 
-function writeDecisionDetail(
+function writeDecisionContext(
   item: Awaited<ReturnType<TaskStateCommands['listDecisions']>>[number]['item'],
   acceptanceDetails: Map<string, AcceptanceDetail>,
   stdout: NodeJS.WritableStream,
 ): void {
   const detail = item.detail;
-  stdout.write('\n问题详情\n');
+  stdout.write('  待确认：');
   if (detail !== undefined) {
-    stdout.write(`  需要确认：${detail.question}\n`);
+    stdout.write(`${detail.question}\n`);
     stdout.write(`  当前情况：${detail.background}\n`);
     stdout.write(`  不确认的影响：${detail.impact}\n`);
   } else {
-    stdout.write(`  需要确认：${item.title}\n`);
+    stdout.write(`${item.title}\n`);
     stdout.write(`  当前情况：${item.recommendation.rationale}\n`);
     stdout.write(`  不确认的影响：${item.affects.acceptanceRefs.join('、')} 的验收与 ${item.affects.workUnits.join('、')} 的实施边界无法可靠确定。\n`);
   }
@@ -508,6 +494,15 @@ function writeDecisionDetail(
     }
   }
   stdout.write('\n');
+}
+
+function continuationOptions(item: Awaited<ReturnType<TaskStateCommands['listDecisions']>>[number]['item']) {
+  const candidates = item.options.filter((option) => option.effect === 'resolved');
+  const recommendation = candidates.find((option) => option.id === item.recommendation.optionId);
+  return [
+    ...(recommendation === undefined ? [] : [recommendation]),
+    ...candidates.filter((option) => option.id !== recommendation?.id),
+  ].slice(0, 2);
 }
 
 async function askNumber(prompter: ReviewPrompter, prompt: string, maximum: number): Promise<number> {

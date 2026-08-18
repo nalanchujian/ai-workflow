@@ -67,7 +67,7 @@ describe('DecisionRegisterSchema', () => {
     })).toThrow(/选项/);
   });
 
-  it('requires an alternative to the AI recommendation so a user can make a real choice', () => {
+  it('allows one AI continuation option because task review always retains a manual-input path', () => {
     expect(() => DecisionRegisterSchema.parse({
       schemaVersion: 'aiw.decision-register/v1',
       items: [{
@@ -76,7 +76,23 @@ describe('DecisionRegisterSchema', () => {
         options: [{ id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端排期。', effect: 'waiting_external' }],
         recommendation: { optionId: 'wait-api', rationale: '现有接口不能满足验收。' },
       }],
-    })).toThrow(/至少两个/);
+    })).not.toThrow();
+  });
+
+  it('limits AI alternatives to two so the review interaction stays concise', () => {
+    expect(() => DecisionRegisterSchema.parse({
+      schemaVersion: 'aiw.decision-register/v1',
+      items: [{
+        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract',
+        affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] }, status: 'proposed',
+        options: [
+          { id: 'formal-api', title: '使用正式接口', tradeoffs: '可完成联调，但需要确认字段粒度。', effect: 'resolved' },
+          { id: 'mock-ui', title: '使用 Mock', tradeoffs: '可以先验证界面，但不能完成接口验收。', effect: 'resolved' },
+          { id: 'existing-data', title: '复用现有数据', tradeoffs: '接入成本较低，但数据口径可能不完整。', effect: 'resolved' },
+        ],
+        recommendation: { optionId: 'formal-api', rationale: '正式接口最符合最终验收目标。' },
+      }],
+    })).toThrow(/最多两个/);
   });
 
   it('requires each option to declare its workflow effect', () => {
