@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 import { PhaseSchema, type Phase, type TaskNode } from './task.js';
 import { formatSchemaDiagnostics } from './schema-diagnostics.js';
+import { FactIdSchema } from './fact-register.js';
+import { DecisionIdSchema } from './decision-register.js';
 
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
@@ -19,11 +21,12 @@ export const HandoffSchema = z.object({
   revision: z.number().int().positive(),
   summary: z.string().min(12),
   facts: z.array(z.object({
-    id: z.string().regex(/^FACT-\d+$/),
+    id: FactIdSchema,
     statement: z.string().min(8),
     evidence: z.array(EvidenceSchema).min(1),
   }).strict()).min(1),
   decisions: z.array(z.object({
+    id: DecisionIdSchema,
     statement: z.string().min(8),
     evidence: z.array(EvidenceSchema).min(1),
   }).strict()),
@@ -91,6 +94,8 @@ export function validateHandoff(content: string, expected: {
   phase: Phase;
   revision: number;
   evidencePaths: string[];
+  /** Current immutable decision facts recorded in task.yaml. */
+  decisionFactPaths: string[];
 }): Handoff {
   let handoff: Handoff;
   try {
@@ -100,7 +105,7 @@ export function validateHandoff(content: string, expected: {
       title: '交接包',
       error,
       aliases: {
-        decisionId: '不能使用 decisionId；决策项只允许 statement 和 evidence。',
+        decisionId: '不能使用 decisionId；决策项请使用 id。',
         acceptanceId: '不能使用 acceptanceId；验收项请使用 id。',
       },
       itemLabel: '交接内容',
@@ -115,7 +120,45 @@ export function validateHandoff(content: string, expected: {
       throw new Error(`交接包引用了不允许的证据：${evidence.path}`);
     }
   }
+  validateDecisionReferences(handoff, expected.decisionFactPaths);
   return handoff;
+}
+
+/**
+ * A handoff is a summary, never a second decision register. Every decision it
+ * carries therefore points at the immutable decision fact that AIW recorded
+ * after a human choice. This prevents a free-form sentence from being treated
+ * as a confirmed decision by a downstream node.
+ */
+function validateDecisionReferences(handoff: Handoff, decisionFactPaths: string[]): void {
+  const currentFacts = new Map<string, string>();
+  for (const path of decisionFactPaths) {
+    const match = /^decisions\/(DEC-[A-Z0-9-]+)\/r\d+\.yaml$/.exec(path);
+    if (match !== null) currentFacts.set(match[1], path);
+  }
+  for (const decision of handoff.decisions) {
+    const factPath = currentFacts.get(decision.id);
+    if (factPath === undefined) {
+      throw new Error(`交接包决策 ${decision.id} 未关联当前已登记的决策事实`);
+    }
+    if (!decision.evidence.some((evidence) => evidence.path === factPath)) {
+      throw new Error(`交接包决策 ${decision.id} 必须引用当前决策事实：${factPath}`);
+    }
+  }
+}
+
+/**
+ * Handoff facts are summaries of the formal clarification fact register. The
+ * caller supplies the current register IDs once all sibling artifacts have
+ * been validated, because clarify emits that register in the same run.
+ */
+export function validateHandoffFactReferences(handoff: Handoff, factIds: string[]): void {
+  const formalFacts = new Set(factIds);
+  for (const fact of handoff.facts) {
+    if (!formalFacts.has(fact.id)) {
+      throw new Error(`交接包事实 ${fact.id} 未关联当前正式事实登记`);
+    }
+  }
 }
 
 function allEvidence(handoff: Handoff): Array<z.infer<typeof EvidenceSchema>> {

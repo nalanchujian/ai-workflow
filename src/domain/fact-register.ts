@@ -4,6 +4,12 @@ const factIdPattern = /^FACT-[A-Z0-9-]+$/;
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
 /**
+ * A fact keeps the same identity everywhere it is referenced: the formal
+ * clarification register, acceptance/decision links, and node handoffs.
+ */
+export const FactIdSchema = z.string().regex(factIdPattern, '事实 ID 格式无效');
+
+/**
  * Facts are the explicit boundary between an input document and later
  * engineering work.  They deliberately distinguish what is known from what
  * is merely inferred or still depends on somebody outside the task.
@@ -24,7 +30,7 @@ export const FactEvidenceSchema = z.object({
 }).strict();
 
 export const FactItemSchema = z.object({
-  id: z.string().regex(factIdPattern, '事实 ID 格式无效'),
+  id: FactIdSchema,
   kind: FactKindSchema,
   statement: z.string().min(12),
   confidence: FactConfidenceSchema,

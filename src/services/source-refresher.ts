@@ -52,7 +52,7 @@ export class SourceRefresher {
       revision: next.nodes.intake.revision,
       summary: '已固化更新后的需求来源快照与提取边界。',
       facts: [{
-        id: 'FACT-01',
+        id: `FACT-SOURCE-${input.sourceId.toUpperCase().replaceAll(/[^A-Z0-9]+/g, '-')}`,
         statement: `需求来源已更新至 revision ${reference.revision}。`,
         evidence: [{ path: reference.snapshotPath }],
       }],
@@ -68,6 +68,7 @@ export class SourceRefresher {
       phase: 'intake',
       revision: next.nodes.intake.revision,
       evidencePaths: [reference.snapshotPath, reference.metaPath],
+      decisionFactPaths: [],
     });
     const taskDirectory = this.deps.taskStore.taskDirectory(task.id);
     await mkdir(dirname(join(taskDirectory, intakeHandoffPath)), { recursive: true });

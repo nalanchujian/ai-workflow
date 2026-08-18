@@ -668,7 +668,7 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
     await mkdir(join(taskDirectory, output, '..'), { recursive: true });
     const firstArtifact = outputs.find((path) => path.startsWith('artifacts/'))!;
     const content = output === handoffPath(nodeId, node.revision)
-      ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
+      ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
       : nodeId === 'delivery-main' && output.endsWith('/acceptance-results.yaml')
         ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/delivery.md\n    testResultRefs: ${options.acceptanceStatus === undefined || options.acceptanceStatus === 'passed' ? '[TEST-REFUND-01]' : '[]'}\n`
       : nodeId === 'delivery-main' && output.endsWith('/test-results.yaml')

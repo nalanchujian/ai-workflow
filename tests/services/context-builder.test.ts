@@ -315,5 +315,5 @@ async function writeHandoff(directory: string, task: ReturnType<typeof createSev
   await writeFile(join(directory, firstOutput), '# 节点产物\n', 'utf8');
   const path = handoffPath(nodeId, node.revision);
   await mkdir(join(directory, 'handoffs', nodeId), { recursive: true });
-  await writeFile(join(directory, path), `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并提供结构化交接内容。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已形成可供下游使用的结论。\n    evidence:\n      - path: ${firstOutput}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+  await writeFile(join(directory, path), `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并提供结构化交接内容。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已形成可供下游使用的结论。\n    evidence:\n      - path: ${firstOutput}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
 }

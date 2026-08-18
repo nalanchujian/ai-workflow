@@ -3,6 +3,9 @@ import { z } from 'zod';
 const decisionIdPattern = /^DEC-[A-Z0-9-]+$/;
 const workUnitIdPattern = /^[a-z][a-z0-9-]{0,40}$/;
 
+/** A decision keeps the same identity from clarification through delivery. */
+export const DecisionIdSchema = z.string().regex(decisionIdPattern, '决策 ID 格式无效');
+
 const DecisionOptionSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,40}$/, '决策选项 ID 格式无效'),
   title: z.string().min(1),
@@ -10,7 +13,7 @@ const DecisionOptionSchema = z.object({
 }).strict();
 
 export const DecisionItemSchema = z.object({
-  id: z.string().regex(decisionIdPattern, '决策 ID 格式无效'),
+  id: DecisionIdSchema,
   title: z.string().min(1),
   detail: z.object({
     question: z.string().min(8),

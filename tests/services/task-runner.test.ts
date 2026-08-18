@@ -473,23 +473,31 @@ phase: solution
 revision: 1
 summary: 已根据任务事实形成可追溯技术方案。
 facts:
-  - id: FACT-01
+  - id: FACT-REFUND-01
     statement: 当前技术方案依据已固化的需求范围形成。
     evidence:
       - path: sources/requirements/r1/snapshot.md
-  - id: FACT-02
+  - id: FACT-API-01
     statement: 人工决策已记录在当前任务事实中。
     evidence:
       - path: task.yaml
 decisions:
-  - statement: 采用已确认的接口边界继续技术方案。
+  - id: DEC-API-01
+    statement: 采用已确认的接口边界继续技术方案。
     evidence:
       - path: decisions/DEC-API-01/r1.yaml
 acceptance: []
 changes: []
 verification: []
 openRisks: []
-`, { taskId: task.id, nodeId: 'solution', phase: 'solution', revision: 1, evidencePaths })).not.toThrow();
+`, {
+      taskId: task.id,
+      nodeId: 'solution',
+      phase: 'solution',
+      revision: 1,
+      evidencePaths,
+      decisionFactPaths: ['decisions/DEC-API-01/r1.yaml'],
+    })).not.toThrow();
   });
 
   it('rejects a valid-looking artifact left over from a previous run', async () => {
@@ -656,7 +664,7 @@ async function writeHandoff(taskStore: TaskStore, taskId: string, content?: stri
   const path = handoffPath('clarify', node.revision + 1);
   await mkdir(join(taskStore.taskDirectory(task.id), 'handoffs', 'clarify'), { recursive: true });
   const brief = nextArtifactPath('clarify', node, 'artifacts/brief.md');
-  await writeFile(join(taskStore.taskDirectory(task.id), path), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nrevision: ${node.revision + 1}\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: ${brief}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+  await writeFile(join(taskStore.taskDirectory(task.id), path), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nrevision: ${node.revision + 1}\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: ${brief}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
 }
 
 function mapLegacyArtifactPath(path: string, taskId: string, node: NonNullable<ReturnType<typeof createSevenPhaseTask>['nodes']['clarify']>): string {

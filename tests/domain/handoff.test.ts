@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { artifactPath, handoffPath, outputPathsForNextRun, validateHandoff } from '../../src/domain/handoff.js';
+import { artifactPath, handoffPath, outputPathsForNextRun, validateHandoff, validateHandoffFactReferences } from '../../src/domain/handoff.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 
 describe('Handoff', () => {
@@ -25,7 +25,7 @@ phase: clarify
 revision: 1
 summary: 已整理需求目标、范围和验收标准。
 facts:
-  - id: FACT-01
+  - id: FACT-REFUND-01
     statement: 用户可以提交退款申请。
     evidence:
       - path: artifacts/brief.md
@@ -35,7 +35,7 @@ changes: []
 verification: []
 openRisks: []
 `, {
-      taskId: 'task-123', nodeId: 'clarify', phase: 'clarify', revision: 1, evidencePaths: ['artifacts/brief.md'],
+      taskId: 'task-123', nodeId: 'clarify', phase: 'clarify', revision: 1, evidencePaths: ['artifacts/brief.md'], decisionFactPaths: [],
     })).not.toThrow();
   });
 
@@ -47,7 +47,7 @@ phase: clarify
 revision: 1
 summary: 已整理需求目标、范围和验收标准。
 facts:
-  - id: FACT-01
+  - id: FACT-REFUND-01
     statement: 用户可以提交退款申请。
     evidence:
       - path: artifacts/unknown.md
@@ -57,7 +57,98 @@ changes: []
 verification: []
 openRisks: []
 `, {
-      taskId: 'task-123', nodeId: 'clarify', phase: 'clarify', revision: 1, evidencePaths: ['artifacts/brief.md'],
+      taskId: 'task-123', nodeId: 'clarify', phase: 'clarify', revision: 1, evidencePaths: ['artifacts/brief.md'], decisionFactPaths: [],
     })).toThrow('交接包引用了不允许的证据');
+  });
+
+  it('uses the formal FACT and DEC identities and requires the recorded decision fact', () => {
+    expect(() => validateHandoff(`schemaVersion: aiw.handoff/v1
+taskId: task-123
+nodeId: solution
+phase: solution
+revision: 1
+summary: 已根据已确认的退款接口结论形成技术方案。
+facts:
+  - id: FACT-REFUND-01
+    statement: 用户可以提交退款申请并查看处理结果。
+    evidence:
+      - path: artifacts/clarify/r1/fact-register.yaml
+decisions:
+  - id: DEC-REFUND-API-01
+    statement: 采用当前已确认的退款接口继续实施。
+    evidence:
+      - path: decisions/DEC-REFUND-API-01/r1.yaml
+acceptance: []
+changes: []
+verification: []
+openRisks: []
+`, {
+      taskId: 'task-123',
+      nodeId: 'solution',
+      phase: 'solution',
+      revision: 1,
+      evidencePaths: ['artifacts/clarify/r1/fact-register.yaml', 'decisions/DEC-REFUND-API-01/r1.yaml'],
+      decisionFactPaths: ['decisions/DEC-REFUND-API-01/r1.yaml'],
+    })).not.toThrow();
+  });
+
+  it('rejects a handoff decision without an immutable DEC fact reference', () => {
+    expect(() => validateHandoff(`schemaVersion: aiw.handoff/v1
+taskId: task-123
+nodeId: solution
+phase: solution
+revision: 1
+summary: 已根据已确认的退款接口结论形成技术方案。
+facts:
+  - id: FACT-REFUND-01
+    statement: 用户可以提交退款申请并查看处理结果。
+    evidence:
+      - path: artifacts/clarify/r1/fact-register.yaml
+decisions:
+  - id: DEC-REFUND-API-01
+    statement: 采用当前已确认的退款接口继续实施。
+    evidence:
+      - path: artifacts/solution/r1/solution.md
+acceptance: []
+changes: []
+verification: []
+openRisks: []
+`, {
+      taskId: 'task-123',
+      nodeId: 'solution',
+      phase: 'solution',
+      revision: 1,
+      evidencePaths: ['artifacts/clarify/r1/fact-register.yaml', 'artifacts/solution/r1/solution.md', 'decisions/DEC-REFUND-API-01/r1.yaml'],
+      decisionFactPaths: ['decisions/DEC-REFUND-API-01/r1.yaml'],
+    })).toThrow('必须引用当前决策事实');
+  });
+
+  it('requires handoff facts to use the current formal fact register', () => {
+    const handoff = validateHandoff(`schemaVersion: aiw.handoff/v1
+taskId: task-123
+nodeId: solution
+phase: solution
+revision: 1
+summary: 已根据正式事实登记形成技术方案。
+facts:
+  - id: FACT-UNKNOWN-01
+    statement: 这是一项没有登记的事实，不应成为下游依据。
+    evidence:
+      - path: artifacts/clarify/r1/fact-register.yaml
+decisions: []
+acceptance: []
+changes: []
+verification: []
+openRisks: []
+`, {
+      taskId: 'task-123',
+      nodeId: 'solution',
+      phase: 'solution',
+      revision: 1,
+      evidencePaths: ['artifacts/clarify/r1/fact-register.yaml'],
+      decisionFactPaths: [],
+    });
+
+    expect(() => validateHandoffFactReferences(handoff, ['FACT-REFUND-01'])).toThrow('未关联当前正式事实登记');
   });
 });

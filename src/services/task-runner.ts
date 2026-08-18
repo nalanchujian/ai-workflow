@@ -7,7 +7,7 @@ import type { CodexAdapter } from '../adapters/codex-adapter.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import type { ContextManifest } from '../domain/context.js';
 import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
-import { declaredOutputPath, handoffPath, nextArtifactPath, outputPathsForCompletedRun, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
+import { declaredOutputPath, handoffPath, HandoffSchema, nextArtifactPath, outputPathsForCompletedRun, outputPathsForNextRun, validateHandoff, validateHandoffFactReferences } from '../domain/handoff.js';
 import { hasTestPlanEvidence, validateAcceptanceTestEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
 import { TestResultsSchema } from '../domain/test-results.js';
@@ -28,7 +28,7 @@ import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
 import { invalidateNodeAndDependents, transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 import { loadRunCompletionBundle } from './run-completion-bundle.js';
-import { TaskImpactError, readCurrentImpactGraph, validateClarificationImpactArtifacts } from './task-impact-service.js';
+import { TaskImpactError, readClarificationImpactArtifacts, readCurrentImpactGraph, validateClarificationImpactArtifacts } from './task-impact-service.js';
 import { DeliveryTestExecutor, deliveryTestPlan } from './delivery-test-executor.js';
 
 export class TaskRunnerError extends Error {
@@ -595,7 +595,14 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   }
   if (path === handoffPath(nodeId, node.revision + 1)) {
     try {
-      validateHandoff(content, { taskId: task.id, nodeId, phase: node.phase, revision: node.revision + 1, evidencePaths });
+      validateHandoff(content, {
+        taskId: task.id,
+        nodeId,
+        phase: node.phase,
+        revision: node.revision + 1,
+        evidencePaths,
+        decisionFactPaths: registeredDecisionFactPaths(task),
+      });
       return;
     } catch (error) {
       throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : '交接包无效');
@@ -716,6 +723,8 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
 async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: string, contents: Map<string, string>): Promise<void> {
   const node = task.nodes[nodeId];
   if (node === undefined) return;
+  const handoffContent = contents.get(handoffPath(nodeId, node.revision + 1));
+  let clarifyFacts: import('../domain/fact-register.js').FactRegister | undefined;
   if (node.phase === 'clarify') {
     const catalogContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance.yaml'));
     const registerContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/decision-register.yaml'));
@@ -724,11 +733,24 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
     const catalog = AcceptanceCatalogSchema.parse(parse(catalogContent));
     const register = DecisionRegisterSchema.parse(parse(registerContent));
     const facts = FactRegisterSchema.parse(parse(factsContent));
+    clarifyFacts = facts;
     validateClarifyDecisionChoices(register);
     try {
       validateClarificationImpactArtifacts({ task, facts, decisions: register, acceptance: catalog });
     } catch (error) {
       throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof TaskImpactError ? error.message : '事实与影响关系无效');
+    }
+  }
+  if (handoffContent !== undefined) {
+    try {
+      const facts = clarifyFacts ?? (await readClarificationImpactArtifacts(task, taskStore)).facts;
+      // The first validation pass already checked node identity, revision and
+      // evidence allowlists. This second pass runs after all sibling outputs
+      // exist so it can bind Handoff Fact IDs to the formal register.
+      const handoff = HandoffSchema.parse(parse(handoffContent));
+      validateHandoffFactReferences(handoff, facts.items.map((fact) => fact.id));
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : '交接包事实引用无效');
     }
   }
   if (isDeliveryUnit(node)) {

@@ -44,7 +44,7 @@ describe('TaskInitializer', () => {
     expect(task.nodes.implement.outputs).toEqual(['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml']);
     expect((await store.load('task-20260813-120000-000')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
     await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.md'), 'utf8')).resolves.toContain('需求来源：requirements.md');
-    await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'handoffs', 'intake', 'r1.yaml'), 'utf8')).resolves.toContain('nodeId: intake');
+    await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'handoffs', 'intake', 'r1.yaml'), 'utf8')).resolves.toContain('id: FACT-SOURCE-REQUIREMENTS');
     await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
   });
 

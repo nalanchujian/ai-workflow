@@ -86,7 +86,7 @@ export class TaskInitializer {
         revision: task.nodes.intake.revision,
         summary: '已固化需求来源快照与提取边界。',
         facts: [{
-          id: 'FACT-01',
+          id: 'FACT-SOURCE-REQUIREMENTS',
           statement: `需求来源已固化：${sourceReference.origin}`,
           evidence: [{ path: sourceReference.snapshotPath }],
         }],
@@ -102,6 +102,7 @@ export class TaskInitializer {
         phase: 'intake',
         revision: task.nodes.intake.revision,
         evidencePaths: [sourceReference.snapshotPath, sourceReference.metaPath],
+        decisionFactPaths: [],
       });
       await mkdir(dirname(join(stagingDirectory, intakeHandoffPath)), { recursive: true });
       await writeFile(join(stagingDirectory, intakeHandoffPath), intakeHandoff, 'utf8');

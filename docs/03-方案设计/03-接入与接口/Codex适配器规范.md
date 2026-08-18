@@ -57,6 +57,8 @@ Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业�
 
 Adapter 传递给 Codex 的任务产物地址必须是相对于业务仓库根目录的完整、版本化路径，例如 `.aiw/tasks/<task-id>/artifacts/clarify/r1/brief.md`，不得仅传递逻辑名 `artifacts/brief.md`。同一运行中，只有版本化 `artifacts/<node-id>/r<revision>/...`（排除 AIW 专属的 `test-results.yaml`）与 `handoffs/<node-id>/r<revision>.yaml` 可由 Codex 写入；`task.yaml`、`runs/<run-id>/`、`test-results.yaml`、审批、决策事实和项目配置均只由 AIW 写入。Runner 在启动 Codex 后对整个 `.aiw/` 建立哈希快照；任何越权写入均会使节点失败并保留运行证据。
 
+Handoff 是摘要而不是新的事实来源：其中 `facts[].id` 必须复用正式事实登记中的 `FACT-*`，`decisions[].id` 必须是 AIW 已登记的 `DEC-*`，并引用对应的 `decisions/<DEC-id>/r<n>.yaml`。Adapter 不得引导 Codex 将尚未确认的候选方案写成 Handoff 决策。
+
 除非用户任务明确要求其他语言，Adapter 要求所有 Markdown 任务产物使用简体中文；代码标识、命令、路径、API 名称和必须保留的原文保持原始语言。上游方法论可以是英文，但不能改变该产物语言约束。
 
 `dry-run` 只执行第 1、2 步，生成本机 `context.md`、`request.json` 和共享 Context Manifest，绝不启动 Codex。默认 CLI 仅展示预演结果摘要；完整调用参数只保留在本机 `request.json`。

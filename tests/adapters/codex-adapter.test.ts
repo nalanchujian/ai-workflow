@@ -83,6 +83,10 @@ describe('CodexAdapter', () => {
     expect(context).toContain('completed-revision="5" output-revision="3"');
     expect(context).toContain('phase: clarify');
     expect(context).toContain('revision: 3');
+    expect(context).toContain('id: FACT-METRICS-01');
+    expect(context).toContain('id: DEC-METRICS-01');
+    expect(context).toContain('Handoff 中的事实只能复用正式事实登记已存在的 `FACT-*` ID');
+    expect(context).toContain('Handoff 中的决策只能记录已由 AIW 确认的 `DEC-*`');
     expect(context).toContain('status: covered');
     expect(context).toContain('description: 未解决风险');
     expect(context).toContain('不得增加 schema 未定义字段');
