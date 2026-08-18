@@ -45,7 +45,7 @@ export async function completeNode(projectRoot: string, taskId: string, nodeId: 
           ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: passed\n    evidence:\n      - artifacts/delivery.md\n    testResultRefs: [${testId}]\n`
           : path.endsWith('/test-results.yaml')
             ? `schemaVersion: aiw.test-results/v1\nrunId: placeholder-run\nitems:\n  - id: ${testId}\n    command: pnpm test\n    status: passed\n    exitCode: 0\n    summary: 已执行退款功能自动化测试，目标用例通过。\n    evidencePath: runs/placeholder-run/tests/${testId}.json\n    evidenceSha256: ${'a'.repeat(64)}\n`
-            : `# 交付报告\n\n## 实际变更\n\n完成退款功能。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试命令\n\n\`pnpm test\`\n\n## 测试结果\n\n${testId}：\`pnpm test\`；退出码：0。\n\n## 逐项验收\n\nAC-01 通过。\n\n## 未完成事项与风险\n\n无。\n`
+            : `# 交付报告\n\n## 实际变更\n\n完成退款功能。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试计划\n\n${testId}：\`pnpm test\`\n\n## 逐项验收\n\nAC-01 通过，等待 AIW 测试执行结果确认。\n\n## 未完成事项与风险\n\n无。\n`
         : `# ${nodeId}\n\n## 结论\n\n已完成当前节点并保留可追溯结果。\n`;
     await writeFile(destination, content, 'utf8');
   }

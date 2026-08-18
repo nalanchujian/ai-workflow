@@ -674,7 +674,7 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
       : nodeId === 'delivery-main' && output.endsWith('/test-results.yaml')
         ? `schemaVersion: aiw.test-results/v1\nrunId: ${runId}\nitems:\n  - id: TEST-REFUND-01\n    command: pnpm test\n    status: passed\n    exitCode: 0\n    summary: 已执行退款功能测试，目标用例均通过。\n    evidencePath: ${testEvidencePath}\n    evidenceSha256: ${testEvidenceSha256}\n`
       : nodeId === 'delivery-main' && output.endsWith('/delivery.md')
-          ? '# 交付报告\n\n## 实际变更\n\n已完成。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试命令\n\n`pnpm test`\n\n## 测试结果\n\nTEST-REFUND-01：`pnpm test`；退出码：0。\n\n## 逐项验收\n\nAC-01 通过。\n\n## 未完成事项与风险\n\n无。\n'
+          ? '# 交付报告\n\n## 实际变更\n\n已完成。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试计划\n\nTEST-REFUND-01：`pnpm test`\n\n## 逐项验收\n\nAC-01 等待 AIW 测试执行结果确认。\n\n## 未完成事项与风险\n\n无。\n'
       : nodeId === 'clarify' && output.endsWith('/acceptance.yaml')
             ? 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n'
             : nodeId === 'clarify' && output.endsWith('/fact-register.yaml')

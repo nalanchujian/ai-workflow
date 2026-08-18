@@ -151,7 +151,8 @@ describe('CodexAdapter', () => {
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('artifacts/acceptance-results.yaml');
     expect(context).toContain('artifacts/test-results.yaml');
-    expect(context).toContain('AIW 会在 Codex 结束后**自行执行**');
+    expect(context).toContain('AIW 会在 Codex 结束后作为唯一执行者运行');
+    expect(context).toContain('不要**在 `delivery.md`、Handoff 或其他 Codex 产物中填写');
     expect(context).toContain('本次运行中完成代码实现、工程验证和验收测试');
   });
 

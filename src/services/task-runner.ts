@@ -7,7 +7,7 @@ import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.
 import type { ContextManifest } from '../domain/context.js';
 import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
 import { declaredOutputPath, handoffPath, nextArtifactPath, outputPathsForCompletedRun, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
-import { hasTestExecutionEvidence, validateAcceptanceTestEvidence } from '../domain/test-report.js';
+import { hasTestPlanEvidence, validateAcceptanceTestEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
 import { TestResultsSchema } from '../domain/test-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
@@ -604,8 +604,8 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   } catch (error) {
     throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : `${path} 结构无效`);
   }
-  if (isDeliveryUnit(node) && declaredPath === 'artifacts/delivery.md' && !hasTestExecutionEvidence(content)) {
-    throw new TaskRunnerError('ARTIFACT_INVALID', '交付报告必须包含测试命令与测试结果');
+  if (isDeliveryUnit(node) && declaredPath === 'artifacts/delivery.md' && !hasTestPlanEvidence(content)) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', '交付报告必须在“测试计划”中记录测试 ID 与命令；实际结果由 AIW 执行后写入 test-results.yaml');
   }
 }
 
