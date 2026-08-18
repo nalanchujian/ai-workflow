@@ -39,7 +39,6 @@ describe('ImplementationWorkPlanner', () => {
     expect(second.task.nodes['implement-export'].status).toBe('superseded');
     expect(second.task.nodes['implement-export-r2']).toMatchObject({
       contextPath: 'artifacts/work-units/r2/implement-export-r2.md',
-      allowedPaths: ['src/services/export-v2.ts'],
     });
     expect(second.task.nodes.verify.dependsOn).toEqual(['implement-page-r2', 'implement-export-r2']);
   });
@@ -99,7 +98,6 @@ describe('ImplementationWorkPlanner', () => {
       '  - id: main',
       '    title: 完成退款功能',
       '    goal: 完成退款功能的最小实现',
-      '    allowedPaths: [src/**]',
       '    acceptanceRefs: [AC-01]',
       '    steps: [实现退款流程]',
       '    verification: [pnpm test]',
@@ -129,7 +127,6 @@ describe('ImplementationWorkPlanner', () => {
       '  - id: page',
       '    title: 实现页面',
       '    goal: 实现列表页面',
-      '    allowedPaths: [src/pages/links/**]',
       '    acceptanceRefs: [AC-01]',
       '    steps: [实现页面]',
       '    verification: [pnpm test -- page]',
@@ -150,7 +147,7 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
   const task = await store.load(taskId);
   const exportCoverage = task.decisions.find((decision) => decision.id === 'DEC-API-01')?.status;
   await mkdir(join(directory, 'artifacts'), { recursive: true });
-  await writeFile(join(directory, 'artifacts', 'implementation-plan.md'), '# 实施计划\n\n```yaml\nallowedPaths:\n  - src/**\n```\n', 'utf8');
+  await writeFile(join(directory, 'artifacts', 'implementation-plan.md'), '# 实施计划\n\n## 实施单元\n\n- 完成列表和导出功能。\n\n## 范围与边界\n\n- 保持现有接口边界。\n\n## 验证方式\n\n- pnpm test\n', 'utf8');
   await writeFile(join(directory, 'artifacts', 'acceptance.yaml'), [
     'schemaVersion: aiw.acceptance-catalog/v1',
     'items:',
@@ -167,16 +164,12 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '  - id: page',
     '    title: 实现页面',
     '    goal: 实现列表页面',
-    '    allowedPaths:',
-    '      - src/pages/links/**',
     '    acceptanceRefs: [AC-01]',
     '    steps: [实现页面]',
     '    verification: [pnpm test -- page]',
     '  - id: export',
     '    title: 实现导出',
     '    goal: 实现导出文件名',
-    '    allowedPaths:',
-    `      - ${revision === 'first' ? 'src/services/export.ts' : 'src/services/export-v2.ts'}`,
     '    acceptanceRefs: [AC-02]',
     '    steps: [实现导出]',
     '    verification: [pnpm test -- export]',

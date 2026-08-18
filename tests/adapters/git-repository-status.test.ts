@@ -29,6 +29,24 @@ describe('GitRepositoryStatus project admission', () => {
 
     await expect(new GitRepositoryStatus().assertProjectReady(projectRoot)).rejects.toThrow('.aiw/ 被 Git 忽略');
   });
+
+  it('reports both paths when a tracked task fact is renamed', async () => {
+    const projectRoot = await temporaryDirectory();
+    await execFileAsync('git', ['init', '--quiet', projectRoot]);
+    await execFileAsync('git', ['-C', projectRoot, 'config', 'user.name', 'AIW Test']);
+    await execFileAsync('git', ['-C', projectRoot, 'config', 'user.email', 'aiw@example.test']);
+    await mkdir(join(projectRoot, '.aiw', 'tasks', 'refund-123', 'artifacts'), { recursive: true });
+    await mkdir(join(projectRoot, 'src'), { recursive: true });
+    await writeFile(join(projectRoot, '.aiw', 'tasks', 'refund-123', 'artifacts', 'brief.md'), '# 需求摘要\n', 'utf8');
+    await execFileAsync('git', ['-C', projectRoot, 'add', '.']);
+    await execFileAsync('git', ['-C', projectRoot, 'commit', '--quiet', '-m', 'initial task fact']);
+    await execFileAsync('git', ['-C', projectRoot, 'mv', '.aiw/tasks/refund-123/artifacts/brief.md', 'src/brief.md']);
+
+    await expect(new GitRepositoryStatus().changedPaths({ projectRoot })).resolves.toEqual([
+      '.aiw/tasks/refund-123/artifacts/brief.md',
+      'src/brief.md',
+    ]);
+  });
 });
 
 async function temporaryDirectory(): Promise<string> {

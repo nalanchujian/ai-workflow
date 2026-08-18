@@ -8,7 +8,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
 
 ```json
 {
-  "schemaVersion": "aiw.run/v1",
+  "schemaVersion": "aiw.run/v2",
   "runId": "run_01JABC",
   "task": {
     "id": "refund-123",
@@ -24,7 +24,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
 }
 ```
 
-Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。执行模式还必须要求业务工作树干净，记录当前节点的允许变更范围、Git 提交/分支和空工作树基线，并在 Adapter 返回后采集 Git 变更路径、原始 diff 哈希、允许范围内未跟踪文件补丁及变更文件哈希；范围外变更或 Git 历史/分支变化必须保留证据、将节点标记失败，不能进入下一节点。每次成功事件关联 `change-evidence.json`，使实现说明、验证报告可追溯到实际变更。它还必须从本机 Registry 与显式配置的方法来源重新读取节点锁定的 `SKILL.md`，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
+Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。执行模式还必须要求业务工作树干净，记录 Git 提交/分支和空工作树基线，以及当前节点的任务事实写入边界；Adapter 返回后采集全部 Git 变更路径、原始 diff 哈希、未跟踪文件补丁及变更文件哈希。业务代码和测试可按当前节点目标修改，不通过计划中的文件路径白名单阻断；但写入其他 `.aiw/` 任务事实、修改 Git 历史或切换分支必须保留证据、将节点标记失败，不能进入下一节点。每次成功事件关联 `change-evidence.json`，使实现说明、验证报告可追溯到实际变更。它还必须从本机 Registry 与显式配置的方法来源重新读取节点锁定的 `SKILL.md`，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
 
 ## 输出：RunResult
 
@@ -48,29 +48,14 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提
 1. `validate(request)`：验证 schema、路径边界、文件哈希和运行模式。
 2. `prepare(request)`：在本机 `runDirectory` 生成只读的 `context.md`，其中包含技能、用户任务和 manifest 列出的文件，并保留路径边界。
 3. `execute(request)`：以 `projectRoot` 为工作目录启动 Codex CLI；默认最长运行 15 分钟，超时后先终止子进程，必要时强制终止；将 stdout、stderr 和退出信息写入本机运行目录。
-4. `collect(request)`：采集 Git 变更路径，与执行前写入的允许范围比较；超范围时写入 `change-diff.json` 并返回失败，否则校验预期产物并返回去敏 `RunResult`。
+4. `collect(request)`：采集全部 Git 变更路径、未跟踪文件补丁和变更文件哈希；校验 Git 历史、分支以及 `.aiw/` 任务事实写入边界，随后校验预期产物并返回去敏 `RunResult`。
 5. `cleanup(request)`：仅删除 Adapter 创建的本机临时文件；不得删除任务产物、来源快照或业务代码。
 
 Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业务仓库 `.aiw/tasks/<id>/runs/<run-id>/`；完整请求、`context.md`、标准输出、标准错误和最后消息不得进入共享任务目录。
 
-每次执行还会写入 `change-scope.json`（执行前允许范围）、`change-diff.json`（执行后实际变更路径及违规路径）、`change.patch`（允许范围内未跟踪文本文件的补丁）和 `change-evidence.json`（Git 基线与文件哈希）。`implement` 节点的业务路径必须来自已批准实施计划中的 YAML 片段：
+每次执行还会写入 `change-scope.json`（执行前的任务事实写入边界与业务文件策略）、`change-diff.json`（执行后实际变更路径及非法任务事实写入）、`change.patch`（全部未跟踪文本文件的补丁）和 `change-evidence.json`（Git 基线与文件哈希）。实施节点可以修改完成当前目标所需的任意业务代码和测试；计划与工作单元应说明目标、验收、依赖、步骤和验证方式，而不是穷举文件路径。
 
-```yaml
-allowedPaths:
-  - src/refunds/**
-  - tests/refunds/**
-```
-
-其他节点只允许写入其声明的 `.aiw` 产物；Adapter 传递给 Codex 的产物地址必须是相对于业务仓库根目录的完整路径，例如 `.aiw/tasks/<task-id>/artifacts/brief.md`，不得仅传递 `artifacts/brief.md`。任何范围外路径都会失败。
-
-`plan` 节点还必须在 `implementation-plan.md` 中声明至少一个机器可读的后续实施范围：
-
-```yaml
-allowedPaths:
-  - src/example/**
-```
-
-路径必须相对于业务仓库根目录，且不得使用占位路径、`.aiw/`、绝对路径或 `..`。Adapter 将这项要求放在最高优先级运行约束中；缺失时 Runner 拒绝该计划，避免实施节点在没有明确范围的情况下执行。
+Adapter 传递给 Codex 的任务产物地址必须是相对于业务仓库根目录的完整路径，例如 `.aiw/tasks/<task-id>/artifacts/brief.md`，不得仅传递 `artifacts/brief.md`。Codex 不得修改 `.aiw/` 中除当前节点声明产物外的任何文件；尝试写入其他任务、旧 revision 交接包或项目配置会失败并保留运行证据。
 
 除非用户任务明确要求其他语言，Adapter 要求所有 Markdown 任务产物使用简体中文；代码标识、命令、路径、API 名称和必须保留的原文保持原始语言。上游方法论可以是英文，但不能改变该产物语言约束。
 

@@ -159,16 +159,12 @@ describe('TaskStateCommands', () => {
       '  - id: page',
       '    title: 实现页面筛选',
       '    goal: 提供可筛选的列表页面',
-      '    allowedPaths:',
-      '      - src/pages/links/**',
       '    acceptanceRefs: [AC-01]',
       '    steps: [实现筛选状态]',
       '    verification: [pnpm test -- links]',
       '  - id: export',
       '    title: 实现导出文件名',
       '    goal: 按筛选项生成导出名称',
-      '    allowedPaths:',
-      '      - src/services/export.ts',
       '    acceptanceRefs: [AC-02]',
       '    steps: [实现文件名生成函数]',
       '    verification: [pnpm test -- export]',
@@ -190,19 +186,17 @@ describe('TaskStateCommands', () => {
     expect(updated.nodes.implement).toMatchObject({ status: 'superseded' });
     expect(updated.nodes['implement-page']).toMatchObject({
       title: '实现页面筛选',
-      allowedPaths: ['src/pages/links/**'],
       contextPath: 'artifacts/work-units/r1/implement-page.md',
       status: 'ready',
     });
     expect(updated.nodes['implement-export']).toMatchObject({
       title: '实现导出文件名',
-      allowedPaths: ['src/services/export.ts'],
       contextPath: 'artifacts/work-units/r1/implement-export.md',
       status: 'ready',
     });
     expect(updated.nodes.verify.dependsOn).toEqual(['implement-page', 'implement-export']);
     await expect(readFile(join(directory, 'artifacts', 'work-units', 'r1', 'implement-export.md'), 'utf8'))
-      .resolves.toContain('src/services/export.ts');
+      .resolves.toContain('实现导出文件名');
   });
 
   it('rejects plan approval when an acceptance item is not covered by work or an explicit decision', async () => {
@@ -213,7 +207,6 @@ describe('TaskStateCommands', () => {
       '  - id: page',
       '    title: 实现页面筛选',
       '    goal: 提供可筛选的列表页面',
-      '    allowedPaths: [src/pages/links/**]',
       '    acceptanceRefs: [AC-01]',
       '    steps: [实现筛选状态]',
       '    verification: [pnpm test -- links]',

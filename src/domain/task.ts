@@ -101,7 +101,6 @@ export const TaskNodeSchema = z.object({
   status: NodeStatusSchema,
   revision: z.number().int().nonnegative(),
   outputs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
-  allowedPaths: z.array(z.string().regex(relativePathPattern, '必须是业务仓库内的相对路径')).optional(),
   contextPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
   generatedFromPlanRevision: z.number().int().positive().optional(),
   blockedByDecisionIds: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).optional(),

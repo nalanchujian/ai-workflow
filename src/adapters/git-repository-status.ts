@@ -38,12 +38,21 @@ export class GitRepositoryStatus implements RepositoryStatus, WorkingTreeStatus,
 
   async changedPaths(input: { projectRoot: string }): Promise<string[]> {
     const { stdout } = await execFileAsync('git', ['-C', input.projectRoot, 'status', '--porcelain=v1', '--untracked-files=all', '-z']);
-    return stdout.split('\0')
-      .filter(Boolean)
-      .filter((entry) => entry.length >= 4 && entry[2] === ' ')
-      .map((entry) => entry.slice(3))
-      .filter((path) => path.length > 0)
-      .sort();
+    const entries = stdout.split('\0');
+    const paths: string[] = [];
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index]!;
+      if (entry.length < 4 || entry[2] !== ' ') continue;
+      const status = entry.slice(0, 2);
+      const path = entry.slice(3);
+      if (path.length > 0) paths.push(path);
+      if ((status.includes('R') || status.includes('C')) && entries[index + 1] !== undefined) {
+        const originalPath = entries[index + 1]!;
+        if (originalPath.length > 0) paths.push(originalPath);
+        index += 1;
+      }
+    }
+    return [...new Set(paths)].sort();
   }
 
   async untrackedPaths(input: { projectRoot: string }): Promise<string[]> {

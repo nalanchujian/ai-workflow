@@ -5,7 +5,7 @@ import { join, relative } from 'node:path';
 import type { CodexAdapter } from '../adapters/codex-adapter.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import type { ContextManifest } from '../domain/context.js';
-import { type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
+import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
 import { handoffPath, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
 import { hasTestExecutionEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
@@ -26,7 +26,7 @@ import { TaskStore } from './task-store.js';
 import { loadRunCompletionBundle } from './run-completion-bundle.js';
 
 export class TaskRunnerError extends Error {
-  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'ARTIFACT_STALE' | 'WORKTREE_DIRTY' | 'CHANGE_SCOPE_MISSING' | 'RUN_RECOVERED', message: string) {
+  constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'ARTIFACT_STALE' | 'WORKTREE_DIRTY' | 'RUN_RECOVERED', message: string) {
     super(message);
     this.name = 'TaskRunnerError';
   }
@@ -99,10 +99,10 @@ export class TaskRunner {
 
     const runId = this.deps.runIdFactory?.() ?? randomUUID();
     const runDirectory = join(this.deps.runtimeRoot, task.id, runId);
-    const scope = input.dryRun ? undefined : await this.changeScope(task, input.nodeId, runId);
+    const scope = input.dryRun ? undefined : await this.taskFactWriteScope(task, input.nodeId, runId);
     const contextManifestFactPath = `runs/${runId}/context-manifest.json`;
     const request: RunRequest = {
-      schemaVersion: 'aiw.run/v1',
+      schemaVersion: 'aiw.run/v2',
       runId,
       task: { id: task.id, nodeId: input.nodeId, phase: node.phase, nodeRevision: node.revision, projectRoot: this.deps.taskStore.projectDirectory() },
       instruction: node.title,
@@ -110,7 +110,6 @@ export class TaskRunner {
       runDirectory,
       mode: input.dryRun ? 'dry-run' : 'execute',
       artifacts: outputPaths,
-      allowedChangePaths: scope?.allowedPaths ?? [],
       context: {
         skill: { name: skill.name, version: skill.version, content: skill.body },
         methodSources: methods.map((method) => ({ id: method.source.id, content: method.content })),
@@ -145,9 +144,7 @@ export class TaskRunner {
 
     const startedTask = transitionNode(task, input.nodeId, { type: 'start', runId });
     await this.deps.taskStore.update(startedTask);
-    if (scope === undefined) {
-      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少变更范围');
-    }
+    if (scope === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少任务事实写入边界');
     await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
     const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline, finalizedManifest)), contextManifest: finalizedManifest });
     await this.writeResult(task.id, runId, result);
@@ -164,7 +161,7 @@ export class TaskRunner {
     request: RunRequest,
     task: Task,
     nodeId: string,
-    scope: ChangeScope,
+    scope: TaskFactWriteScope,
     baseline: ChangeBaseline,
     manifest: ContextManifest,
   ): Promise<RunResult> {
@@ -199,14 +196,14 @@ export class TaskRunner {
         await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('git-history', 'GIT_HISTORY_MUTATION', message) });
         return failedResult(request, 'GIT_HISTORY_MUTATION', message);
       }
-      if (evidence.violations.length > 0) {
+      if (evidence.taskFactViolations.length > 0) {
         const expectedHandoff = request.artifacts.find((path) => path.startsWith(`handoffs/${nodeId}/`) && path.endsWith('.yaml'));
-        const staleHandoffs = evidence.violations.filter((path) => path.startsWith(`.aiw/tasks/${task.id}/handoffs/${nodeId}/`));
+        const staleHandoffs = evidence.taskFactViolations.filter((path) => path.startsWith(`.aiw/tasks/${task.id}/handoffs/${nodeId}/`));
         const message = staleHandoffs.length === 0
-          ? `检测到超出允许范围的变更：${evidence.violations.join(', ')}`
+          ? `检测到不允许写入的任务事实：${evidence.taskFactViolations.join(', ')}`
           : `检测到写入旧交接包：${staleHandoffs.join(', ')}。本次运行只允许写入 ${expectedHandoff ?? '当前 revision 的交接包'}；请勿根据节点的历史 revision 重写旧文件。`;
-        await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('scope', 'CHANGE_SCOPE_VIOLATION', message) });
-        return failedResult(request, 'CHANGE_SCOPE_VIOLATION', message);
+        await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('task-facts', 'TASK_FACT_WRITE_VIOLATION', message) });
+        return failedResult(request, 'TASK_FACT_WRITE_VIOLATION', message);
       }
       const artifacts = await outputRecords(task, this.deps.taskStore, nodeId, baseline.outputs, manifest);
       await this.persistChangeEvidence(task, { ...evidence, artifacts });
@@ -227,39 +224,41 @@ export class TaskRunner {
     }
   }
 
-  private async changeScope(task: Task, nodeId: string, runId: string): Promise<ChangeScope> {
+  private async taskFactWriteScope(task: Task, nodeId: string, runId: string): Promise<TaskFactWriteScope> {
     const node = task.nodes[nodeId];
     if (node === undefined) {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', `未知节点：${nodeId}`);
     }
     const taskRoot = relative(this.deps.taskStore.projectDirectory(), this.deps.taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
     const outputPaths = outputPathsForNextRun(nodeId, node);
-    const allowedPaths = [
+    const allowedTaskPaths = [
       `${taskRoot}/task.yaml`,
       `${taskRoot}/runs/${runId}/**`,
       ...outputPaths.map((path) => `${taskRoot}/${path}`),
-      ...(node.phase === 'implement' ? (node.allowedPaths ?? []) : []),
     ];
-    if (node.phase === 'implement' && allowedPaths.length === 2 + outputPaths.length) {
-      throw new TaskRunnerError('CHANGE_SCOPE_MISSING', '实施计划未声明允许变更范围');
-    }
-    return { schemaVersion: 'aiw.change-scope/v1', taskId: task.id, nodeId, runId, allowedPaths };
+    return {
+      schemaVersion: 'aiw.change-scope/v2',
+      taskId: task.id,
+      nodeId,
+      runId,
+      businessFilePolicy: 'unrestricted',
+      allowedTaskPaths,
+    };
   }
 
-  private async recordChangeEvidence(task: Task, request: RunRequest, scope: ChangeScope, result: RunResult, baseline: ChangeBaseline, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
+  private async recordChangeEvidence(task: Task, request: RunRequest, scope: TaskFactWriteScope, result: RunResult, baseline: ChangeBaseline, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
     const projectRoot = this.deps.taskStore.projectDirectory();
     const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot });
-    const violations = changedPaths.filter((path) => !scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
+    const taskFactViolations = changedPaths.filter((path) => path.startsWith('.aiw/') && !scope.allowedTaskPaths.some((allowed) => matchesAllowedPath(path, allowed)));
     const rawDiff = await this.deps.changeInspector.diff({ projectRoot });
     const untrackedPaths = await this.deps.changeInspector.untrackedPaths({ projectRoot });
     const changedFiles = await Promise.all(changedPaths.map(async (path) => ({ path, ...(await fileHash(projectRoot, path)) })));
     const after = await this.deps.changeInspector.revision({ projectRoot });
-    const allowedUntracked = untrackedPaths.filter((path) => scope.allowedPaths.some((allowed) => matchesAllowedPath(path, allowed)));
-    const patch = `${rawDiff}${await untrackedPatch(projectRoot, allowedUntracked)}`;
+    const patch = `${rawDiff}${await untrackedPatch(projectRoot, untrackedPaths)}`;
     const evidence: ChangeEvidence = {
-      schemaVersion: 'aiw.change-evidence/v1', taskId: task.id, nodeId: scope.nodeId, runId: request.runId,
+      schemaVersion: 'aiw.change-evidence/v2', taskId: task.id, nodeId: scope.nodeId, runId: request.runId,
       baseline,
-      changedPaths, violations, changedFiles,
+      changedPaths, taskFactViolations, changedFiles,
       untrackedPaths,
       git: { before: baseline.git ?? {}, after, historyChanged: !sameGitRevision(baseline.git, after) },
       patch,
@@ -273,7 +272,7 @@ export class TaskRunner {
   private async persistChangeEvidence(task: Task, evidence: ChangeEvidence): Promise<void> {
     const { patch, ...sharedEvidence } = evidence;
     await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change.patch`, patch);
-    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v1', taskId: task.id, runId: evidence.runId, changedPaths: evidence.changedPaths, untrackedPaths: evidence.untrackedPaths, violations: evidence.violations, patchSha256: evidence.diff.sha256 }, null, 2) + '\n');
+    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v2', taskId: task.id, runId: evidence.runId, changedPaths: evidence.changedPaths, untrackedPaths: evidence.untrackedPaths, taskFactViolations: evidence.taskFactViolations, patchSha256: evidence.diff.sha256 }, null, 2) + '\n');
     await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-evidence.json`, JSON.stringify(sharedEvidence, null, 2) + '\n');
   }
 
@@ -300,22 +299,23 @@ export class TaskRunner {
   }
 }
 
-interface ChangeScope {
-  schemaVersion: 'aiw.change-scope/v1';
+interface TaskFactWriteScope {
+  schemaVersion: 'aiw.change-scope/v2';
   taskId: string;
   nodeId: string;
   runId: string;
-  allowedPaths: string[];
+  businessFilePolicy: 'unrestricted';
+  allowedTaskPaths: string[];
 }
 
 interface ChangeEvidence {
-  schemaVersion: 'aiw.change-evidence/v1';
+  schemaVersion: 'aiw.change-evidence/v2';
   taskId: string;
   nodeId: string;
   runId: string;
   baseline: ChangeBaseline;
   changedPaths: string[];
-  violations: string[];
+  taskFactViolations: string[];
   changedFiles: Array<{ path: string; sha256?: string; deleted?: true }>;
   untrackedPaths: string[];
   git: { before: { head?: string; branch?: string }; after: { head?: string; branch?: string }; historyChanged: boolean };
@@ -323,7 +323,7 @@ interface ChangeEvidence {
   diff: { sha256: string; lineCount: number };
   process?: unknown;
   artifacts?: OutputRecord[];
-  failure?: { stage: 'adapter' | 'scope' | 'artifact' | 'git-history' | 'cancelled'; code: string; message: string };
+  failure?: { stage: 'adapter' | 'task-facts' | 'artifact' | 'git-history' | 'cancelled'; code: string; message: string };
 }
 
 interface ChangeBaseline {
@@ -366,7 +366,7 @@ async function outputRecords(
   if (manifest === undefined) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '本次运行缺少上下文清单，无法校验交接包证据');
   }
-  const evidencePaths = handoffEvidencePaths(manifest, node);
+  const evidencePaths = handoffEvidencePaths(task, nodeId, manifest);
   const artifacts = await Promise.all(outputPaths.map(async (path) => {
     let content: Buffer;
     try {
@@ -480,9 +480,6 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   } catch (error) {
     throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : `${path} 结构无效`);
   }
-  if (path === 'artifacts/implementation-plan.md' && !/```ya?ml\s*\n[\s\S]*?allowedPaths:\s*\n\s*-\s*[^\s#]+/i.test(content)) {
-    throw new TaskRunnerError('ARTIFACT_INVALID', '实施计划必须声明含至少一个路径的 allowedPaths YAML 代码块');
-  }
   if (node.phase === 'test' && !hasTestExecutionEvidence(content)) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '测试报告必须包含测试命令与测试结果');
   }
@@ -547,14 +544,25 @@ function validateClarifyDecisionChoices(register: import('../domain/decision-reg
 }
 
 /**
- * A handoff may cite only immutable task facts that were actually injected into
- * this run, plus the current node's declared outputs.  Keeping this derived
- * from the manifest prevents context construction and artifact validation from
- * silently drifting apart.
+ * A handoff may cite both:
+ *
+ * - task facts actually injected into this run; and
+ * - immutable task facts available on demand, such as source snapshots,
+ *   resolved decision facts, and declared upstream outputs.
+ *
+ * The second group deliberately stays out of the default prompt to control
+ * context size. Project-local `--include` files remain reference-only because
+ * they are not immutable task facts.
  */
-export function handoffEvidencePaths(manifest: Pick<ContextManifest, 'files'>, node: Pick<Task['nodes'][string], 'outputs'>): string[] {
+export function handoffEvidencePaths(task: Task, nodeId: string, manifest: Pick<ContextManifest, 'files'>): string[] {
+  const node = task.nodes[nodeId];
+  if (node === undefined) return [];
+  const upstream = dependencyClosure(task, nodeId).flatMap((dependency) => task.nodes[dependency]?.outputs ?? []);
   return [...new Set([
     ...manifest.files.filter((file) => file.evidenceEligible).map((file) => file.path),
+    ...Object.values(task.sources).flatMap((source) => [source.snapshotPath, source.metaPath]),
+    ...registeredDecisionFactPaths(task),
+    ...upstream,
     ...node.outputs,
   ])];
 }

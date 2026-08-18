@@ -4,7 +4,7 @@ const contracts: Array<{ matches: (path: string) => boolean; label: string; head
   { matches: (path) => path === 'artifacts/acceptance.md', label: '验收标准', headings: ['验收项'] },
   { matches: (path) => path === 'artifacts/solution.md', label: '技术方案', headings: ['方案结论', '架构与接口影响', '风险与待决事项'] },
   { matches: (path) => path === 'artifacts/implementation-plan.md', label: '实施计划', headings: ['实施单元', '范围与边界', '验证方式'] },
-  { matches: (path) => path === 'artifacts/implementation-context.md', label: '实施上下文', headings: ['目标', '允许修改', '验收项', '实施步骤', '验证'] },
+  { matches: (path) => path === 'artifacts/implementation-context.md', label: '实施上下文', headings: ['目标', '验收项', '实施步骤', '验证'] },
   { matches: (path) => path === 'artifacts/implementation.md' || /^artifacts\/subtasks\/.+\.md$/.test(path), label: '实施报告', headings: ['实际变更', '测试命令', '测试结果', '未完成事项与风险'] },
   { matches: (path) => path === 'artifacts/verification.md', label: '工程验证报告', headings: ['执行命令', '验证结果', '覆盖边界与风险'] },
   { matches: (path) => path === 'artifacts/test-report.md', label: '测试报告', headings: ['测试命令', '测试结果', '逐项验收', '阻塞缺陷与风险', '建议的下一步'] },

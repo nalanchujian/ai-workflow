@@ -143,17 +143,34 @@ describe('TaskRunner', () => {
     expect(fixture.processCalls).toHaveLength(0);
   });
 
-  it('fails a node and records evidence when Codex changes a path outside the declared scope', async () => {
-    const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', 'src/unapproved.ts']] });
-    await mkdir(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts'), { recursive: true });
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'brief.md'), '# Brief\n', 'utf8');
+  it('allows business code changes outside a predeclared path and records them as evidence', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', 'src/unapproved.ts']],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+    });
 
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
 
-    expect(result).toMatchObject({ status: 'failed', error: { code: 'CHANGE_SCOPE_VIOLATION' } });
-    expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('failed');
+    expect(result.status).toBe('succeeded');
+    expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('awaiting_approval');
     await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-diff.json'), 'utf8'))
       .resolves.toContain('src/unapproved.ts');
+    await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-scope.json'), 'utf8'))
+      .resolves.toContain('"businessFilePolicy": "unrestricted"');
+  });
+
+  it('still rejects writes to task facts outside the current task and node outputs', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/config.yaml', '.aiw/tasks/refund-123/artifacts/brief.md']],
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+    });
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { code: 'TASK_FACT_WRITE_VIOLATION', message: expect.stringContaining('.aiw/config.yaml') },
+    });
   });
 
   it('explains the target revision when a re-run writes an old handoff path', async () => {
@@ -168,7 +185,7 @@ describe('TaskRunner', () => {
 
     expect(result).toMatchObject({
       status: 'failed',
-      error: { code: 'CHANGE_SCOPE_VIOLATION', message: expect.stringContaining('本次运行只允许写入 handoffs/clarify/r2.yaml') },
+      error: { code: 'TASK_FACT_WRITE_VIOLATION', message: expect.stringContaining('本次运行只允许写入 handoffs/clarify/r2.yaml') },
     });
   });
 
@@ -298,12 +315,12 @@ items:
     const task = createSevenPhaseTask();
     task.nodes.implement!.contextPath = 'artifacts/work-units/r2/implement-performance.md';
 
-    const evidencePaths = handoffEvidencePaths({
+    const evidencePaths = handoffEvidencePaths(task, 'implement', {
       files: [
         { role: 'artifact', path: 'artifacts/work-units/r2/implement-performance.md', sha256: 'a'.repeat(64), evidenceEligible: true },
         { role: 'additional', path: 'src/temporary-reference.ts', sha256: 'b'.repeat(64), evidenceEligible: false },
       ],
-    }, task.nodes.implement!);
+    });
 
     expect(evidencePaths).toContain('artifacts/work-units/r2/implement-performance.md');
     expect(evidencePaths).not.toContain('artifacts/work-units/r2/other-unit.md');
@@ -312,8 +329,15 @@ items:
 
   it('uses the actual context manifest as the handoff evidence allowlist', () => {
     const task = createSevenPhaseTask();
-    const node = task.nodes.solution!;
-    const evidencePaths = handoffEvidencePaths({
+    task.sources.requirements = {
+      kind: 'connected-document',
+      origin: 'https://example.larksuite.com/docx/requirement',
+      revision: 1,
+      snapshotPath: 'sources/requirements/r1/snapshot.md',
+      metaPath: 'sources/requirements/r1/meta.json',
+      contentSha256: 'f'.repeat(64),
+    };
+    const evidencePaths = handoffEvidencePaths(task, 'solution', {
       files: [
         { role: 'handoff', path: handoffPath('clarify', 1), sha256: 'a'.repeat(64), evidenceEligible: true },
         { role: 'task', path: 'task.yaml', sha256: 'b'.repeat(64), evidenceEligible: true },
@@ -321,7 +345,7 @@ items:
         { role: 'artifact', path: 'decisions/DEC-API-01/r1.yaml', sha256: 'd'.repeat(64), evidenceEligible: true },
         { role: 'additional', path: 'src/temporary-reference.ts', sha256: 'e'.repeat(64), evidenceEligible: false },
       ],
-    }, node);
+    });
 
     expect(evidencePaths).toEqual(expect.arrayContaining([
       handoffPath('clarify', 1),
@@ -329,6 +353,7 @@ items:
       'artifacts/decision-register.yaml',
       'decisions/DEC-API-01/r1.yaml',
       'artifacts/solution.md',
+      'sources/requirements/r1/snapshot.md',
     ]));
     expect(evidencePaths).not.toContain('src/temporary-reference.ts');
     expect(() => validateHandoff(`schemaVersion: aiw.handoff/v1
@@ -339,6 +364,10 @@ revision: 1
 summary: 已根据任务事实形成可追溯技术方案。
 facts:
   - id: FACT-01
+    statement: 当前技术方案依据已固化的需求范围形成。
+    evidence:
+      - path: sources/requirements/r1/snapshot.md
+  - id: FACT-02
     statement: 人工决策已记录在当前任务事实中。
     evidence:
       - path: task.yaml

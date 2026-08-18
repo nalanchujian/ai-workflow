@@ -249,7 +249,7 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
       status: definition.id === 'clarify' ? 'ready' : 'pending',
       revision: 0,
       outputs: definition.outputs,
-      ...(definition.id === 'implement' ? { contextPath: 'artifacts/implementation-context.md', allowedPaths: [] } : {}),
+      ...(definition.id === 'implement' ? { contextPath: 'artifacts/implementation-context.md' } : {}),
     };
     dependency = definition.id;
   }

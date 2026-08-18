@@ -12,13 +12,11 @@ import { TaskStore } from './task-store.js';
 import { deriveTaskStatus } from './task-state-machine.js';
 
 const unitIdPattern = /^[a-z][a-z0-9-]{0,40}$/;
-const allowedPathPattern = /^(?![./])(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
 const WorkUnitSchema = z.object({
   id: z.string().regex(unitIdPattern, '工作单元 ID 格式无效'),
   title: z.string().min(1),
   goal: z.string().min(1),
-  allowedPaths: z.array(z.string().regex(allowedPathPattern, '允许变更路径无效')).min(1),
   acceptanceRefs: z.array(z.string().min(1)).min(1),
   steps: z.array(z.string().min(1)).min(1),
   verification: z.array(z.string().min(1)).min(1),
@@ -153,7 +151,6 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       status: deferred ? 'superseded' : blockedByDecisionIds.length > 0 ? 'blocked' : dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
       revision: nodeId === 'implement' ? implementation.revision : 0,
       outputs: nodeId === 'implement' ? ['artifacts/implementation.md'] : [`artifacts/subtasks/${nodeId}.md`],
-      allowedPaths: [...new Set(unit.allowedPaths)],
       contextPath,
       generatedFromPlanRevision: planRevision,
       ...(blockedByDecisionIds.length === 0 || deferred ? {} : { blockedByDecisionIds }),
@@ -237,7 +234,7 @@ function workBreakdownIssueMessages(issue: z.core.$ZodIssue, kind: 'coverage' | 
         }
       : {
           acceptanceIds: '不能使用 acceptanceIds；请改为 acceptanceRefs。',
-          paths: '不能使用 paths；请改为 allowedPaths。',
+          paths: '不能使用 paths；请使用 steps 描述实施边界。',
           commands: '不能使用 commands；请改为 verification。',
           dependencies: '不能使用 dependencies；请改为 dependsOn。',
         };
@@ -330,9 +327,6 @@ function renderUnitContext(unit: WorkBreakdown['units'][number], taskId: string,
     '',
     '## 目标',
     unit.goal,
-    '',
-    '## 允许修改',
-    ...unit.allowedPaths.map((path) => `- ${path}`),
     '',
     '## 验收项',
     ...unit.acceptanceRefs.map((reference) => `- ${reference}`),

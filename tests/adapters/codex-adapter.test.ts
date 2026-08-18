@@ -43,7 +43,8 @@ describe('CodexAdapter', () => {
     expect(context).toContain('<method-source id="superpowers:brainstorming" trust="lower-priority-guidance">');
     expect(context).toContain('<task-fact role="task" path="task.md" trust="untrusted-data">');
     expect(context).toContain('不得修改 .aiw/ 中除当前节点声明产物外的任何文件');
-    expect(context).toContain('允许修改的业务路径：src/refunds/**');
+    expect(context).toContain('可修改必要的业务代码和测试');
+    expect(context).toContain('AIW 会记录全部 Git 变更作为运行证据');
     expect(context).toContain('所有 Markdown 产物必须以一级标题');
   });
 
@@ -87,7 +88,7 @@ describe('CodexAdapter', () => {
     expect(context).toContain('不得增加 schema 未定义字段');
   });
 
-  it('requires a plan to declare machine-readable implementation paths', async () => {
+  it('requires a plan to declare machine-readable implementation units without path whitelists', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.aiw-runtime', 'run-plan');
     const adapter = new CodexAdapter({
@@ -104,12 +105,12 @@ describe('CodexAdapter', () => {
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
-    expect(context).toContain('实施计划产物必须包含以下 YAML 代码块');
-    expect(context).toContain('allowedPaths:');
+    expect(context).toContain('不需要预先穷举可修改的文件路径');
     expect(context).toContain('「## 实施单元」');
     expect(context).toContain('每个 `units` 项只能使用');
     expect(context).toContain('acceptanceId: AC-01');
     expect(context).toContain('不得使用 `acceptanceRef`、`status`、`units`');
+    expect(context).toContain('不得使用 `acceptanceIds`、`allowedPaths`');
   });
 
   it('requires clarify to turn unresolved facts into recommended decision options', async () => {
@@ -201,7 +202,7 @@ describe('CodexAdapter', () => {
 
 function runRequest(input: { projectRoot: string; runDirectory: string }): RunRequest {
   return {
-    schemaVersion: 'aiw.run/v1',
+    schemaVersion: 'aiw.run/v2',
     runId: 'run-1',
     task: { id: 'refund-123', nodeId: 'clarify', phase: 'clarify', nodeRevision: 0, projectRoot: input.projectRoot },
     instruction: '澄清退款需求。',
@@ -209,7 +210,6 @@ function runRequest(input: { projectRoot: string; runDirectory: string }): RunRe
     runDirectory: input.runDirectory,
     mode: 'execute',
     artifacts: ['artifacts/brief.md'],
-    allowedChangePaths: ['src/refunds/**'],
     context: {
       skill: { name: 'requirements-clarification', version: '1.0.0', content: '澄清需求并输出 brief。' },
       methodSources: [{ id: 'superpowers:brainstorming', content: '先理解问题。' }],

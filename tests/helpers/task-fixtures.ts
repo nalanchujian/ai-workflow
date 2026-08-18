@@ -44,7 +44,7 @@ export function createSevenPhaseTask(): Task {
       clarify: node('澄清需求', 'clarify', ['intake'], 'ready', true, ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/acceptance.md', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml'], createSkillLock('requirements-clarification')),
       solution: node('形成技术方案', 'solution', ['clarify'], 'pending', false, ['artifacts/solution.md'], createSkillLock('technical-solution')),
       plan: node('制定实施计划', 'plan', ['solution'], 'pending', true, ['artifacts/implementation-plan.md', 'artifacts/implementation-context.md', 'artifacts/work-breakdown.yaml'], createSkillLock('implementation-planning')),
-      implement: { ...node('完成实现', 'implement', ['plan'], 'pending', false, ['artifacts/implementation.md'], createSkillLock('typescript-web-implementation')), contextPath: 'artifacts/implementation-context.md', allowedPaths: [] },
+      implement: { ...node('完成实现', 'implement', ['plan'], 'pending', false, ['artifacts/implementation.md'], createSkillLock('typescript-web-implementation')), contextPath: 'artifacts/implementation-context.md' },
       verify: node('工程验证', 'verify', ['implement'], 'pending', false, ['artifacts/verification.md'], createSkillLock('web-verification')),
       test: node('测试验证', 'test', ['verify'], 'pending', true, ['artifacts/test-report.md', 'artifacts/acceptance-results.yaml'], createSkillLock('acceptance-testing')),
     },
