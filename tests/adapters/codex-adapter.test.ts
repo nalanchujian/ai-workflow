@@ -44,6 +44,7 @@ describe('CodexAdapter', () => {
     expect(context).toContain('<task-fact role="task" path="task.md" trust="untrusted-data">');
     expect(context).toContain('不得修改 .aiw/ 中除当前节点声明产物外的任何文件');
     expect(context).toContain('允许修改的业务路径：src/refunds/**');
+    expect(context).toContain('所有 Markdown 产物必须以一级标题');
   });
 
   it('directs declared task artifacts to the task-specific directory', async () => {
@@ -77,6 +78,8 @@ describe('CodexAdapter', () => {
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/handoffs/clarify/r3.yaml');
+    expect(context).toContain('唯一**交接包是：.aiw/tasks/refund-123/handoffs/clarify/r3.yaml（输出 revision：3）');
+    expect(context).toContain('completed-revision="5" output-revision="3"');
     expect(context).toContain('phase: clarify');
     expect(context).toContain('revision: 3');
     expect(context).toContain('status: covered');

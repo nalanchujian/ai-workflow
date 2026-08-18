@@ -276,7 +276,7 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
         headline: '待决策事项',
         sections: decisions.map(({ item, resolution }) => ({
           title: `${item.id}：${item.title}`, lines: [
-            `影响验收项：${item.affects.acceptanceRefs.join('、')}`,
+            `影响验收项：${item.affects.acceptanceRefs[0]}`,
             `影响工作单元：${item.affects.workUnits.join('、')}`,
             `AI 推荐：${item.recommendation.optionId}（${item.recommendation.rationale}）`,
             `当前选择：${resolution === undefined ? '待选择' : `${resolution.optionId}（${resolution.status}）`}`,
@@ -483,15 +483,11 @@ function writeDecisionContext(
   } else {
     stdout.write(`${item.title}\n`);
     stdout.write(`  当前情况：${item.recommendation.rationale}\n`);
-    stdout.write(`  不确认的影响：${item.affects.acceptanceRefs.join('、')} 的验收与 ${item.affects.workUnits.join('、')} 的实施边界无法可靠确定。\n`);
+    stdout.write(`  不确认的影响：${item.affects.acceptanceRefs[0]} 的验收与 ${item.affects.workUnits.join('、')} 的实施边界无法可靠确定。\n`);
   }
-  const references = item.affects.acceptanceRefs.map((id) => acceptanceDetails.get(id));
-  if (references.some((item) => item !== undefined)) {
-    stdout.write('  关联验收：\n');
-    for (const acceptance of references) {
-      if (acceptance === undefined) continue;
-      stdout.write(`    - ${acceptance.id}：${acceptance.title}\n      验收标准：${acceptance.description}\n`);
-    }
+  const acceptance = acceptanceDetails.get(item.affects.acceptanceRefs[0]!);
+  if (acceptance !== undefined) {
+    stdout.write(`  关联验收项：${acceptance.id}：${acceptance.title}\n    验收标准：${acceptance.description}\n`);
   }
   stdout.write('\n');
 }

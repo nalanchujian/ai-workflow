@@ -193,7 +193,11 @@ export class TaskRunner {
         return failedResult(request, 'GIT_HISTORY_MUTATION', message);
       }
       if (evidence.violations.length > 0) {
-        const message = `检测到超出允许范围的变更：${evidence.violations.join(', ')}`;
+        const expectedHandoff = request.artifacts.find((path) => path.startsWith(`handoffs/${nodeId}/`) && path.endsWith('.yaml'));
+        const staleHandoffs = evidence.violations.filter((path) => path.startsWith(`.aiw/tasks/${task.id}/handoffs/${nodeId}/`));
+        const message = staleHandoffs.length === 0
+          ? `检测到超出允许范围的变更：${evidence.violations.join(', ')}`
+          : `检测到写入旧交接包：${staleHandoffs.join(', ')}。本次运行只允许写入 ${expectedHandoff ?? '当前 revision 的交接包'}；请勿根据节点的历史 revision 重写旧文件。`;
         await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('scope', 'CHANGE_SCOPE_VIOLATION', message) });
         return failedResult(request, 'CHANGE_SCOPE_VIOLATION', message);
       }
@@ -452,8 +456,8 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   if (path === 'artifacts/implementation-context.md' && Buffer.byteLength(content, 'utf8') > 16_000) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '实施上下文摘要超过 4000 tokens 预算，必须压缩后重新生成计划');
   }
-  if (content.trim().length < 24 || !/^#\s+.+/m.test(content)) {
-    throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物内容不足或缺少一级标题：${path}`);
+  if (content.trim().length < 24) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物内容不足：${path}`);
   }
   try {
     validateMarkdownArtifactContract(path, content);

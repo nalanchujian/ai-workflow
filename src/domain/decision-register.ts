@@ -29,7 +29,7 @@ export const DecisionItemSchema = z.object({
   }).strict(),
   type: z.enum(['business-rule', 'technical-contract', 'external-contract', 'engineering-baseline']),
   affects: z.object({
-    acceptanceRefs: z.array(z.string().min(1)).min(1),
+    acceptanceRefs: z.array(z.string().min(1)).length(1, '每个决策项只能关联一个验收项'),
     workUnits: z.array(z.string().regex(workUnitIdPattern, '工作单元 ID 格式无效')).min(1),
   }).strict(),
   status: z.enum(['proposed', 'resolved', 'waiting_external', 'deferred', 'waived']),

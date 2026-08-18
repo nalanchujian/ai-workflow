@@ -13,6 +13,9 @@ const contracts: Array<{ matches: (path: string) => boolean; label: string; head
 export function validateMarkdownArtifactContract(path: string, content: string): void {
   const contract = contracts.find((candidate) => candidate.matches(path));
   if (contract === undefined) return;
+  if (!/^#\s+\S.+$/m.test(content)) {
+    throw new Error(`${contract.label}结构不完整：文件开头必须有一级标题，例如「# ${contract.label}」。`);
+  }
   const missing = contract.headings.filter((heading) => !new RegExp(`^#{1,6}\\s+${escapeRegExp(heading)}\\s*$`, 'm').test(content));
   if (missing.length > 0) {
     throw new Error(`${contract.label}结构不完整：缺少章节「${missing.map((heading) => `## ${heading}`).join('」「')}」。`);
@@ -24,7 +27,7 @@ export function markdownArtifactContractFor(paths: string[]): string {
     const contract = contracts.find((candidate) => candidate.matches(path));
     return contract === undefined ? [] : [`- ${path}：必须包含 ${contract.headings.map((heading) => `「## ${heading}」`).join('、')}`];
   });
-  return applicable.length === 0 ? '' : `\nMarkdown 产物必须使用以下固定章节：\n${applicable.join('\n')}\n`;
+  return applicable.length === 0 ? '' : `\n所有 Markdown 产物必须以一级标题（例如「# 需求摘要」）开头；不能只输出二级章节或正文。并使用以下固定章节：\n${applicable.join('\n')}\n`;
 }
 
 function escapeRegExp(value: string): string {

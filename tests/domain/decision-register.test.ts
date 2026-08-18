@@ -11,7 +11,7 @@ describe('DecisionRegisterSchema', () => {
         title: '详情趋势数据来源',
         detail: decisionDetail(),
         type: 'external-contract',
-        affects: { acceptanceRefs: ['AC-07', 'AC-08'], workUnits: ['performance-overview'] },
+        affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
         status: 'resolved',
         options: [
           { id: 'wait-api', title: '等待正式 API', tradeoffs: '交付依赖后端，但口径一致。', effect: 'waiting_external' },
@@ -45,6 +45,18 @@ describe('DecisionRegisterSchema', () => {
     });
 
     expect(unresolvedBlockingDecisionIds(register, 'performance-overview')).toEqual(['DEC-API-01']);
+  });
+
+  it('rejects a decision that combines multiple acceptance items', () => {
+    expect(() => DecisionRegisterSchema.parse({
+      schemaVersion: 'aiw.decision-register/v1',
+      items: [{
+        id: 'DEC-API-01', title: '详情趋势数据来源', detail: decisionDetail(), type: 'external-contract',
+        affects: { acceptanceRefs: ['AC-07', 'AC-08'], workUnits: ['performance-overview'] }, status: 'proposed',
+        options: [{ id: 'mock-ui', title: '使用 Mock', tradeoffs: '可以先验证界面，但不能完成接口验收。', effect: 'resolved' }],
+        recommendation: { optionId: 'mock-ui', rationale: '当前没有可信详情接口。' },
+      }],
+    })).toThrow(/只能关联一个/);
   });
 
   it('rejects a resolution that selects an undeclared option', () => {

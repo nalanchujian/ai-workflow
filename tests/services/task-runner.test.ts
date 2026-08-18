@@ -156,6 +156,22 @@ describe('TaskRunner', () => {
       .resolves.toContain('src/unapproved.ts');
   });
 
+  it('explains the target revision when a re-run writes an old handoff path', async () => {
+    const fixture = await createRunnerFixture({
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
+    });
+    const task = await fixture.taskStore.load('refund-123');
+    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', revision: 1 };
+    await fixture.taskStore.update(task);
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { code: 'CHANGE_SCOPE_VIOLATION', message: expect.stringContaining('本次运行只允许写入 handoffs/clarify/r2.yaml') },
+    });
+  });
+
   it('records a baseline, diff hash and output hashes as the completion evidence', async () => {
     const fixture = await createRunnerFixture({
       changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']],
