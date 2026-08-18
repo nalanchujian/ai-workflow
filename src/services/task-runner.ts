@@ -6,7 +6,7 @@ import type { CodexAdapter } from '../adapters/codex-adapter.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import type { ContextManifest } from '../domain/context.js';
 import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Task } from '../domain/task.js';
-import { handoffPath, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
+import { completedArtifactPath, declaredOutputPath, handoffPath, nextArtifactPath, outputPathsForCompletedRun, outputPathsForNextRun, validateHandoff } from '../domain/handoff.js';
 import { hasTestExecutionEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
@@ -21,7 +21,7 @@ import { ImplementationWorkPlannerError, validateWorkBreakdown } from './impleme
 import { SkillRegistry } from './skill-registry.js';
 import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
-import { invalidateNodeAndDependents, overwriteCleanupPaths, transitionNode } from './task-state-machine.js';
+import { invalidateNodeAndDependents, transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
 import { loadRunCompletionBundle } from './run-completion-bundle.js';
 
@@ -122,9 +122,6 @@ export class TaskRunner {
       prompt: this.deps.adapter.renderPrompt(request),
     });
     await this.deps.taskStore.createFact(task.id, contextManifestFactPath, JSON.stringify(finalizedManifest, null, 2) + '\n');
-    if (!input.dryRun && canOverwrite) {
-      await this.deps.taskStore.removeFacts(task.id, overwriteCleanupPaths(task, input.nodeId));
-    }
     const baseline: ChangeBaseline = {
       path: `runs/${runId}/change-baseline.json`,
       changedPaths: [],
@@ -426,7 +423,11 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : '交接包无效');
     }
   }
-  if (path === 'artifacts/work-breakdown.yaml') {
+  const declaredPath = declaredOutputPath(nodeId, node, node.revision + 1, path);
+  if (declaredPath === undefined) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物路径与当前 revision 不一致：${path}`);
+  }
+  if (declaredPath === 'artifacts/work-breakdown.yaml') {
     try {
       validateWorkBreakdown(content);
       return;
@@ -434,7 +435,7 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof ImplementationWorkPlannerError ? error.message : '实施工作单元声明无效');
     }
   }
-  if (path === 'artifacts/decision-register.yaml') {
+  if (declaredPath === 'artifacts/decision-register.yaml') {
     try {
       DecisionRegisterSchema.parse(parse(content));
       return;
@@ -453,7 +454,7 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       }));
     }
   }
-  if (path === 'artifacts/acceptance.yaml') {
+  if (declaredPath === 'artifacts/acceptance.yaml') {
     try {
       AcceptanceCatalogSchema.parse(parse(content));
       return;
@@ -470,7 +471,7 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       }));
     }
   }
-  if (path === 'artifacts/acceptance-results.yaml') {
+  if (declaredPath === 'artifacts/acceptance-results.yaml') {
     try {
       AcceptanceResultsSchema.parse(parse(content));
       return;
@@ -487,7 +488,7 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       }));
     }
   }
-  if (path === 'artifacts/implementation-context.md' && Buffer.byteLength(content, 'utf8') > 16_000) {
+  if (declaredPath === 'artifacts/implementation-context.md' && Buffer.byteLength(content, 'utf8') > 16_000) {
     throw new TaskRunnerError('ARTIFACT_INVALID', '实施上下文摘要超过 4000 tokens 预算，必须压缩后重新生成计划');
   }
   if (content.trim().length < 24) {
@@ -507,8 +508,8 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
   const node = task.nodes[nodeId];
   if (node === undefined) return;
   if (node.phase === 'clarify') {
-    const catalogContent = contents.get('artifacts/acceptance.yaml');
-    const registerContent = contents.get('artifacts/decision-register.yaml');
+    const catalogContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance.yaml'));
+    const registerContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/decision-register.yaml'));
     if (catalogContent === undefined || registerContent === undefined) return;
     const catalog = AcceptanceCatalogSchema.parse(parse(catalogContent));
     const register = DecisionRegisterSchema.parse(parse(registerContent));
@@ -520,10 +521,14 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
     }
   }
   if (node.phase === 'test') {
-    const resultContent = contents.get('artifacts/acceptance-results.yaml');
+    const resultContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance-results.yaml'));
     if (resultContent === undefined) return;
     const results = AcceptanceResultsSchema.parse(parse(resultContent));
-    const catalogContent = await readFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'utf8');
+    const clarify = task.nodes.clarify;
+    if (clarify === undefined || clarify.revision === 0) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', '测试前缺少已完成的需求澄清验收清单');
+    }
+    const catalogContent = await readFile(join(taskStore.taskDirectory(task.id), completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml')), 'utf8');
     const catalog = AcceptanceCatalogSchema.parse(parse(catalogContent));
     const expected = new Set(catalog.items.map((item) => item.id));
     const actual = new Set(results.items.map((item) => item.id));
@@ -575,13 +580,18 @@ function validateClarifyDecisionChoices(register: import('../domain/decision-reg
 export function handoffEvidencePaths(task: Task, nodeId: string, manifest: Pick<ContextManifest, 'files'>): string[] {
   const node = task.nodes[nodeId];
   if (node === undefined) return [];
-  const upstream = dependencyClosure(task, nodeId).flatMap((dependency) => task.nodes[dependency]?.outputs ?? []);
+  const upstream = dependencyClosure(task, nodeId).flatMap((dependency) => {
+    const upstreamNode = task.nodes[dependency];
+    return upstreamNode === undefined || upstreamNode.phase === 'intake'
+      ? []
+      : outputPathsForCompletedRun(dependency, upstreamNode);
+  });
   return [...new Set([
     ...manifest.files.filter((file) => file.evidenceEligible).map((file) => file.path),
     ...Object.values(task.sources).flatMap((source) => [source.snapshotPath, source.metaPath]),
     ...registeredDecisionFactPaths(task),
     ...upstream,
-    ...node.outputs,
+    ...outputPathsForNextRun(nodeId, node),
   ])];
 }
 

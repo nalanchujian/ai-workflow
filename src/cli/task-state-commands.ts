@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 import { type Task, type TaskNode } from '../domain/task.js';
 import { ApprovalFactSchema } from '../domain/approval.js';
-import { outputPathsForCompletedRun } from '../domain/handoff.js';
+import { completedArtifactPath, outputPathsForCompletedRun } from '../domain/handoff.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
 import { invalidateNodeAndDependents, transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
@@ -59,7 +59,11 @@ export class TaskStateCommands {
 
   async acceptanceDetails(taskId: string): Promise<Map<string, AcceptanceDetail>> {
     const task = await this.deps.taskStore.load(taskId);
-    const content = await readFile(join(this.deps.taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'utf8');
+    const clarify = task.nodes.clarify;
+    if (clarify === undefined || clarify.revision === 0) {
+      throw new Error('需求澄清尚未生成验收清单');
+    }
+    const content = await readFile(join(this.deps.taskStore.taskDirectory(task.id), completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml')), 'utf8');
     const catalog = AcceptanceCatalogSchema.parse(parse(content));
     return new Map(catalog.items.map((item) => [item.id, item]));
   }
@@ -119,7 +123,7 @@ export class TaskStateCommands {
     await this.deps.taskFactGuard.assertCommitted({
       task,
       projectRoot: this.deps.taskStore.projectDirectory(),
-      paths: ['task.yaml', 'artifacts/decision-register.yaml', ...completionBundle.paths],
+      paths: ['task.yaml', ...completionBundle.paths],
     });
     const actor = await this.deps.taskFactGuard.actor(options.actor);
     for (const selection of selections) {
@@ -216,10 +220,14 @@ export class TaskStateCommands {
 
   private async assertDecisionRegisterCommitted(taskId: string): Promise<void> {
     const task = await this.deps.taskStore.load(taskId);
+    const clarify = task.nodes.clarify;
+    if (clarify === undefined || clarify.revision === 0) {
+      throw new Error('需求澄清尚未生成决策登记');
+    }
     await this.deps.taskFactGuard.assertCommitted({
       task,
       projectRoot: this.deps.taskStore.projectDirectory(),
-      paths: ['task.yaml', 'artifacts/decision-register.yaml'],
+      paths: ['task.yaml', completedArtifactPath('clarify', clarify, 'artifacts/decision-register.yaml')],
     });
   }
 
@@ -531,7 +539,7 @@ async function askRequiredText(prompter: ReviewPrompter, prompt: string): Promis
 
 function approvalNextSteps(task: Task, nodeId: string, node: TaskNode, uncommittedTaskPaths?: string[]): string[] {
   const taskDirectory = `.aiw/tasks/${task.id}`;
-  const outputPaths = node.outputs.map((path) => `${taskDirectory}/${path}`);
+  const outputPaths = outputPathsForCompletedRun(nodeId, node).map((path) => `${taskDirectory}/${path}`);
   return [
     `查看待审批产物：${outputPaths.join('、')}`,
     ...(uncommittedTaskPaths === undefined || uncommittedTaskPaths.length > 0
@@ -567,7 +575,9 @@ async function outputHashes(task: Task, taskStore: TaskStore, nodeId: string): P
 
 async function readDeliveryStatus(task: Task, taskStore: TaskStore): Promise<Task['deliveryStatus']> {
   try {
-    const results = AcceptanceResultsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance-results.yaml'), 'utf8')));
+    const test = task.nodes.test;
+    if (test === undefined || test.revision === 0) throw new Error('测试节点尚未生成当前 revision');
+    const results = AcceptanceResultsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), completedArtifactPath('test', test, 'artifacts/acceptance-results.yaml')), 'utf8')));
     return deliveryStatusFromAcceptanceResults(results);
   } catch {
     throw new Error('测试节点缺少有效的 artifacts/acceptance-results.yaml');

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { TaskDecisionService } from '../../src/services/task-decision-service.js';
 import { TaskStore } from '../../src/services/task-store.js';
+import { completedArtifactPath } from '../../src/domain/handoff.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -68,9 +69,10 @@ async function fixture(): Promise<{ store: TaskStore; service: TaskDecisionServi
   directories.push(directory);
   const store = new TaskStore(directory);
   const task = createSevenPhaseTask();
+  task.nodes.clarify!.revision = 1;
   await store.create(task);
-  const artifacts = join(store.taskDirectory(task.id), 'artifacts');
-  await mkdir(artifacts, { recursive: true });
-  await writeFile(join(artifacts, 'decision-register.yaml'), `schemaVersion: aiw.decision-register/v1\nitems:\n  - id: DEC-API-01\n    title: 详情趋势数据来源\n    detail:\n      question: 详情趋势与导出本期使用哪一套服务端接口？\n      background: 当前需求与仓库未提供趋势、导出和日期聚合的统一契约。\n      impact: 不确认会使页面、导出与验收采用不同的数据口径。\n    type: external-contract\n    affects:\n      acceptanceRefs: [AC-07]\n      workUnits: [performance-overview]\n    status: proposed\n    options:\n      - id: wait-api\n        title: 等待正式 API\n        tradeoffs: 交付依赖后端排期，但数据口径一致。\n        effect: waiting_external\n      - id: defer-scope\n        title: 拆至后续版本\n        tradeoffs: 当前范围缩小，需要后续跟踪。\n        effect: deferred\n    recommendation:\n      optionId: wait-api\n      rationale: 当前仓库没有可信详情与趋势接口。\n`, 'utf8');
+  const registerPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/decision-register.yaml');
+  await mkdir(join(store.taskDirectory(task.id), registerPath, '..'), { recursive: true });
+  await writeFile(join(store.taskDirectory(task.id), registerPath), `schemaVersion: aiw.decision-register/v1\nitems:\n  - id: DEC-API-01\n    title: 详情趋势数据来源\n    detail:\n      question: 详情趋势与导出本期使用哪一套服务端接口？\n      background: 当前需求与仓库未提供趋势、导出和日期聚合的统一契约。\n      impact: 不确认会使页面、导出与验收采用不同的数据口径。\n    type: external-contract\n    affects:\n      acceptanceRefs: [AC-07]\n      workUnits: [performance-overview]\n    status: proposed\n    options:\n      - id: wait-api\n        title: 等待正式 API\n        tradeoffs: 交付依赖后端排期，但数据口径一致。\n        effect: waiting_external\n      - id: defer-scope\n        title: 拆至后续版本\n        tradeoffs: 当前范围缩小，需要后续跟踪。\n        effect: deferred\n    recommendation:\n      optionId: wait-api\n      rationale: 当前仓库没有可信详情与趋势接口。\n`, 'utf8');
   return { store, service: new TaskDecisionService({ taskStore: store }) };
 }

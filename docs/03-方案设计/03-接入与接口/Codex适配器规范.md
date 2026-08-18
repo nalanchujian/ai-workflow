@@ -20,7 +20,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
   "contextManifestPath": "/absolute/path/to/repository/.aiw/tasks/refund-123/runs/run_01JABC/context-manifest.json",
   "runDirectory": "/absolute/path/to/user-home/.aiw/runtime/refund-123/run_01JABC",
   "mode": "execute",
-  "artifacts": ["artifacts/implementation-plan.md"]
+  "artifacts": ["artifacts/plan/r1/implementation-plan.md", "artifacts/plan/r1/implementation-context.md", "artifacts/plan/r1/work-breakdown.yaml", "handoffs/plan/r1.yaml"]
 }
 ```
 
@@ -36,7 +36,7 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提
   "startedAt": "2026-08-11T12:00:00Z",
   "finishedAt": "2026-08-11T12:02:00Z",
   "process": {"exitCode": 0, "signal": null},
-  "artifacts": [{"path": "artifacts/implementation-plan.md", "sha256": "<hex>"}],
+  "artifacts": [{"path": "artifacts/plan/r1/implementation-plan.md", "sha256": "<hex>"}],
   "error": null
 }
 ```
@@ -55,7 +55,7 @@ Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业�
 
 每次执行还会写入 `change-scope.json`（执行前的任务事实写入边界与业务文件策略）、`change-diff.json`（执行后实际变更路径及非法任务事实写入）、`change.patch`（全部未跟踪文本文件的补丁）和 `change-evidence.json`（Git 基线与文件哈希）。实施节点可以修改完成当前目标所需的任意业务代码和测试；计划与工作单元应说明目标、验收、依赖、步骤和验证方式，而不是穷举文件路径。
 
-Adapter 传递给 Codex 的任务产物地址必须是相对于业务仓库根目录的完整路径，例如 `.aiw/tasks/<task-id>/artifacts/brief.md`，不得仅传递 `artifacts/brief.md`。Codex 不得修改 `.aiw/` 中除当前节点声明产物外的任何文件；尝试写入其他任务、旧 revision 交接包或项目配置会失败并保留运行证据。
+Adapter 传递给 Codex 的任务产物地址必须是相对于业务仓库根目录的完整、版本化路径，例如 `.aiw/tasks/<task-id>/artifacts/clarify/r1/brief.md`，不得仅传递逻辑名 `artifacts/brief.md`。同一运行的版本化 `artifacts/<node-id>/r<revision>/...` 与 `handoffs/<node-id>/r<revision>.yaml` 是唯一可写事实；Codex 不得修改 `.aiw/` 中其他任务、其他节点、旧 revision 交接包或项目配置。违反时节点失败并保留运行证据。
 
 除非用户任务明确要求其他语言，Adapter 要求所有 Markdown 任务产物使用简体中文；代码标识、命令、路径、API 名称和必须保留的原文保持原始语言。上游方法论可以是英文，但不能改变该产物语言约束。
 
@@ -79,7 +79,7 @@ Adapter 将 `AIW_CODEX_BIN` 解析为可执行文件；变量未设置时使用 
 
 - Runner 将 `failed` 或 `unavailable` 映射为节点 `failed`；`cancelled` 映射为节点 `cancelled`。两类结果均保留运行记录；提交取消记录后，可通过同一条 `task run` 重新执行非 `intake` 节点。
 - 若下一次命令已成功取得任务执行锁，但目标节点仍为 `running`，说明上次 AIW 进程已异常退出。Runner 必须自动记录 `fail` 事件并将节点置为 `failed`，返回 `RUN_RECOVERED`；不得继续启动新的 Codex。用户提交失败证据后可直接再次执行同一 `task run`。
-- 用户可在修正环境或输入后重新运行；新的运行使用新的 `runId`，不覆盖旧记录。
+- 用户可在修正环境或输入后重新运行；新的运行使用新的 `runId`。对已完成节点重跑时，Runner 还会创建新的产物 revision 并切换当前指针，不覆盖旧记录、旧产物或旧审批。
 - Adapter 超时或收到取消时必须终止其启动的子进程并记录信号；超时固定映射为 `failed` / `CODEX_TIMEOUT`，不得将节点错误标为成功。
 - Adapter 不得把完整来源、凭据、环境变量或未授权文件写入 `request.json`、日志或终端输出。
 

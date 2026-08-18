@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { invalidateDependents, overwriteCleanupPaths, reconcileDecisionBlocks, transitionNode } from '../../src/services/task-state-machine.js';
+import { invalidateDependents, reconcileDecisionBlocks, transitionNode } from '../../src/services/task-state-machine.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 
 describe('task state machine', () => {
@@ -174,25 +174,22 @@ describe('task state machine', () => {
     const next = transitionNode(task, 'plan', { type: 'start', runId: 'replace-plan-run' });
 
     expect(next.nodes.plan.status).toBe('running');
-    expect(next.nodes['implement-export']).toBeUndefined();
+    expect(next.nodes['implement-export']).toMatchObject({ status: 'superseded' });
     expect(next.nodes.implement).toMatchObject({ status: 'pending', dependsOn: ['plan'] });
     expect(next.nodes.verify).toMatchObject({ status: 'pending', dependsOn: ['implement'] });
   });
 
-  it('lists only current and downstream task facts for overwrite cleanup', () => {
+  it('keeps historical output declarations when a completed node is re-run', () => {
     const task = createSevenPhaseTask();
-    task.nodes.implement!.contextPath = 'artifacts/work-units/r1/implement-export.md';
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+    task.nodes.solution.revision = 1;
 
-    const paths = overwriteCleanupPaths(task, 'implement');
+    const next = transitionNode(task, 'solution', { type: 'start', runId: 'solution-run-2' });
 
-    expect(paths).toContain('artifacts/implementation.md');
-    expect(paths).toContain('artifacts/work-units/r1/implement-export.md');
-    expect(paths).toContain('artifacts/verification.md');
-    expect(paths).toContain('artifacts/test-report.md');
-    expect(paths).toContain('handoffs/implement');
-    expect(paths).toContain('approvals/test');
-    expect(paths).not.toContain('artifacts/brief.md');
-    expect(paths).not.toContain('sources/requirements/r1/snapshot.md');
+    expect(next.nodes.solution.outputs).toEqual(['artifacts/solution.md']);
+    expect(next.nodes.solution.status).toBe('running');
+    expect(next.nodes.plan.status).toBe('pending');
   });
 
 });

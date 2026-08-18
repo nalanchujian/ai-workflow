@@ -8,7 +8,7 @@ import { ContextBuilder } from '../../src/services/context-builder.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { TaskRunner, handoffEvidencePaths } from '../../src/services/task-runner.js';
 import { TaskStore } from '../../src/services/task-store.js';
-import { handoffPath, outputPathsForCompletedRun, validateHandoff } from '../../src/domain/handoff.js';
+import { handoffPath, nextArtifactPath, outputPathsForCompletedRun, validateHandoff } from '../../src/domain/handoff.js';
 import { ExecutableNotFoundError } from '../../src/ports/process-runner.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
@@ -60,7 +60,7 @@ describe('TaskRunner', () => {
     expect(retried.events).toContainEqual(expect.objectContaining({ type: 'fail', nodeId: 'clarify', reason: 'Codex CLI 异常退出' }));
   });
 
-  it('overwrites a completed node and clears its downstream task facts before running again', async () => {
+  it('creates a new revision when a completed node is re-run and preserves historical facts', async () => {
     const fixture = await createRunnerFixture({
       changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r2.yaml']],
       writeArtifact: '# 需求澄清\n\n## 结论\n\n这是覆盖重跑后生成的新澄清结论。\n',
@@ -72,8 +72,8 @@ describe('TaskRunner', () => {
     task.nodes.solution!.revision = 1;
     task.approvalRefs = ['approvals/clarify/r1.yaml'];
     await fixture.taskStore.update(task);
-    await fixture.taskStore.createFact(task.id, 'artifacts/brief.md', '# 旧澄清\n');
-    await fixture.taskStore.createFact(task.id, 'artifacts/solution.md', '# 旧方案\n');
+    await fixture.taskStore.createFact(task.id, 'artifacts/clarify/r1/brief.md', '# 旧澄清\n');
+    await fixture.taskStore.createFact(task.id, 'artifacts/solution/r1/solution.md', '# 旧方案\n');
     await fixture.taskStore.createFact(task.id, 'handoffs/clarify/r1.yaml', '旧交接\n');
     await fixture.taskStore.createFact(task.id, 'approvals/clarify/r1.yaml', '旧审批\n');
 
@@ -81,10 +81,11 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('succeeded');
     expect((await fixture.taskStore.load(task.id)).nodes.clarify).toMatchObject({ status: 'awaiting_approval', revision: 2 });
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'brief.md'), 'utf8')).resolves.toContain('覆盖重跑后');
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'solution.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'handoffs', 'clarify', 'r1.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'approvals', 'clarify', 'r1.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'clarify', 'r2', 'brief.md'), 'utf8')).resolves.toContain('覆盖重跑后');
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'clarify', 'r1', 'brief.md'), 'utf8')).resolves.toContain('旧澄清');
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'solution', 'r1', 'solution.md'), 'utf8')).resolves.toContain('旧方案');
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'handoffs', 'clarify', 'r1.yaml'), 'utf8')).resolves.toContain('旧交接');
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'approvals', 'clarify', 'r1.yaml'), 'utf8')).resolves.toContain('旧审批');
   });
 
   it('rejects a run when another process holds the task execution lock', async () => {
@@ -163,7 +164,7 @@ describe('TaskRunner', () => {
       at: '2026-08-18T00:00:00.000Z',
     }) + '\n');
     await fixture.taskStore.update(completed);
-    await writeFile(join(fixture.taskStore.taskDirectory(completed.id), 'artifacts', 'brief.md'), validBrief('审批后被改写的需求结论。'), 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory(completed.id), 'artifacts', 'clarify', 'r1', 'brief.md'), validBrief('审批后被改写的需求结论。'), 'utf8');
 
     await expect(fixture.runner.run({ taskId: completed.id, nodeId: 'solution', dryRun: false, includes: [] }))
       .rejects.toMatchObject({ code: 'ARTIFACT_STALE', message: expect.stringContaining('已标记失效') });
@@ -238,7 +239,7 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('succeeded');
     const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
-    expect(evidence).toMatchObject({ baseline: { changedPaths: [], outputs: expect.arrayContaining([{ path: 'artifacts/brief.md' }, { path: handoffPath('clarify', 1) }]) }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/brief.md' }], artifacts: expect.arrayContaining([{ path: 'artifacts/brief.md', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }, { path: handoffPath('clarify', 1), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]), diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(evidence).toMatchObject({ baseline: { changedPaths: [], outputs: expect.arrayContaining([{ path: 'artifacts/clarify/r1/brief.md' }, { path: handoffPath('clarify', 1) }]) }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/clarify/r1/brief.md' }], artifacts: expect.arrayContaining([{ path: 'artifacts/clarify/r1/brief.md', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }, { path: handoffPath('clarify', 1), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]), diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
     expect((await fixture.taskStore.load('refund-123')).events.at(-1)).toMatchObject({ type: 'succeed', runId: 'run-1', evidencePath: 'runs/run-1/change-evidence.json' });
   });
 
@@ -380,7 +381,7 @@ items:
       files: [
         { role: 'handoff', path: handoffPath('clarify', 1), sha256: 'a'.repeat(64), evidenceEligible: true },
         { role: 'task', path: 'task.yaml', sha256: 'b'.repeat(64), evidenceEligible: true },
-        { role: 'artifact', path: 'artifacts/decision-register.yaml', sha256: 'c'.repeat(64), evidenceEligible: true },
+        { role: 'artifact', path: 'artifacts/clarify/r0/decision-register.yaml', sha256: 'c'.repeat(64), evidenceEligible: true },
         { role: 'artifact', path: 'decisions/DEC-API-01/r1.yaml', sha256: 'd'.repeat(64), evidenceEligible: true },
         { role: 'additional', path: 'src/temporary-reference.ts', sha256: 'e'.repeat(64), evidenceEligible: false },
       ],
@@ -389,9 +390,9 @@ items:
     expect(evidencePaths).toEqual(expect.arrayContaining([
       handoffPath('clarify', 1),
       'task.yaml',
-      'artifacts/decision-register.yaml',
+      'artifacts/clarify/r0/decision-register.yaml',
       'decisions/DEC-API-01/r1.yaml',
-      'artifacts/solution.md',
+      'artifacts/solution/r1/solution.md',
       'sources/requirements/r1/snapshot.md',
     ]));
     expect(evidencePaths).not.toContain('src/temporary-reference.ts');
@@ -423,12 +424,13 @@ openRisks: []
 
   it('rejects a valid-looking artifact left over from a previous run', async () => {
     const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']] });
-    await mkdir(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts'), { recursive: true });
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'brief.md'), validBrief('这是上一次运行遗留的产物。'), 'utf8');
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n后续可以按验收清单继续推进。\n', 'utf8');
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
-    await writeFile(join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
+    const staleArtifacts = join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'clarify', 'r1');
+    await mkdir(staleArtifacts, { recursive: true });
+    await writeFile(join(staleArtifacts, 'brief.md'), validBrief('这是上一次运行遗留的产物。'), 'utf8');
+    await writeFile(join(staleArtifacts, 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n后续可以按验收清单继续推进。\n', 'utf8');
+    await writeFile(join(staleArtifacts, 'acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
+    await writeFile(join(staleArtifacts, 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
+    await writeFile(join(staleArtifacts, 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
     await writeHandoff(fixture.taskStore, 'refund-123');
 
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
@@ -487,12 +489,18 @@ async function createRunnerFixture(options: {
           throw new ExecutableNotFoundError('codex');
         }
         if (options.writeArtifact !== undefined) {
-          await mkdir(join(taskStore.taskDirectory(task.id), 'artifacts'), { recursive: true });
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'brief.md'), options.writeArtifact === 'done\n' ? options.writeArtifact : validBrief(options.writeArtifact), 'utf8');
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n可按照验收清单继续完成技术方案。\n', 'utf8');
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
-          await writeFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'decision-register.yaml'), options.decisionRegister ?? 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
+          const current = await taskStore.load(task.id);
+          const clarify = current.nodes.clarify!;
+          const artifact = (name: string) => {
+            const path = nextArtifactPath('clarify', clarify, `artifacts/${name}`);
+            return join(taskStore.taskDirectory(task.id), path);
+          };
+          await mkdir(join(artifact('brief.md'), '..'), { recursive: true });
+          await writeFile(artifact('brief.md'), options.writeArtifact === 'done\n' ? options.writeArtifact : validBrief(options.writeArtifact), 'utf8');
+          await writeFile(artifact('questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n可按照验收清单继续完成技术方案。\n', 'utf8');
+          await writeFile(artifact('acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
+          await writeFile(artifact('acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n', 'utf8');
+          await writeFile(artifact('decision-register.yaml'), options.decisionRegister ?? 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
           await writeHandoff(taskStore, task.id, options.writeHandoff);
         }
         return { exitCode: options.exitCode ?? 0, signal: options.signal ?? null, stdout: '', stderr: '', timedOut: false };
@@ -511,9 +519,17 @@ async function createRunnerFixture(options: {
     taskFactGuard: { async assertCommitted() {}, async actor() { return 'tester'; } } as never,
     adapter,
     changeInspector: {
-      async changedPaths() { return options.changeSnapshots?.shift() ?? []; },
+      async changedPaths() {
+        const paths = options.changeSnapshots?.shift() ?? [];
+        const current = await taskStore.load(task.id);
+        const clarify = current.nodes.clarify!;
+        return paths.map((path) => mapLegacyArtifactPath(path, task.id, clarify));
+      },
       async diff() { return 'diff --git a/src/example.ts b/src/example.ts\n'; },
-      async untrackedPaths() { return options.untrackedPaths ?? []; },
+      async untrackedPaths() {
+        const current = await taskStore.load(task.id);
+        return (options.untrackedPaths ?? []).map((path) => mapLegacyArtifactPath(path, task.id, current.nodes.clarify!));
+      },
       async revision() { return options.gitRevisions?.shift() ?? { head: 'base-commit', branch: 'main' }; },
     },
     runtimeRoot: join(projectRoot, '.aiw-runtime'),
@@ -529,7 +545,16 @@ async function writeHandoff(taskStore: TaskStore, taskId: string, content?: stri
   if (node === undefined) throw new Error('clarify node missing');
   const path = handoffPath('clarify', node.revision + 1);
   await mkdir(join(taskStore.taskDirectory(task.id), 'handoffs', 'clarify'), { recursive: true });
-  await writeFile(join(taskStore.taskDirectory(task.id), path), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nrevision: ${node.revision + 1}\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: artifacts/brief.md\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+  const brief = nextArtifactPath('clarify', node, 'artifacts/brief.md');
+  await writeFile(join(taskStore.taskDirectory(task.id), path), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nrevision: ${node.revision + 1}\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: ${brief}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+}
+
+function mapLegacyArtifactPath(path: string, taskId: string, node: NonNullable<ReturnType<typeof createSevenPhaseTask>['nodes']['clarify']>): string {
+  const prefix = `.aiw/tasks/${taskId}/artifacts/`;
+  if (!path.startsWith(prefix)) return path;
+  const declaredPath = `artifacts/${path.slice(prefix.length)}`;
+  if (!node.outputs.includes(declaredPath)) return path;
+  return `.aiw/tasks/${taskId}/${nextArtifactPath('clarify', node, declaredPath)}`;
 }
 
 function validBrief(content: string): string {

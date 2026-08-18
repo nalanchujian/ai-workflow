@@ -53,12 +53,36 @@ export function handoffPath(nodeId: string, revision: number): string {
   return `handoffs/${nodeId}/r${revision}.yaml`;
 }
 
+/**
+ * A declared node output is a logical artifact name.  Every successful
+ * revision receives its own physical path so a later re-run never overwrites
+ * evidence that was previously reviewed or approved.
+ */
+export function artifactPath(nodeId: string, revision: number, declaredPath: string): string {
+  if (!declaredPath.startsWith('artifacts/')) {
+    throw new Error(`节点产物必须位于 artifacts/：${declaredPath}`);
+  }
+  return `artifacts/${nodeId}/r${revision}/${declaredPath.slice('artifacts/'.length)}`;
+}
+
+export function completedArtifactPath(nodeId: string, node: TaskNode, declaredPath: string): string {
+  return artifactPath(nodeId, node.revision, declaredPath);
+}
+
+export function nextArtifactPath(nodeId: string, node: TaskNode, declaredPath: string): string {
+  return artifactPath(nodeId, node.revision + 1, declaredPath);
+}
+
+export function declaredOutputPath(nodeId: string, node: TaskNode, revision: number, path: string): string | undefined {
+  return node.outputs.find((declaredPath) => artifactPath(nodeId, revision, declaredPath) === path);
+}
+
 export function outputPathsForNextRun(nodeId: string, node: TaskNode): string[] {
-  return [...node.outputs, handoffPath(nodeId, node.revision + 1)];
+  return [...node.outputs.map((path) => nextArtifactPath(nodeId, node, path)), handoffPath(nodeId, node.revision + 1)];
 }
 
 export function outputPathsForCompletedRun(nodeId: string, node: TaskNode): string[] {
-  return [...node.outputs, handoffPath(nodeId, node.revision)];
+  return [...node.outputs.map((path) => completedArtifactPath(nodeId, node, path)), handoffPath(nodeId, node.revision)];
 }
 
 export function validateHandoff(content: string, expected: {

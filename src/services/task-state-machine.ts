@@ -203,7 +203,12 @@ function resetForOverwrite(task: Task, nodeId: string): void {
   // as generated, but a later split plan must still be able to rebuild from its skill.
   const generatedImplementationIds = affected.filter((id) => id !== nodeId && id !== 'implement' && task.nodes[id]?.phase === 'implement' && task.nodes[id]?.generatedFromPlanRevision !== undefined);
 
-  for (const id of generatedImplementationIds) delete task.nodes[id];
+  for (const id of generatedImplementationIds) {
+    const generated = task.nodes[id];
+    if (generated === undefined || generated.status === 'superseded') continue;
+    generated.status = 'superseded';
+    addEvent(task, 'supersede', id, { reason: `重新执行 ${nodeId}，已保留旧实施单元作为历史 revision` });
+  }
 
   const implementation = task.nodes.implement;
   if (implementation !== undefined && affectedSet.has('implement')) {
@@ -230,24 +235,6 @@ function resetForOverwrite(task: Task, nodeId: string): void {
   if (affectedSet.has('clarify')) task.decisions = [];
   if (affectedSet.has('test')) task.deliveryStatus = 'not_assessed';
   task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
-}
-
-/** Current task facts that must be deleted before a completed stage is re-run. Runtime records remain for debugging. */
-export function overwriteCleanupPaths(task: Task, nodeId: string): string[] {
-  const affected = [nodeId, ...downstreamNodeIds(task, nodeId)];
-  const paths = affected.flatMap((id) => {
-    const node = task.nodes[id];
-    if (node === undefined) return [];
-    return [
-      ...node.outputs,
-      ...(node.contextPath === undefined ? [] : [node.contextPath]),
-      `handoffs/${id}`,
-      `approvals/${id}`,
-      `risk-acceptances/${id}`,
-    ];
-  });
-  if (affected.includes('clarify')) paths.push('decisions');
-  return [...new Set(paths)];
 }
 
 function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {

@@ -215,7 +215,7 @@ aiw task decision resolve refund-123 DEC-API-01 --note "后端接口已发布并
 
 ### `aiw task run <task-id> <node-id> [--project <path>] [--dry-run] [--include <relative-path>]`
 
-使用节点已锁定的技能运行一个已就绪、可重试、已取消、已完成或待审批节点。对已取消、已完成或待审批节点再次运行时，AIW 直接覆盖该节点及下游节点的当前任务产物；取消对应的历史运行证据仍会保留。`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
+使用节点已锁定的技能运行一个已就绪、可重试、已取消、已完成或待审批节点。对已取消、已完成或待审批节点再次运行时，AIW 创建该节点的新产物 revision，并使下游的当前结果失效；历史产物、交接包、审批和运行证据全部保留。`--dry-run` 仅生成上下文与运行预演，不启动 Codex。
 
 ```bash
 aiw task run refund-123 clarify
@@ -230,7 +230,7 @@ aiw task run refund-123 implement --include docs/api-contract.md
 | `--dry-run` | 可选。不启动 Codex，只生成 `context.md`、manifest 和预演结果。 |
 | `--include <relative-path>` | 可重复。可显式加入项目根目录内的文件；每项必须记录到 manifest。 |
 
-节点通常在 `ready` 或 `failed` 且任务模板/技能锁定已提交时可运行；已取消、已完成或待审批的非 `intake` 节点也可直接再次运行。取消后应先提交取消记录，再使用同一条 `task run` 重试。覆盖式重跑会删除当前节点及下游节点的任务产物、Handoff、审批和动态实施单元，随后从当前节点重新生成；需求快照、业务代码和 `runs/` 调试记录不会被删除。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。
+节点通常在 `ready` 或 `failed` 且任务模板/技能锁定已提交时可运行；已取消、已完成或待审批的非 `intake` 节点也可直接再次运行。取消后应先提交取消记录，再使用同一条 `task run` 重试。覆盖式重跑不会删除任何事实：当前节点产物改写为新的 `artifacts/<node-id>/r<revision>/...` 和 Handoff revision，`task.yaml` 改为引用该新版本；下游节点的当前审批引用和状态失效，待其重新运行产生新 revision。旧产物、Handoff、审批、动态实施单元、需求快照、业务代码和 `runs/` 记录均保留。`intake` 不是可运行节点。执行成功后，无需审批的节点进入 `completed`；`clarify`、`plan`、`test` 进入 `awaiting_approval`。`--dry-run` 返回 `succeeded` 预演结果，但不改变节点状态或阶段产物；它会保留可审阅的运行预演记录。
 
 运行前，Runner 必须确认所有默认上游产物、审批文件与状态变化已经提交到当前 Git 分支；否则拒绝运行并列出待提交路径。执行模式还要求业务工作树干净，并记录当前 Git 提交与分支；执行期间发生提交、重置或切换分支时，节点失败并保留证据。`task run` 不自动执行 Git 操作。实施时可修改完成当前节点所需的业务代码和测试，不受计划文件路径白名单限制；但 `.aiw/` 只能写入当前任务、当前运行和当前节点声明的产物。共享 `runs/` 写入 manifest、任务事实写入边界、全部变更路径、未跟踪文件补丁及去敏结果；完整提示词与原始日志位于 `~/.aiw/runtime/<task-id>/<run-id>/`。
 
@@ -293,7 +293,7 @@ git add .aiw && git commit -m "chore(aiw): refresh requirement source"
 | `task source refresh` | 内容变化时创建新的来源 revision，并从 `clarify` 重新排队受影响流程。 |
 | `task status` | 无。 |
 | `task run --dry-run` | 无；仅创建运行预演记录。 |
-| `task run` | `ready`、`failed`、`completed` 或 `awaiting_approval` 的非 `intake` 节点均可运行；后两种先覆盖当前节点及下游的有效任务产物，再进入 `running`。 |
+| `task run` | `ready`、`failed`、`completed` 或 `awaiting_approval` 的非 `intake` 节点均可运行；后两种创建当前节点的新 revision，并使下游当前结果失效后进入 `running`；历史事实不删除。 |
 | `task review` | 逐项记录 `clarify` 的待决策事项，并将 `clarify` 从 `awaiting_approval → completed`。 |
 | `task approve` | `awaiting_approval → completed`。 |
 | `task close-with-risk` | 关闭测试节点并写入风险接受事实；交付状态为 `risk_accepted`。 |

@@ -8,7 +8,7 @@ import {
   type ContextFile,
   type ContextManifest,
 } from '../domain/context.js';
-import { handoffPath } from '../domain/handoff.js';
+import { completedArtifactPath, handoffPath } from '../domain/handoff.js';
 import { registeredDecisionFactPaths, type Task } from '../domain/task.js';
 
 const DEFAULT_TOKEN_BUDGET = 12_000;
@@ -127,7 +127,10 @@ export class ContextBuilder {
       };
     }));
     if (phase === 'solution' || phase === 'plan') {
-      const decisionRegister = await this.optionalTaskFact(taskDirectory, 'artifacts/decision-register.yaml');
+      const clarify = task.nodes.clarify;
+      const decisionRegister = clarify === undefined || clarify.revision === 0
+        ? undefined
+        : await this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/decision-register.yaml'));
       if (decisionRegister !== undefined) files.push(decisionRegister);
       files.push(...await Promise.all(registeredDecisionFactPaths(task).map((path) => this.requiredTaskFact(taskDirectory, path))));
     }
@@ -176,7 +179,8 @@ export interface ContextBudgetInput {
 
 function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][string]['phase'], 'intake'>): ContextFileInput[] {
   const node = task.nodes[nodeId];
-  const contextPath = node?.contextPath === undefined ? [] : [{ role: 'artifact' as const, path: node.contextPath }];
+  const currentContextPath = effectiveContextPath(task, nodeId, node);
+  const contextPath = currentContextPath === undefined ? [] : [{ role: 'artifact' as const, path: currentContextPath }];
   if (phase !== 'clarify') {
     return [...handoffInputs(task, nodeId), { role: 'task', path: 'task.yaml' }, ...contextPath];
   }
@@ -198,6 +202,17 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
     }
   }
   return [...files, ...contextPath];
+}
+
+function effectiveContextPath(task: Task, nodeId: string, node: Task['nodes'][string] | undefined): string | undefined {
+  if (node?.contextPath === undefined) return undefined;
+  if (nodeId === 'implement' && node.contextPath === 'artifacts/implementation-context.md') {
+    const plan = task.nodes.plan;
+    return plan === undefined || plan.revision === 0
+      ? node.contextPath
+      : completedArtifactPath('plan', plan, node.contextPath);
+  }
+  return node.contextPath;
 }
 
 function handoffInputs(task: Task, nodeId: string): ContextFileInput[] {

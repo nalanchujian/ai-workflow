@@ -120,7 +120,7 @@ describe('CodexAdapter', () => {
       processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
     });
     const request = runRequest({ projectRoot, runDirectory });
-    request.artifacts.push('artifacts/decision-register.yaml');
+    request.artifacts.push('artifacts/acceptance.yaml', 'artifacts/decision-register.yaml');
 
     await adapter.run(request);
 

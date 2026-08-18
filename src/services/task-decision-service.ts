@@ -3,11 +3,10 @@ import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 
 import { DecisionRegisterSchema, type DecisionItem, type DecisionRegister } from '../domain/decision-register.js';
+import { completedArtifactPath } from '../domain/handoff.js';
 import { type DecisionResolution, type Task } from '../domain/task.js';
 import { deriveTaskStatus, reconcileDecisionBlocks } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
-
-const registerPath = 'artifacts/decision-register.yaml';
 
 export class TaskDecisionService {
   constructor(private readonly deps: { taskStore: TaskStore }) {}
@@ -107,6 +106,13 @@ export class TaskDecisionService {
   }
 
   private async readRegister(task: Task): Promise<DecisionRegister> {
+    const clarify = task.nodes.clarify;
+    const registerPath = clarify === undefined || clarify.revision === 0
+      ? undefined
+      : completedArtifactPath('clarify', clarify, 'artifacts/decision-register.yaml');
+    if (registerPath === undefined) {
+      throw new Error('无法读取决策登记：需求澄清尚未生成当前 revision');
+    }
     try {
       return DecisionRegisterSchema.parse(parse(await readFile(join(this.deps.taskStore.taskDirectory(task.id), registerPath), 'utf8')));
     } catch {

@@ -10,7 +10,7 @@ import { TaskDecisionService } from '../../src/services/task-decision-service.js
 import { loadRunCompletionBundle } from '../../src/services/run-completion-bundle.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
-import { handoffPath, outputPathsForCompletedRun } from '../../src/domain/handoff.js';
+import { completedArtifactPath, handoffPath, outputPathsForCompletedRun } from '../../src/domain/handoff.js';
 
 const directories: string[] = [];
 
@@ -76,7 +76,8 @@ describe('TaskStateCommands', () => {
 
   it('invalidates an approval stage when an artifact changed after its successful run', async () => {
     const { store, directory } = await createApprovalTask('plan');
-    await writeFile(join(directory, 'artifacts', 'implementation-plan.md'), '# 被人工改写的实施计划\n', 'utf8');
+    const task = await store.load('refund-123');
+    await writeFile(join(directory, completedArtifactPath('plan', task.nodes.plan!, 'artifacts/implementation-plan.md')), '# 被人工改写的实施计划\n', 'utf8');
     const commands = new TaskStateCommands({
       taskStore: store,
       taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
@@ -195,7 +196,8 @@ describe('TaskStateCommands', () => {
 
   it('materializes implementation work units automatically when a plan is approved', async () => {
     const { store, directory } = await createApprovalTask('plan');
-    await writeFile(join(directory, 'artifacts', 'work-breakdown.yaml'), [
+    const task = await store.load('refund-123');
+    await writeFile(join(directory, completedArtifactPath('plan', task.nodes.plan!, 'artifacts/work-breakdown.yaml')), [
       'schemaVersion: aiw.work-breakdown/v1',
       'units:',
       '  - id: page',
@@ -244,7 +246,8 @@ describe('TaskStateCommands', () => {
 
   it('rejects plan approval when an acceptance item is not covered by work or an explicit decision', async () => {
     const { store, directory } = await createApprovalTask('plan');
-    await writeFile(join(directory, 'artifacts', 'work-breakdown.yaml'), [
+    const task = await store.load('refund-123');
+    await writeFile(join(directory, completedArtifactPath('plan', task.nodes.plan!, 'artifacts/work-breakdown.yaml')), [
       'schemaVersion: aiw.work-breakdown/v1',
       'units:',
       '  - id: page',
@@ -349,7 +352,7 @@ describe('TaskStateCommands', () => {
 
     await command.parseAsync(['node', 'task', 'status', 'refund-123']);
 
-    expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/implementation-plan.md');
+    expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/plan/r0/implementation-plan.md');
     expect(output).toContain('2. aiw task approve refund-123 plan --note "<审批说明>"');
     expect(output).not.toContain('git add .aiw');
     expect(output).not.toContain('若尚未提交');
@@ -552,7 +555,7 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
   const store = new TaskStore(directory);
   const task = createSevenPhaseTask();
   if (nodeId === 'plan') {
-    task.nodes.clarify.status = 'completed';
+    task.nodes.clarify = { ...task.nodes.clarify, status: 'completed', revision: 1 };
     task.nodes.solution.status = 'completed';
   }
   if (nodeId === 'test') {
@@ -564,7 +567,9 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
   const taskDirectory = store.taskDirectory(task.id);
   await mkdir(join(taskDirectory, 'artifacts'), { recursive: true });
   if (nodeId === 'plan') {
-    await writeFile(join(taskDirectory, 'artifacts', 'acceptance.yaml'), [
+    const acceptancePath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/acceptance.yaml');
+    await mkdir(join(taskDirectory, acceptancePath, '..'), { recursive: true });
+    await writeFile(join(taskDirectory, acceptancePath), [
       'schemaVersion: aiw.acceptance-catalog/v1',
       'items:',
       '  - id: AC-01',
@@ -579,15 +584,16 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'test', options: 
   const outputs = outputPathsForCompletedRun(nodeId, node);
   for (const output of outputs) {
     await mkdir(join(taskDirectory, output, '..'), { recursive: true });
+    const firstArtifact = outputs.find((path) => path.startsWith('artifacts/'))!;
     const content = output === handoffPath(nodeId, node.revision)
-      ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${node.outputs[0]}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
-      : nodeId === 'test' && output === 'artifacts/acceptance-results.yaml'
+      ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
+      : nodeId === 'test' && output.endsWith('/acceptance-results.yaml')
         ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/test-report.md\n`
-      : nodeId === 'test' && output === 'artifacts/test-report.md'
+      : nodeId === 'test' && output.endsWith('/test-report.md')
           ? '# 测试报告\n\n## 测试命令\n\n`pnpm test`\n\n## 测试结果\n\n已执行。\n'
-          : nodeId === 'clarify' && output === 'artifacts/acceptance.yaml'
+          : nodeId === 'clarify' && output.endsWith('/acceptance.yaml')
             ? 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n'
-            : nodeId === 'clarify' && output === 'artifacts/decision-register.yaml'
+            : nodeId === 'clarify' && output.endsWith('/decision-register.yaml')
               ? 'schemaVersion: aiw.decision-register/v1\nitems: []\n'
           : `# ${output}\n`;
     await writeFile(join(taskDirectory, output), content, 'utf8');
@@ -619,7 +625,7 @@ async function refreshCompletionHashes(store: TaskStore, nodeId: string): Promis
 }
 
 async function writeDecisionRegister(directory: string): Promise<void> {
-  await writeFile(join(directory, 'artifacts', 'decision-register.yaml'), `schemaVersion: aiw.decision-register/v1
+  await writeFile(join(directory, 'artifacts', 'clarify', 'r1', 'decision-register.yaml'), `schemaVersion: aiw.decision-register/v1
 items:
   - id: DEC-API-01
     title: 详情趋势数据来源

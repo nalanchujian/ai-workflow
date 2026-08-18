@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 import { z } from 'zod';
 
 import { AcceptanceCatalogSchema, type AcceptanceCatalog } from '../domain/acceptance-catalog.js';
+import { completedArtifactPath } from '../domain/handoff.js';
 import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
 import { TaskStore } from './task-store.js';
@@ -82,14 +83,21 @@ export class ImplementationWorkPlannerError extends Error {
 }
 
 export async function readWorkBreakdown(task: Task, taskStore: TaskStore): Promise<WorkBreakdown> {
+  const plan = task.nodes.plan;
+  const path = plan === undefined || plan.revision === 0
+    ? undefined
+    : completedArtifactPath('plan', plan, 'artifacts/work-breakdown.yaml');
+  if (path === undefined) {
+    throw new ImplementationWorkPlannerError('实施工作单元声明缺失：计划尚未生成当前 revision');
+  }
   try {
-    const content = await readFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'work-breakdown.yaml'), 'utf8');
+    const content = await readFile(join(taskStore.taskDirectory(task.id), path), 'utf8');
     return WorkBreakdownSchema.parse(parse(content));
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ImplementationWorkPlannerError(formatWorkBreakdownIssues(error));
     }
-    throw new ImplementationWorkPlannerError('实施工作单元声明缺失或无法读取：artifacts/work-breakdown.yaml');
+    throw new ImplementationWorkPlannerError(`实施工作单元声明缺失或无法读取：${path}`);
   }
 }
 
@@ -128,13 +136,15 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
   const nodeIds = new Map(breakdown.units.map((unit, index) => [unit.id, !split && index === 0 ? 'implement' : nextNodeId(next, `implement-${unit.id}`, planRevision)]));
   const facts: Array<{ path: string; content: string }> = [];
   const taskDirectory = taskStore.taskDirectory(task.id);
-  const planHash = createHash('sha256').update(await readFile(join(taskDirectory, 'artifacts', 'implementation-plan.md'))).digest('hex');
-  const breakdownHash = createHash('sha256').update(await readFile(join(taskDirectory, 'artifacts', 'work-breakdown.yaml'))).digest('hex');
+  const planPath = completedArtifactPath('plan', plan, 'artifacts/implementation-plan.md');
+  const breakdownPath = completedArtifactPath('plan', plan, 'artifacts/work-breakdown.yaml');
+  const planHash = createHash('sha256').update(await readFile(join(taskDirectory, planPath))).digest('hex');
+  const breakdownHash = createHash('sha256').update(await readFile(join(taskDirectory, breakdownPath))).digest('hex');
 
   for (const unit of breakdown.units) {
     const nodeId = nodeIds.get(unit.id)!;
     const contextPath = breakdown.units.length === 1
-      ? 'artifacts/implementation-context.md'
+      ? completedArtifactPath('plan', plan, 'artifacts/implementation-context.md')
       : `artifacts/work-units/r${planRevision}/${nodeId}.md`;
     const dependencies = ['plan', ...unit.dependsOn.map((dependency) => nodeIds.get(dependency)!)];
     const deferred = unit.blockedBy.some((decisionId) => next.decisions.find((decision) => decision.id === decisionId)?.status === 'deferred');
@@ -160,7 +170,7 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       verify.dependsOn = [...new Set([...verify.dependsOn, nodeId])];
     }
     if (breakdown.units.length > 1) {
-      facts.push({ path: contextPath, content: renderUnitContext(unit, task.id, planRevision, planHash, breakdownHash) });
+      facts.push({ path: contextPath, content: renderUnitContext(unit, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash) });
     }
     next.events.push({ type: 'materialize_implementation', nodeId, at: new Date().toISOString(), note: `计划 r${planRevision}；工作单元：${unit.id}` });
   }
@@ -292,8 +302,15 @@ async function validateAcceptanceCoverage(task: Task, taskStore: TaskStore, brea
 }
 
 async function readAcceptanceCatalog(task: Task, taskStore: TaskStore): Promise<AcceptanceCatalog> {
+  const clarify = task.nodes.clarify;
+  const path = clarify === undefined || clarify.revision === 0
+    ? undefined
+    : completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml');
+  if (path === undefined) {
+    throw new ImplementationWorkPlannerError('验收清单缺失：需求澄清尚未生成当前 revision');
+  }
   try {
-    const content = await readFile(join(taskStore.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), 'utf8');
+    const content = await readFile(join(taskStore.taskDirectory(task.id), path), 'utf8');
     return AcceptanceCatalogSchema.parse(parse(content));
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -308,7 +325,7 @@ async function readAcceptanceCatalog(task: Task, taskStore: TaskStore): Promise<
         itemLabel: '验收项',
       }));
     }
-    throw new ImplementationWorkPlannerError('验收清单缺失或无法读取：artifacts/acceptance.yaml');
+    throw new ImplementationWorkPlannerError(`验收清单缺失或无法读取：${path}`);
   }
 }
 
@@ -316,14 +333,22 @@ function nextNodeId(task: Task, base: string, planRevision: number): string {
   return task.nodes[base] === undefined ? base : `${base}-r${planRevision}`;
 }
 
-function renderUnitContext(unit: WorkBreakdown['units'][number], taskId: string, planRevision: number, planHash: string, breakdownHash: string): string {
+function renderUnitContext(
+  unit: WorkBreakdown['units'][number],
+  taskId: string,
+  planRevision: number,
+  planPath: string,
+  breakdownPath: string,
+  planHash: string,
+  breakdownHash: string,
+): string {
   return [
     `# 实施上下文：${unit.title}`,
     '',
     '## 来源',
     `- 任务：${taskId}`,
-    `- 实施计划：artifacts/implementation-plan.md（r${planRevision}，sha256:${planHash}）`,
-    `- 工作单元声明：artifacts/work-breakdown.yaml（sha256:${breakdownHash}）`,
+    `- 实施计划：${planPath}（r${planRevision}，sha256:${planHash}）`,
+    `- 工作单元声明：${breakdownPath}（sha256:${breakdownHash}）`,
     '',
     '## 目标',
     unit.goal,

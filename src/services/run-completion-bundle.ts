@@ -35,8 +35,7 @@ export async function loadRunCompletionBundle(task: Task, taskStore: TaskStore, 
   const expectedEvidencePath = `runs/${event.runId}/change-evidence.json`;
   const outputPaths = event.outputs.map((output) => output.path);
   const expectedCurrentPaths = outputPathsForCompletedRun(nodeId, node);
-  const expectedLegacyPaths = node.outputs;
-  if (event.evidencePath !== expectedEvidencePath || (!samePaths(outputPaths, expectedCurrentPaths) && !samePaths(outputPaths, expectedLegacyPaths))) {
+  if (event.evidencePath !== expectedEvidencePath || !samePaths(outputPaths, expectedCurrentPaths)) {
     throw new RunCompletionBundleError(`节点 ${nodeId} 的完成运行包与当前产物声明不一致`);
   }
   const paths = [

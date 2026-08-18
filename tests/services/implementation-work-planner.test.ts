@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { materializeImplementationWork, validateWorkBreakdown } from '../../src/services/implementation-work-planner.js';
 import { TaskStore } from '../../src/services/task-store.js';
+import { completedArtifactPath } from '../../src/domain/handoff.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -92,7 +93,12 @@ describe('ImplementationWorkPlanner', () => {
     task.nodes.plan.revision = 1;
     await store.create(task);
     await writePlanFacts(store, task.id, 'first');
-    await writeFile(join(store.taskDirectory(task.id), 'artifacts', 'work-breakdown.yaml'), [
+    const current = await store.load(task.id);
+    const planBreakdownPath = completedArtifactPath('plan', current.nodes.plan!, 'artifacts/work-breakdown.yaml');
+    const acceptancePath = completedArtifactPath('clarify', current.nodes.clarify!, 'artifacts/acceptance.yaml');
+    await mkdir(join(store.taskDirectory(task.id), planBreakdownPath, '..'), { recursive: true });
+    await mkdir(join(store.taskDirectory(task.id), acceptancePath, '..'), { recursive: true });
+    await writeFile(join(store.taskDirectory(task.id), planBreakdownPath), [
       'schemaVersion: aiw.work-breakdown/v1',
       'units:',
       '  - id: main',
@@ -106,7 +112,7 @@ describe('ImplementationWorkPlanner', () => {
       '    disposition: implement',
       '    workUnitIds: [main]',
     ].join('\n') + '\n', 'utf8');
-    await writeFile(join(store.taskDirectory(task.id), 'artifacts', 'acceptance.yaml'), [
+    await writeFile(join(store.taskDirectory(task.id), acceptancePath), [
       'schemaVersion: aiw.acceptance-catalog/v1',
       'items:',
       '  - id: AC-01',
@@ -145,10 +151,19 @@ describe('ImplementationWorkPlanner', () => {
 async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first' | 'second', blockExport = false): Promise<void> {
   const directory = store.taskDirectory(taskId);
   const task = await store.load(taskId);
+  if (task.nodes.clarify!.revision === 0) {
+    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', revision: 1 };
+    await store.update(task);
+  }
   const exportCoverage = task.decisions.find((decision) => decision.id === 'DEC-API-01')?.status;
   await mkdir(join(directory, 'artifacts'), { recursive: true });
-  await writeFile(join(directory, 'artifacts', 'implementation-plan.md'), '# 实施计划\n\n## 实施单元\n\n- 完成列表和导出功能。\n\n## 范围与边界\n\n- 保持现有接口边界。\n\n## 验证方式\n\n- pnpm test\n', 'utf8');
-  await writeFile(join(directory, 'artifacts', 'acceptance.yaml'), [
+  const planPath = completedArtifactPath('plan', task.nodes.plan!, 'artifacts/implementation-plan.md');
+  const acceptancePath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/acceptance.yaml');
+  const breakdownPath = completedArtifactPath('plan', task.nodes.plan!, 'artifacts/work-breakdown.yaml');
+  await mkdir(join(directory, planPath, '..'), { recursive: true });
+  await mkdir(join(directory, acceptancePath, '..'), { recursive: true });
+  await writeFile(join(directory, planPath), '# 实施计划\n\n## 实施单元\n\n- 完成列表和导出功能。\n\n## 范围与边界\n\n- 保持现有接口边界。\n\n## 验证方式\n\n- pnpm test\n', 'utf8');
+  await writeFile(join(directory, acceptancePath), [
     'schemaVersion: aiw.acceptance-catalog/v1',
     'items:',
     '  - id: AC-01',
@@ -158,7 +173,7 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    title: 导出文件',
     '    description: 用户可以获得符合规则的导出文件名称。',
   ].join('\n') + '\n', 'utf8');
-  await writeFile(join(directory, 'artifacts', 'work-breakdown.yaml'), [
+  await writeFile(join(directory, breakdownPath), [
     'schemaVersion: aiw.work-breakdown/v1',
     'units:',
     '  - id: page',

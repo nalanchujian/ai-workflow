@@ -63,7 +63,7 @@
 - `clarify` 必须同时生成供人审阅的 `acceptance.md` 与机器可读的 `acceptance.yaml`；后者列出本期完整 AC 清单。
 - `work-breakdown.yaml` 的工作单元可使用 `blockedBy: [DEC-...]`。未决或外部等待决策仅阻塞关联单元；解决或豁免后解锁；拆期后从当前验证汇合移除。其 `acceptanceCoverage` 必须对账 `acceptance.yaml` 中每个 AC，声明由实施单元完成、外部等待、拆期或风险豁免；遗漏时计划不得批准。
 - 测试节点必须输出 `artifacts/acceptance-results.yaml`。普通 `task approve <task-id> test` 只接受全部验收项为 `passed`、`deferred` 或 `waived` 的结果；存在 `failed` 或 `blocked` 时必须拒绝。`task close-with-risk <task-id> --owner --reason --expires-at` 是唯一风险关闭入口，必须写入风险接受事实并将交付状态标为 `risk_accepted`。
-- 阶段产物一旦形成不提供人工修订或退回入口。需求变更必须更新原始来源并执行 `aiw task source refresh`；来源产生新 revision 后，AIW 从 `clarify` 重新开始受影响的下游流程。任一非 `intake` 节点均可直接再次执行：AIW 覆盖该节点及下游的当前任务产物、审批和状态，但不删除需求快照、业务代码或运行记录。
+- 阶段产物一旦形成不提供人工修订或退回入口。需求变更必须更新原始来源并执行 `aiw task source refresh`；来源产生新 revision 后，AIW 从 `clarify` 重新开始受影响的下游流程。任一非 `intake` 节点均可直接再次执行：AIW 创建当前节点的新 revision，并使下游当前审批引用和状态失效；旧产物、Handoff、审批、需求快照、业务代码和运行记录均不删除。
 - `aiw task status <task-id>` 默认显示任务、交付和节点状态摘要；使用 `--json` 时输出完整任务事实，其中包含依赖、revision、审批与失效原因。
 - `aiw task cancel <task-id> <node-id> --note <text>` 仅用于 `running` 节点；写入本机取消请求并终止已记录的 Codex 子进程。运行收尾时必须保留证据并将节点置为 `cancelled`。提交取消记录后，使用同一条 `aiw task run <task-id> <node-id>` 可重新执行该非 `intake` 节点；取消不解锁下游节点，也不删除历史运行证据。
 

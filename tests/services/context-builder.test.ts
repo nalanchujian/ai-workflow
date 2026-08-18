@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { ContextBuilder } from '../../src/services/context-builder.js';
-import { handoffPath } from '../../src/domain/handoff.js';
+import { completedArtifactPath, handoffPath } from '../../src/domain/handoff.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -35,8 +35,9 @@ describe('ContextBuilder', () => {
       outputs: ['artifacts/subtasks/implement-details.md'],
     };
     task.nodes.verify.dependsOn = ['implement', 'implement-details'];
-    await mkdir(join(directory, 'artifacts', 'subtasks'), { recursive: true });
-    await writeFile(join(directory, 'artifacts', 'subtasks', 'implement-details.md'), '# 详情页实施记录\n', 'utf8');
+    const detailsPath = completedArtifactPath('implement-details', task.nodes['implement-details']!, 'artifacts/subtasks/implement-details.md');
+    await mkdir(join(directory, detailsPath, '..'), { recursive: true });
+    await writeFile(join(directory, detailsPath), '# 详情页实施记录\n', 'utf8');
     for (const nodeId of ['clarify', 'solution', 'plan', 'implement', 'implement-details', 'verify']) {
       await writeHandoff(directory, task, nodeId);
     }
@@ -58,8 +59,9 @@ describe('ContextBuilder', () => {
 
   it('injects the approved plan handoff and its declared implementation context', async () => {
     const directory = await taskDirectory();
-    const task = createSevenPhaseTask();
-    await writeHandoff(directory, task, 'plan');
+  const task = createSevenPhaseTask();
+  await writeHandoff(directory, task, 'plan');
+  const implementationContextPath = 'artifacts/implementation-context.md';
 
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
       .build({ task, nodeId: 'implement', includes: [] });
@@ -67,21 +69,24 @@ describe('ContextBuilder', () => {
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('plan', 0),
       'task.yaml',
-      'artifacts/implementation-context.md',
+      implementationContextPath,
     ]);
   });
 
   it('passes the decision register to solution and plan without injecting broad Markdown history', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
+    task.nodes.clarify!.revision = 1;
     await writeHandoff(directory, task, 'solution');
-    await writeFile(join(directory, 'artifacts', 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
+    const registerPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/decision-register.yaml');
+    await mkdir(join(directory, registerPath, '..'), { recursive: true });
+    await writeFile(join(directory, registerPath), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
 
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
       .build({ task, nodeId: 'plan', includes: [] });
 
-    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'artifacts/decision-register.yaml' }));
-    expect(manifest.files.some((file) => file.path === 'artifacts/solution.md')).toBe(false);
+    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: registerPath }));
+    expect(manifest.files.some((file) => file.path === completedArtifactPath('solution', task.nodes.solution!, 'artifacts/solution.md'))).toBe(false);
   });
 
   it('passes registered decision facts to solution and plan as traceable context', async () => {
@@ -290,7 +295,10 @@ async function taskDirectory(): Promise<string> {
 async function writeHandoff(directory: string, task: ReturnType<typeof createSevenPhaseTask>, nodeId: string): Promise<void> {
   const node = task.nodes[nodeId];
   if (node === undefined) throw new Error(`未知节点：${nodeId}`);
+  const firstOutput = completedArtifactPath(nodeId, node, node.outputs[0]!);
+  await mkdir(join(directory, firstOutput, '..'), { recursive: true });
+  await writeFile(join(directory, firstOutput), '# 节点产物\n', 'utf8');
   const path = handoffPath(nodeId, node.revision);
   await mkdir(join(directory, 'handoffs', nodeId), { recursive: true });
-  await writeFile(join(directory, path), `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并提供结构化交接内容。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已形成可供下游使用的结论。\n    evidence:\n      - path: ${node.outputs[0]}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+  await writeFile(join(directory, path), `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并提供结构化交接内容。\nfacts:\n  - id: FACT-01\n    statement: 当前节点已形成可供下游使用的结论。\n    evidence:\n      - path: ${firstOutput}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
 }
