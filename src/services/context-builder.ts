@@ -3,6 +3,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 
 import {
+  DEFAULT_CONTEXT_TOKEN_BUDGET,
   ContextManifestSchema,
   type ContextBudgetCategory,
   type ContextFile,
@@ -10,8 +11,6 @@ import {
 } from '../domain/context.js';
 import { completedArtifactPath, handoffPath } from '../domain/handoff.js';
 import { registeredDecisionFactPaths, type Task } from '../domain/task.js';
-
-const DEFAULT_TOKEN_BUDGET = 12_000;
 
 export class ContextBuilderError extends Error {
   constructor(
@@ -28,7 +27,7 @@ export class ContextBuilder {
   constructor(private readonly deps: {
     taskDirectory: (task: Task) => string;
     projectRoot: (task: Task) => string;
-    maxTokens?: number;
+    maxTokens?: number | (() => Promise<number>);
   }) {}
 
   async build(input: {
@@ -61,7 +60,9 @@ export class ContextBuilder {
       ...deduplicated.map((file) => ({ category: budgetCategoryForFile(file), label: file.path, content: file.content })),
       ...(input.budgetInputs ?? []),
     ];
-    const maxTokens = this.deps.maxTokens ?? DEFAULT_TOKEN_BUDGET;
+    const maxTokens = typeof this.deps.maxTokens === 'function'
+      ? await this.deps.maxTokens()
+      : this.deps.maxTokens ?? DEFAULT_CONTEXT_TOKEN_BUDGET;
     const manifest = ContextManifestSchema.parse({
       schemaVersion: 'aiw.context/v1',
       taskId: input.task.id,
@@ -129,12 +130,15 @@ export class ContextBuilder {
     if (phase === 'solution' || phase === 'plan') {
       const clarify = task.nodes.clarify;
       if (clarify !== undefined && clarify.revision > 0) {
-        const [factRegister, acceptanceCatalog, decisionRegister] = await Promise.all([
+        const [factRegister, acceptanceCatalog] = await Promise.all([
           this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/fact-register.yaml')),
           this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml')),
-          this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/decision-register.yaml')),
         ]);
-        files.push(...[factRegister, acceptanceCatalog, decisionRegister].filter((file): file is ContextFileWithContent => file !== undefined));
+        // The decision register captures pre-review alternatives. Once a
+        // downstream node runs, the selected outcome lives in immutable
+        // decision facts below, so including both would duplicate the same
+        // business context and quickly exhaust the prompt budget.
+        files.push(...[factRegister, acceptanceCatalog].filter((file): file is ContextFileWithContent => file !== undefined));
       }
       files.push(...await Promise.all(registeredDecisionFactPaths(task).map((path) => this.requiredTaskFact(taskDirectory, path))));
     }
@@ -195,7 +199,11 @@ function defaultPaths(task: Task, nodeId: string, phase: Exclude<Task['nodes'][s
   const currentContextPath = effectiveContextPath(task, nodeId, node);
   const contextPath = currentContextPath === undefined ? [] : [{ role: 'artifact' as const, path: currentContextPath }];
   if (phase !== 'clarify') {
-    return [...handoffInputs(task, nodeId), { role: 'task', path: 'task.yaml' }, ...contextPath];
+    // Node identity, allowed outputs and workflow policy are rendered from the
+    // typed RunRequest. Downstream Agents therefore need neither the complete
+    // task event log nor all sibling node locks. Keep task.yaml as auditable
+    // storage and inject only the upstream handoff plus node-specific facts.
+    return [...handoffInputs(task, nodeId), ...contextPath];
   }
   const defaults: Record<Exclude<Task['nodes'][string]['phase'], 'intake'>, string[]> = {
     clarify: ['task.md'],

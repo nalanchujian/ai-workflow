@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { parse, stringify } from 'yaml';
 
+import { DEFAULT_CONTEXT_TOKEN_BUDGET } from '../domain/context.js';
 import { officialDefaultWorkflow } from './default-workflow.js';
 
 export interface LocalInitializationResult {
@@ -32,10 +33,16 @@ export class LocalInitializer {
 
   private async addMissingWorkflowDefaults(): Promise<boolean> {
     const document = parse(await readFile(this.path, 'utf8'));
-    if (document === null || typeof document !== 'object' || Array.isArray(document) || 'workflow' in document) {
+    if (document === null || typeof document !== 'object' || Array.isArray(document)) {
       return false;
     }
-    await writeFile(this.path, stringify({ ...document, workflow: officialDefaultWorkflow }), 'utf8');
+    const updates = {
+      ...document,
+      ...('workflow' in document ? {} : { workflow: officialDefaultWorkflow }),
+      ...('context' in document ? {} : { context: { maxTokens: DEFAULT_CONTEXT_TOKEN_BUDGET } }),
+    };
+    if (JSON.stringify(updates) === JSON.stringify(document)) return false;
+    await writeFile(this.path, stringify(updates), 'utf8');
     return true;
   }
 }
@@ -50,6 +57,11 @@ workflow:
     url: https://github.com/nalanchujian/ai-workflow-skills.git
     ref: v11.0.0
   defaultProfile: standard-web-feature@11.0.0
+
+# 单次交给 Codex 的完整上下文上限。超过时 AIW 会拒绝执行并给出拆分建议。
+# 降低可节省 token；提高可承载更大的需求，但会增加调用成本。
+context:
+  maxTokens: ${DEFAULT_CONTEXT_TOKEN_BUDGET}
 
 # 只有任务来源是 Lark 文档时，才把下方示例改为实际配置。
 # connectors:

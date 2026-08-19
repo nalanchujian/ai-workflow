@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
+import { DEFAULT_CONTEXT_TOKEN_BUDGET } from '../domain/context.js';
 import type { DefaultWorkflow } from './default-workflow.js';
 
 const DefaultWorkflowSchema = z.object({
@@ -25,6 +26,9 @@ const LocalConfigSchema = z.object({
     }).optional(),
   }).default({}),
   workflow: DefaultWorkflowSchema.optional(),
+  context: z.object({
+    maxTokens: z.number().int().min(1_000).max(200_000),
+  }).default({ maxTokens: DEFAULT_CONTEXT_TOKEN_BUDGET }),
 }).strict();
 
 export type LocalConfigDocument = z.infer<typeof LocalConfigSchema>;
@@ -50,6 +54,18 @@ export class LocalConfig {
       throw new Error('未配置默认工作流，请先运行 aiw init');
     }
     return workflow;
+  }
+
+  async contextTokenBudget(): Promise<number> {
+    try {
+      return (await this.read()).context.maxTokens;
+    } catch (error) {
+      // The runtime can be composed in tests or by embedding callers before
+      // `aiw init` has written a local config. The documented default remains
+      // safe and deterministic in that case.
+      if (isMissingFile(error)) return DEFAULT_CONTEXT_TOKEN_BUDGET;
+      throw error;
+    }
   }
 
   async updateDefaultWorkflow(input: { ref: string; profile: string }): Promise<DefaultWorkflow> {
@@ -85,4 +101,8 @@ export class LocalConfig {
 
 function expandHome(path: string): string {
   return path === '~' ? homedir() : path.startsWith('~/') ? join(homedir(), path.slice(2)) : path;
+}
+
+function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }

@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+/** Default ceiling for the fully rendered prompt sent to Codex. */
+export const DEFAULT_CONTEXT_TOKEN_BUDGET = 20_000;
+
 import { SkillLockSchema, WorkflowProfileLockSchema } from './task.js';
 
 const sha256Pattern = /^[a-f0-9]{64}$/;

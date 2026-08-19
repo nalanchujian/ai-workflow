@@ -47,4 +47,17 @@ workflow:
       defaultProfile: 'standard-web-feature@2.1.0',
     });
   });
+
+  it('uses the default context budget when omitted and reads an explicit override', async () => {
+    const directory = await createTempDirectory('aiw-local-config-');
+    directories.push(directory);
+    const configPath = join(directory, 'config.yaml');
+    await writeFile(configPath, 'schemaVersion: aiw.local/v1\nconnectors: {}\n');
+    const config = new LocalConfig(configPath);
+
+    await expect(config.contextTokenBudget()).resolves.toBe(20_000);
+
+    await writeFile(configPath, 'schemaVersion: aiw.local/v1\nconnectors: {}\ncontext:\n  maxTokens: 32000\n');
+    await expect(config.contextTokenBudget()).resolves.toBe(32_000);
+  });
 });

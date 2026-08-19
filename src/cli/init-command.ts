@@ -45,7 +45,7 @@ function renderInitializationMessage(status: Awaited<ReturnType<DefaultWorkflowB
     return ['已完成首次本机初始化。'];
   }
   if (status === 'updated') {
-    return ['已更新本机默认工作流配置。'];
+    return ['已补充本机默认配置。'];
   }
   return [];
 }

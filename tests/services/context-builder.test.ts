@@ -21,7 +21,6 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('solution', 0),
-      'task.yaml',
     ]);
     expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', revision: 'd'.repeat(40) }));
   });
@@ -84,12 +83,11 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('plan', 0),
-      'task.yaml',
       'artifacts/work-units/r1/delivery-main.md',
     ]);
   });
 
-  it('passes the decision register to solution and plan without injecting broad Markdown history', async () => {
+  it('keeps decision alternatives out of solution and plan after review', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
     task.nodes.clarify!.revision = 1;
@@ -101,7 +99,7 @@ describe('ContextBuilder', () => {
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
       .build({ task, nodeId: 'plan', includes: [] });
 
-    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: registerPath }));
+    expect(manifest.files.some((file) => file.path === registerPath)).toBe(false);
     expect(manifest.files.some((file) => file.path === completedArtifactPath('solution', task.nodes.solution!, 'artifacts/solution.md'))).toBe(false);
   });
 
@@ -160,7 +158,6 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('plan', 0),
-      'task.yaml',
       'artifacts/work-units/r1/implement-export.md',
     ]);
   });
@@ -185,7 +182,6 @@ describe('ContextBuilder', () => {
 
     expect(manifest.files.map((file) => file.path)).toEqual([
       handoffPath('delivery-details', 0),
-      'task.yaml',
     ]);
   });
 
@@ -236,7 +232,6 @@ describe('ContextBuilder', () => {
 
     expect(manifest.budget.breakdown).toEqual(expect.arrayContaining([
       expect.objectContaining({ category: 'handoff', label: handoffPath('solution', 0) }),
-      expect.objectContaining({ category: 'task-fact', label: 'task.yaml' }),
       expect.objectContaining({ category: 'node-instruction', label: '节点指令' }),
       expect.objectContaining({ category: 'skill' }),
       expect.objectContaining({ category: 'method-source' }),
