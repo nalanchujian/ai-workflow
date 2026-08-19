@@ -154,6 +154,54 @@ describe('TaskStateCommands', () => {
     })]);
   });
 
+  it('selects the quick path only for a fully confirmed single-AC clarification', async () => {
+    const { store, directory } = await createApprovalTask('clarify');
+    await refreshCompletionHashes(store, 'clarify');
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+      decisionService: new TaskDecisionService({ taskStore: store }),
+    });
+
+    const reviewed = await commands.reviewClarify('refund-123', [], { workflowPath: 'quick', note: '小范围修复按快速修改推进' });
+
+    expect(reviewed.workflowPath).toMatchObject({ id: 'quick', clarifyRevision: 1, selectedBy: 'tech-lead' });
+    expect(reviewed.nodes.solution).toMatchObject({ status: 'superseded', dependsOn: ['clarify'] });
+    expect(reviewed.nodes.plan).toMatchObject({ status: 'ready', dependsOn: ['clarify'] });
+    await expect(readFile(join(directory, 'workflow-assessments', 'clarify-r1.yaml'), 'utf8')).resolves.toContain('recommendedPath: quick');
+  });
+
+  it('does not allow a decision-bearing clarification to select quick', async () => {
+    const { store, directory } = await createApprovalTask('clarify');
+    await writeDecisionRegister(directory);
+    await refreshCompletionHashes(store, 'clarify');
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+      decisionService: new TaskDecisionService({ taskStore: store }),
+    });
+
+    await expect(commands.reviewClarify('refund-123', [{ decisionId: 'DEC-API-01', optionId: 'mock-ui' }], { workflowPath: 'quick' }))
+      .rejects.toThrow('不满足快速修改条件');
+  });
+
+  it('allows a quick task to upgrade to standard before its first plan revision', async () => {
+    const { store } = await createApprovalTask('clarify');
+    await refreshCompletionHashes(store, 'clarify');
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+      decisionService: new TaskDecisionService({ taskStore: store }),
+    });
+    await commands.reviewClarify('refund-123', [], { workflowPath: 'quick' });
+
+    const switched = await commands.switchToStandardPath('refund-123');
+
+    expect(switched.workflowPath?.id).toBe('standard');
+    expect(switched.nodes.solution).toMatchObject({ status: 'ready', dependsOn: ['clarify'] });
+    expect(switched.nodes.plan).toMatchObject({ status: 'pending', dependsOn: ['solution'] });
+  });
+
   it('does not approve a delivery unit when acceptance results still contain blocked items', async () => {
     const { store } = await createApprovalTask('delivery-main', { acceptanceStatus: 'blocked' });
     const commands = new TaskStateCommands({
@@ -466,7 +514,8 @@ describe('TaskStateCommands', () => {
     expect(output).toContain('2. 使用 Mock 验证界面（AI 备选）');
     expect(output).toContain('取舍：可以提前验证界面，但不能完成端到端验收。');
     expect(output).toContain('3. 人工输入结论');
-    expect(output).toContain('全部事项已处理。是否确认并进入技术方案？');
+    expect(output).toContain('工作方式建议');
+    expect(output).toContain('全部事项已处理。将按「标准需求」推进。是否确认？');
     expect(selections).toEqual([{
       decisionId: 'DEC-API-01',
       optionId: 'mock-ui',
@@ -567,6 +616,38 @@ describe('TaskStateCommands', () => {
     }]);
   });
 
+  it('lets a user choose quick or standard only when the assessment is eligible', async () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'awaiting_approval';
+    task.nodes.clarify.revision = 1;
+    const answers = ['1', '1'];
+    let receivedOptions: unknown;
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return task; },
+        async listDecisions() { return []; },
+        async assessWorkflowPath() {
+          return {
+            schemaVersion: 'aiw.workflow-path-assessment/v1', taskId: task.id, clarifyRevision: 1, policyVersion: 'quick-standard/v1', recommendedPath: 'quick',
+            signals: { sourceCount: 1, sourceCharacters: 320, acceptanceCount: 1, decisionCount: 0, confirmedFactCount: 2, nonConfirmedFactCount: 0 },
+            quick: { eligible: true, reasons: [] }, evaluatedAt: '2026-08-19T00:00:00.000Z',
+          };
+        },
+        async reviewClarify(_taskId: string, _selections: unknown, options: unknown) { receivedOptions = options; return task; },
+      } as never,
+      reviewPrompter: { async ask() { return answers.shift() ?? ''; } },
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'task', 'review', 'refund-123']);
+
+    expect(output).toContain('AI 建议：快速修改');
+    expect(output).toContain('1. 快速修改');
+    expect(output).toContain('2. 标准需求');
+    expect(receivedOptions).toMatchObject({ workflowPath: 'quick' });
+  });
+
   it('does not prompt again when clarify was already approved', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
@@ -625,6 +706,9 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
   task.nodes[nodeId]!.revision = 1;
   await store.create(task);
   const taskDirectory = store.taskDirectory(task.id);
+  await mkdir(join(taskDirectory, 'sources', 'requirements', 'r1'), { recursive: true });
+  await writeFile(join(taskDirectory, 'sources', 'requirements', 'r1', 'snapshot.md'), '# 退款需求\n\n用户可以提交退款申请并查看处理结果。\n', 'utf8');
+  await writeFile(join(taskDirectory, 'sources', 'requirements', 'r1', 'meta.json'), '{}\n', 'utf8');
   await mkdir(join(taskDirectory, 'artifacts'), { recursive: true });
   if (nodeId === 'plan') {
     const acceptancePath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/acceptance.yaml');

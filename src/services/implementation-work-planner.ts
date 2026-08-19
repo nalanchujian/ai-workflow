@@ -258,7 +258,39 @@ function workBreakdownIssueMessages(issue: z.core.$ZodIssue, kind: 'coverage' | 
 }
 
 export async function validatePlanAcceptanceCoverage(task: Task, taskStore: TaskStore): Promise<void> {
-  await validateAcceptanceCoverage(task, taskStore, await readWorkBreakdown(task, taskStore));
+  const breakdown = await readWorkBreakdown(task, taskStore);
+  await validateAcceptanceCoverage(task, taskStore, breakdown);
+  await validateWorkflowPathPlan(task, taskStore, breakdown);
+}
+
+/**
+ * The quick path is intentionally narrow.  A plan cannot silently turn an
+ * eligible small change into a multi-unit or decision-dependent delivery;
+ * that must be re-reviewed as a standard requirement instead.
+ */
+export async function validateWorkflowPathPlan(task: Task, taskStore: TaskStore, breakdown: WorkBreakdown): Promise<void> {
+  if (task.workflowPath?.id !== 'quick') return;
+  const catalog = await readAcceptanceCatalog(task, taskStore);
+  const errors: string[] = [];
+  if (catalog.items.length !== 1) errors.push('快速修改必须只有一个验收项');
+  if (breakdown.units.length !== 1) errors.push('快速修改必须且只能生成一个交付单元');
+  if (breakdown.acceptanceCoverage.length !== 1) errors.push('快速修改必须且只能声明一个验收覆盖项');
+  const unit = breakdown.units[0];
+  const coverage = breakdown.acceptanceCoverage[0];
+  const acceptanceId = catalog.items[0]?.id;
+  if (unit !== undefined) {
+    if (unit.dependsOn.length > 0) errors.push('快速修改的交付单元不得依赖其他交付单元');
+    if (unit.decisionRefs.length > 0 || unit.blockedBy.length > 0) errors.push('快速修改不得引用决策或等待外部条件');
+    if (acceptanceId !== undefined && (unit.acceptanceRefs.length !== 1 || unit.acceptanceRefs[0] !== acceptanceId)) {
+      errors.push(`快速修改的唯一交付单元必须只覆盖 ${acceptanceId}`);
+    }
+  }
+  if (coverage !== undefined && (coverage.disposition !== 'implement' || coverage.decisionId !== undefined || coverage.workUnitIds.length !== 1 || coverage.workUnitIds[0] !== unit?.id || coverage.acceptanceId !== acceptanceId)) {
+    errors.push('快速修改的验收覆盖必须由唯一交付单元以 implement 方式完成');
+  }
+  if (errors.length > 0) {
+    throw new ImplementationWorkPlannerError(`快速修改计划不满足约束：${errors.join('；')}。请重新执行 aiw task review 并选择标准需求。`);
+  }
 }
 
 async function validateAcceptanceCoverage(task: Task, taskStore: TaskStore, breakdown: WorkBreakdown): Promise<void> {

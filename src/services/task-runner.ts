@@ -30,6 +30,7 @@ import { TaskStore } from './task-store.js';
 import { loadRunCompletionBundle } from './run-completion-bundle.js';
 import { TaskImpactError, readClarificationImpactArtifacts, readCurrentImpactGraph, validateClarificationImpactArtifacts } from './task-impact-service.js';
 import { DeliveryTestExecutor, deliveryTestPlan } from './delivery-test-executor.js';
+import { WorkflowPathService } from './workflow-path-service.js';
 
 export class TaskRunnerError extends Error {
   constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'SOURCE_INTEGRITY_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'ARTIFACT_STALE' | 'WORKTREE_DIRTY' | 'RUN_RECOVERED', message: string) {
@@ -50,6 +51,7 @@ export class TaskRunner {
     changeInspector: WorkingTreeStatus;
     adapter: CodexAdapter;
     deliveryTestExecutor?: DeliveryTestExecutor;
+    workflowPathService?: WorkflowPathService;
     runtimeRoot: string;
     runIdFactory?: () => string;
     runLock?: TaskRunLock;
@@ -89,6 +91,11 @@ export class TaskRunner {
     }
 
     await this.assertSourceIntegrity(task);
+    // A clarification rerun is the recovery path when its assessment is no
+    // longer trustworthy. Every downstream node must use a valid selection.
+    if (input.nodeId !== 'clarify') {
+      await (this.deps.workflowPathService ?? new WorkflowPathService(this.deps.taskStore)).validateSelection(task);
+    }
     await this.assertUpstreamIntegrity(task, input.nodeId);
     await this.assertDeliveryUnitImpact(task, input.nodeId);
     const skill = await this.loadLockedSkill(node.skill);
@@ -125,6 +132,7 @@ export class TaskRunner {
         nodeId: input.nodeId,
         phase: node.phase,
         nodeRevision: node.revision,
+        ...(task.workflowPath === undefined ? {} : { workflowPath: task.workflowPath.id }),
         projectRoot: this.deps.taskStore.projectDirectory(),
         testPlan: isDeliveryUnit(node) ? deliveryTestPlan(node) : [],
       },
@@ -866,6 +874,7 @@ async function committedPaths(projectRoot: string, task: Task, taskStore: TaskSt
   const bundles = await Promise.all(completedDependencies.map((dependency) => loadRunCompletionBundle(task, taskStore, dependency)));
   return [
     taskFactPath('task.yaml'),
+    ...(task.workflowPath === undefined ? [] : [taskFactPath(task.workflowPath.assessmentPath)]),
     ...task.approvalRefs.map(taskFactPath),
     ...bundles.flatMap((bundle) => bundle.paths.map(taskFactPath)),
     ...manifest.files.map((file) => file.role === 'additional' ? file.path : taskFactPath(file.path)),

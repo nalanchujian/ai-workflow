@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { invalidateDependents, reconcileDecisionBlocks, transitionNode } from '../../src/services/task-state-machine.js';
+import { invalidateDependents, reconcileDecisionBlocks, restartDependentsForSourceChange, selectWorkflowPath, transitionNode } from '../../src/services/task-state-machine.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 
 describe('task state machine', () => {
@@ -100,6 +100,38 @@ describe('task state machine', () => {
 
     expect(next.nodes.clarify.status).toBe('completed');
     expect(next.nodes.solution.status).toBe('ready');
+  });
+
+  it('routes an eligible task directly from clarify to plan for quick delivery', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'awaiting_approval';
+    task.nodes.clarify.revision = 1;
+
+    const selected = selectWorkflowPath(task, {
+      id: 'quick', assessmentPath: 'workflow-assessments/clarify-r1.yaml', assessmentSha256: 'e'.repeat(64),
+      clarifyRevision: 1, policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
+    });
+    const approved = transitionNode(selected, 'clarify', { type: 'approve', actor: 'tech-lead' });
+
+    expect(approved.nodes.solution.status).toBe('superseded');
+    expect(approved.nodes.plan).toMatchObject({ status: 'ready', dependsOn: ['clarify'] });
+  });
+
+  it('clears the quick selection and restores standard topology when a source changes', () => {
+    const task = createSevenPhaseTask();
+    task.nodes.clarify.status = 'completed';
+    task.nodes.clarify.revision = 1;
+    const quick = selectWorkflowPath(task, {
+      id: 'quick', assessmentPath: 'workflow-assessments/clarify-r1.yaml', assessmentSha256: 'e'.repeat(64),
+      clarifyRevision: 1, policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
+    });
+
+    const restarted = restartDependentsForSourceChange(quick, 'intake', '需求来源已更新');
+
+    expect(restarted.workflowPath).toBeUndefined();
+    expect(restarted.nodes.clarify.status).toBe('ready');
+    expect(restarted.nodes.solution).toMatchObject({ status: 'pending', dependsOn: ['clarify'] });
+    expect(restarted.nodes.plan).toMatchObject({ status: 'pending', dependsOn: ['solution'] });
   });
 
   it('allows a failed node to be started again without creating a human revision', () => {

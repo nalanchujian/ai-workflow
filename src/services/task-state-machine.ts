@@ -1,4 +1,4 @@
-import { TaskSchema, type OutputRecord, type Task, type TaskNode } from '../domain/task.js';
+import { TaskSchema, type OutputRecord, type Task, type TaskNode, type WorkflowPathSelection } from '../domain/task.js';
 
 export type NodeEvent =
   | { type: 'evaluate' }
@@ -128,6 +128,9 @@ export function invalidateNodesAndDependents(task: Task, nodeIds: string[], reas
   if (affected.some((id) => ['clarify', 'solution', 'plan'].includes(id))) {
     next.impactGraph = undefined;
   }
+  if (affected.includes('clarify')) {
+    resetWorkflowPath(next, '需求澄清已失效，需重新选择工作方式');
+  }
   if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
 }
@@ -149,8 +152,41 @@ export function restartDependentsForSourceChange(task: Task, upstreamNodeId: str
   // treated as current after its upstream source snapshot changes.
   next.decisions = [];
   next.impactGraph = undefined;
+  resetWorkflowPath(next, '需求来源已更新，需重新选择工作方式');
   next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((nodeId) => path.startsWith(`approvals/${nodeId}/`)));
   if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
+  return TaskSchema.parse(deriveTaskStatus(next));
+}
+
+/**
+ * The fast path does not create a second workflow.  It only bypasses the
+ * standalone solution stage for a strictly eligible task; planning and the
+ * single delivery unit keep exactly the same evidence and approval rules.
+ */
+export function selectWorkflowPath(task: Task, selection: WorkflowPathSelection): Task {
+  const next = TaskSchema.parse(task);
+  const clarify = getNode(next, 'clarify');
+  const solution = getNode(next, 'solution');
+  const plan = getNode(next, 'plan');
+  if (!['awaiting_approval', 'completed'].includes(clarify.status)) {
+    throw new TaskTransitionError('只能在需求澄清完成后选择工作方式');
+  }
+  if (selection.clarifyRevision !== clarify.revision) {
+    throw new TaskTransitionError('工作方式必须绑定当前需求澄清版本');
+  }
+  if (plan.revision > 0 || solution.revision > 0) {
+    throw new TaskTransitionError('方案或计划已生成，不能再切换工作方式；请重新执行需求澄清。');
+  }
+
+  restoreStandardTopology(next);
+  if (selection.id === 'quick') {
+    solution.status = 'superseded';
+    plan.dependsOn = ['clarify'];
+    plan.status = clarify.status === 'completed' ? 'ready' : 'pending';
+    addEvent(next, 'supersede', 'solution', { reason: '快速修改：省略独立技术方案节点，直接进行单元计划' });
+  }
+  next.workflowPath = selection;
+  addEvent(next, 'select_workflow_path', undefined, { actor: selection.selectedBy, note: `${selection.id}；评估：${selection.assessmentPath}` });
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
@@ -229,10 +265,37 @@ function resetForOverwrite(task: Task, nodeId: string): void {
     addEvent(task, 'invalidate', id, { reason: `重新执行 ${nodeId}，已覆盖上次结果` });
   }
 
-  if (affectedSet.has('clarify')) task.decisions = [];
+  if (affectedSet.has('clarify')) {
+    task.decisions = [];
+    resetWorkflowPath(task, '重新执行需求澄清，已清除原工作方式选择');
+  }
   if (affectedSet.has('clarify') || affectedSet.has('plan')) task.impactGraph = undefined;
   if (affectsDelivery(task, affected)) task.deliveryStatus = 'not_assessed';
   task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
+}
+
+/** Return the graph to the sole standard topology before a fresh clarification. */
+function resetWorkflowPath(task: Task, reason: string): void {
+  if (task.workflowPath === undefined && task.nodes.solution?.status !== 'superseded') return;
+  task.workflowPath = undefined;
+  restoreStandardTopology(task);
+  addEvent(task, 'invalidate', 'solution', { reason });
+}
+
+function restoreStandardTopology(task: Task): void {
+  const clarify = task.nodes.clarify;
+  const solution = task.nodes.solution;
+  const plan = task.nodes.plan;
+  if (solution !== undefined) {
+    solution.dependsOn = ['clarify'];
+    if (solution.status === 'superseded' || solution.status === 'invalidated') {
+      solution.status = clarify?.status === 'completed' ? 'ready' : 'pending';
+    }
+  }
+  if (plan !== undefined) {
+    plan.dependsOn = ['solution'];
+    if (plan.revision === 0 && solution?.status !== 'completed') plan.status = 'pending';
+  }
 }
 
 function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {
@@ -267,7 +330,7 @@ function assertStatus(node: TaskNode, allowed: TaskNode['status'][], message: st
 function addEvent(
   task: Task,
   type: Task['events'][number]['type'],
-  nodeId: string,
+  nodeId: string | undefined,
   detail: Omit<Task['events'][number], 'at' | 'nodeId' | 'type'> = {},
 ): void {
   task.events.push({ type, nodeId, at: new Date().toISOString(), ...detail });

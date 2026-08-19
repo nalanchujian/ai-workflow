@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { materializeImplementationWork, validateWorkBreakdown } from '../../src/services/implementation-work-planner.js';
+import { materializeImplementationWork, validatePlanAcceptanceCoverage, validateWorkBreakdown } from '../../src/services/implementation-work-planner.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { completedArtifactPath } from '../../src/domain/handoff.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
@@ -146,6 +146,24 @@ describe('ImplementationWorkPlanner', () => {
     expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 acceptanceRef；请改为 acceptanceId。');
     expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 status；请改为 disposition。');
     expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 units；请改为 workUnitIds。');
+  });
+
+  it('rejects a multi-unit plan when the task selected quick delivery', async () => {
+    const projectRoot = await createTempDirectory('aiw-work-planner-');
+    directories.push(projectRoot);
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    task.nodes.plan.status = 'awaiting_approval';
+    task.nodes.plan.revision = 1;
+    task.workflowPath = {
+      id: 'quick', assessmentPath: 'workflow-assessments/clarify-r1.yaml', assessmentSha256: 'f'.repeat(64),
+      clarifyRevision: 1, policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
+    };
+    await store.create(task);
+    await writePlanFacts(store, task.id, 'first');
+
+    await expect(validatePlanAcceptanceCoverage(await store.load(task.id), store))
+      .rejects.toThrow('快速修改计划不满足约束');
   });
 });
 

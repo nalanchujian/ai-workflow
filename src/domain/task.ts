@@ -30,6 +30,22 @@ export const NodeStatusSchema = z.enum([
 export const TaskStatusSchema = z.enum(['active', 'partially_blocked', 'blocked', 'completed', 'cancelled']);
 export const DeliveryStatusSchema = z.enum(['not_assessed', 'ready', 'not_ready', 'risk_accepted']);
 export const ExternalResolutionImpactSchema = z.enum(['execution-only', 'replan']);
+export const WorkflowPathIdSchema = z.enum(['quick', 'standard']);
+
+/**
+ * The selected delivery path is a task fact, not an invocation flag.  It is
+ * chosen after clarification, therefore the choice is tied to the exact
+ * clarification revision and to the assessment bytes that justified it.
+ */
+export const WorkflowPathSelectionSchema = z.object({
+  id: WorkflowPathIdSchema,
+  assessmentPath: z.string().regex(relativePathPattern, '工作方式评估必须是任务根目录内的相对路径'),
+  assessmentSha256: z.string().regex(sha256Pattern, '工作方式评估必须记录 SHA-256 哈希'),
+  clarifyRevision: z.number().int().positive(),
+  policyVersion: z.string().min(1),
+  selectedAt: z.string().datetime(),
+  selectedBy: z.string().min(1),
+});
 
 export const DecisionResolutionSchema = z.object({
   id: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效'),
@@ -144,6 +160,7 @@ export const TaskEventSchema = z.object({
     'defer_decision',
     'resolve_decision',
     'close_with_risk',
+    'select_workflow_path',
   ]),
   nodeId: z.string().min(1).optional(),
   decisionId: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效').optional(),
@@ -166,6 +183,7 @@ const TaskBaseSchema = z.object({
   skillProfile: WorkflowProfileLockSchema,
   sources: z.record(z.string().min(1), SourceReferenceSchema),
   impactGraph: ImpactGraphReferenceSchema.optional(),
+  workflowPath: WorkflowPathSelectionSchema.optional(),
   nodes: z.record(z.string().min(1), TaskNodeSchema),
   approvalRefs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
   decisions: z.array(DecisionResolutionSchema),
@@ -236,6 +254,8 @@ export type NodeStatus = z.infer<typeof NodeStatusSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type DeliveryStatus = z.infer<typeof DeliveryStatusSchema>;
 export type ExternalResolutionImpact = z.infer<typeof ExternalResolutionImpactSchema>;
+export type WorkflowPathId = z.infer<typeof WorkflowPathIdSchema>;
+export type WorkflowPathSelection = z.infer<typeof WorkflowPathSelectionSchema>;
 export type DecisionResolution = z.infer<typeof DecisionResolutionSchema>;
 
 /** Returns only decision facts explicitly registered in the immutable task record. */

@@ -50,7 +50,7 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 
 统一执行入口，适用于首次运行、失败重试和已完成节点的覆盖式重跑。`intake` 不可运行。
 
-可运行节点包括：`clarify`、`solution`、`plan`，以及计划批准后生成的 `delivery-<unit-id>`。
+可运行节点包括：`clarify`、标准需求中的 `solution`、`plan`，以及计划批准后生成的 `delivery-<unit-id>`。快速修改选定后不产生可运行的 `solution`，状态页会直接引导到 `plan`。
 
 运行前 AIW 校验来源和上游产物哈希、Git 提交状态、业务工作树基线和上下文预算；运行后保存 Prompt 清单、Diff、补丁、结果和产物哈希。
 
@@ -62,7 +62,7 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 
 ### `aiw task review <task-id>`
 
-只用于 `clarify` 的人工确认。系统逐项展示待确认业务结论；每项先选“本期继续”或“等待外部条件”，继续时可在 AI 推荐与人工结论间选择。所有事项处理完后，该命令同时写入决策事实和澄清审批。
+只用于 `clarify` 的人工确认。系统逐项展示待确认业务结论；每项先选“本期继续”或“等待外部条件”，继续时可在 AI 推荐与人工结论间选择。随后 AIW 根据当前澄清 revision 的来源规模、AC 数量、决策项和事实可信度建议“快速修改 / 标准需求”：只有快速条件全部满足时可选快速修改，否则固定按标准需求推进。该命令同时写入决策事实、路径评估和澄清审批。已确认的快速修改在尚未生成计划 revision 前可再次执行 `task review` 升级为标准需求；反向降级不支持。
 
 ### `aiw task approve <task-id> <node-id>`
 

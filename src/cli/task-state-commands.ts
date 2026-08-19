@@ -5,11 +5,12 @@ import { Command } from 'commander';
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
-import { type ExternalResolutionImpact, type Task, type TaskNode } from '../domain/task.js';
+import { type ExternalResolutionImpact, type Task, type TaskNode, type WorkflowPathId } from '../domain/task.js';
+import { workflowPathLabel, type WorkflowPathAssessment } from '../domain/workflow-path.js';
 import { ApprovalFactSchema } from '../domain/approval.js';
 import { completedArtifactPath, outputPathsForCompletedRun } from '../domain/handoff.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
-import { invalidateNodeAndDependents, transitionNode } from '../services/task-state-machine.js';
+import { invalidateNodeAndDependents, selectWorkflowPath, transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
 import { loadRunCompletionBundle } from '../services/run-completion-bundle.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
@@ -23,6 +24,7 @@ import { readClarificationImpactArtifacts, materializeImpactGraph, validatePlanI
 import { type HumanOutput, writeCommandResult } from './output.js';
 import { type ProgressReporter } from './progress-reporter.js';
 import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js';
+import { WorkflowPathService } from '../services/workflow-path-service.js';
 
 type ClarifyDecisionSelection = {
   decisionId: string;
@@ -31,6 +33,11 @@ type ClarifyDecisionSelection = {
   owner?: string;
   unblockCondition?: string;
   manualNote?: string;
+};
+
+type ClarifyReviewInput = {
+  selections: ClarifyDecisionSelection[];
+  workflowPath: WorkflowPathId;
 };
 
 type AcceptanceDetail = { id: string; title: string; description: string };
@@ -94,6 +101,24 @@ export class TaskStateCommands {
     return this.deps.decisionService.list(taskId);
   }
 
+  async assessWorkflowPath(taskId: string): Promise<WorkflowPathAssessment> {
+    return new WorkflowPathService(this.deps.taskStore).assess(await this.deps.taskStore.load(taskId));
+  }
+
+  /** A fast-path task may always be made stricter before any plan revision exists. */
+  async switchToStandardPath(taskId: string, options: { actor?: string } = {}): Promise<Task> {
+    const task = await this.deps.taskStore.load(taskId);
+    if (task.nodes.clarify?.status !== 'completed' || task.workflowPath?.id !== 'quick') {
+      throw new Error('只有已确认的快速修改任务可以切换为标准需求');
+    }
+    const pathService = new WorkflowPathService(this.deps.taskStore);
+    await pathService.validateSelection(task);
+    const actor = await this.deps.taskFactGuard.actor(options.actor);
+    const next = selectWorkflowPath(task, { ...task.workflowPath, id: 'standard', selectedAt: new Date().toISOString(), selectedBy: actor });
+    await this.deps.taskStore.update(next);
+    return next;
+  }
+
   async resolveDecision(taskId: string, decisionId: string, options: { impact: ExternalResolutionImpact; fact?: string; evidence?: string; note: string; actor?: string }): Promise<Task> {
     if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
     await this.assertDecisionRegisterCommitted(taskId);
@@ -115,7 +140,7 @@ export class TaskStateCommands {
     return this.decide(taskId, nodeId, 'approved', options);
   }
 
-  async reviewClarify(taskId: string, selections: ClarifyDecisionSelection[], options: { actor?: string; note?: string }): Promise<Task> {
+  async reviewClarify(taskId: string, selections: ClarifyDecisionSelection[], options: { actor?: string; note?: string; workflowPath?: WorkflowPathId }): Promise<Task> {
     if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
     const task = await this.deps.taskStore.load(taskId);
     const clarify = task.nodes.clarify;
@@ -130,6 +155,12 @@ export class TaskStateCommands {
     }
     const completionBundle = await this.completionBundleOrInvalidate(task, 'clarify');
     await readClarificationImpactArtifacts(task, this.deps.taskStore);
+    const pathService = new WorkflowPathService(this.deps.taskStore);
+    const assessment = await pathService.assess(task);
+    const workflowPath = options.workflowPath ?? 'standard';
+    if (workflowPath === 'quick' && !assessment.quick.eligible) {
+      throw new Error(`当前需求不满足快速修改条件：${assessment.quick.reasons.map((reason) => reason.message).join('；')}。请按标准需求推进。`);
+    }
     await this.deps.taskFactGuard.assertCommitted({
       task,
       projectRoot: this.deps.taskStore.projectDirectory(),
@@ -148,6 +179,18 @@ export class TaskStateCommands {
         ...(selection.manualNote === undefined ? options.note === undefined ? {} : { note: options.note } : { note: selection.manualNote }),
       });
     }
+    const assessmentFact = pathService.serialize(assessment);
+    await this.deps.taskStore.createFact(taskId, assessmentFact.path, assessmentFact.content);
+    const selectedTask = selectWorkflowPath(await this.deps.taskStore.load(taskId), {
+      id: workflowPath,
+      assessmentPath: assessmentFact.path,
+      assessmentSha256: assessmentFact.sha256,
+      clarifyRevision: assessment.clarifyRevision,
+      policyVersion: assessment.policyVersion,
+      selectedAt: new Date().toISOString(),
+      selectedBy: actor,
+    });
+    await this.deps.taskStore.update(selectedTask);
     return this.decide(taskId, 'clarify', 'approved', { actor, note: options.note }, { skipCommittedCheck: true });
   }
 
@@ -192,6 +235,7 @@ export class TaskStateCommands {
       throw new Error('风险接受只能用于交付单元');
     }
     if (nodeId === 'plan' && decision === 'approved') {
+      await new WorkflowPathService(this.deps.taskStore).validateSelection(task);
       await validatePlanAcceptanceCoverage(task, this.deps.taskStore);
       await validatePlanImpact(task, this.deps.taskStore);
     }
@@ -276,6 +320,16 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     const currentTask = await deps.commands.status(taskId);
     const clarifyStatus = currentTask.nodes.clarify?.status;
     if (clarifyStatus === 'completed') {
+      if (currentTask.workflowPath?.id === 'quick' && currentTask.nodes.plan?.revision === 0 && currentTask.nodes.solution?.revision === 0) {
+        const prompter = deps.reviewPrompter ?? createReviewPrompter(deps.stdout);
+        deps.stdout.write('当前工作方式：快速修改\n如发现需要独立技术方案或多个交付单元，可在开始计划前切换为标准需求。\n1. 保持快速修改\n2. 切换为标准需求\n');
+        const choice = await askNumber(prompter, '请输入选择（1-2）：', 2);
+        if (choice === 2) {
+          const task = await deps.commands.switchToStandardPath(taskId, options);
+          writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '已切换为标准需求', 'chore(aiw): switch to standard'));
+          return;
+        }
+      }
       const ready = Object.entries(currentTask.nodes).filter(([, node]) => node.status === 'ready');
       writeCommandResult(currentTask, current, deps.stdout, {
         headline: '需求澄清已确认，无需再次操作',
@@ -294,9 +348,12 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     if (options.confirm === true && decisions.length > 0) {
       throw new Error('存在待确认事项时不能使用 --confirm；请逐项执行 task review');
     }
+    const assessment = await workflowPathAssessmentForReview(deps.commands, currentTask, taskId);
     const acceptanceDetails = await optionalAcceptanceDetails(deps.commands, taskId);
-    const selections = options.confirm === true ? [] : await promptClarifyReview(taskId, decisions, prompter, deps.stdout, acceptanceDetails);
-    const task = await deps.commands.reviewClarify(taskId, selections, options);
+    const review = options.confirm === true
+      ? { selections: [], workflowPath: 'standard' as const }
+      : await promptClarifyReview(taskId, decisions, assessment, prompter, deps.stdout, acceptanceDetails);
+    const task = await deps.commands.reviewClarify(taskId, review.selections, { ...options, workflowPath: review.workflowPath });
     writeCommandResult(task, current, deps.stdout, renderTaskOutput(task, '需求澄清已确认', 'chore(aiw): review clarify'));
   }));
   command.addCommand(new Command('decision').description('高级：查看决策项，或解除已满足的外部等待')
@@ -367,6 +424,7 @@ function renderTaskOutput(
       { label: '任务名称', value: task.title },
       { label: '整体状态', value: taskStatusLabel(task.status) },
       { label: '交付状态', value: deliveryStatusLabel(task.deliveryStatus) },
+      ...(task.workflowPath === undefined ? [] : [{ label: '工作方式', value: workflowPathLabel(task.workflowPath.id) }]),
     ],
     sections: [
       ...nodeSections(task),
@@ -403,7 +461,7 @@ function nodeSections(task: Task): Array<NonNullable<HumanOutput['sections']>[nu
   const units = Object.entries(task.nodes).filter(([, node]) => node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.status !== 'superseded');
   const ordinary = Object.entries(task.nodes).filter(([nodeId]) => nodeId !== 'implement');
   return [
-    { title: '节点', lines: ordinary.map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeStatusLabel(node.status)}`) },
+    { title: '节点', lines: ordinary.map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeId === 'solution' && task.workflowPath?.id === 'quick' ? '快速修改不单独生成方案' : nodeStatusLabel(node.status)}`) },
     ...(units.length === 0 ? [] : [{ title: `交付单元（${units.length}）`, lines: units.map(([nodeId, node]) => `${node.title}：${nodeStatusLabel(node.status)}（${nodeId}）`) }]),
   ];
 }
@@ -422,6 +480,29 @@ async function optionalAcceptanceDetails(commands: TaskStateCommands, taskId: st
   } catch {
     return new Map();
   }
+}
+
+async function workflowPathAssessmentForReview(
+  commands: TaskStateCommands,
+  task: Task,
+  taskId: string,
+): Promise<WorkflowPathAssessment> {
+  // Command construction is deliberately dependency-injectable for terminal
+  // tests and integrations. Real TaskStateCommands always exposes the
+  // assessor; the conservative fallback keeps older integrations on the
+  // standard path instead of accidentally enabling a fast path.
+  const assessor = (commands as Partial<Pick<TaskStateCommands, 'assessWorkflowPath'>>).assessWorkflowPath;
+  if (assessor !== undefined) return assessor.call(commands, taskId);
+  return {
+    schemaVersion: 'aiw.workflow-path-assessment/v1',
+    taskId: task.id,
+    clarifyRevision: Math.max(task.nodes.clarify?.revision ?? 0, 1),
+    policyVersion: 'quick-standard/v1',
+    recommendedPath: 'standard',
+    signals: { sourceCount: 0, sourceCharacters: 0, acceptanceCount: 0, decisionCount: 0, confirmedFactCount: 0, nonConfirmedFactCount: 0 },
+    quick: { eligible: false, reasons: [{ code: 'assessment-unavailable', message: '当前环境无法评估快速修改条件，按标准需求推进。' }] },
+    evaluatedAt: new Date(0).toISOString(),
+  };
 }
 
 function clarifyDecisionSection(
@@ -461,10 +542,11 @@ function reviewOrApprovalNextSteps(
 async function promptClarifyReview(
   taskId: string,
   decisions: Awaited<ReturnType<TaskStateCommands['listDecisions']>>,
+  assessment: WorkflowPathAssessment,
   prompter: ReviewPrompter,
   stdout: NodeJS.WritableStream,
   acceptanceDetails: Map<string, AcceptanceDetail>,
-): Promise<ClarifyDecisionSelection[]> {
+): Promise<ClarifyReviewInput> {
   stdout.write(`需求澄清 · 待确认 ${decisions.length} 项\n先确定本期处理方式；选择“本期继续”后再选择业务结论。\n\n`);
   const selections: ClarifyDecisionSelection[] = [];
   for (const [index, { item }] of decisions.entries()) {
@@ -501,12 +583,31 @@ async function promptClarifyReview(
     }
     stdout.write('\n');
   }
-  stdout.write('全部事项已处理。是否确认并进入技术方案？\n1. 确认\n2. 暂不确认\n');
+  const workflowPath = await promptWorkflowPath(assessment, prompter, stdout);
+  stdout.write(`全部事项已处理。将按「${workflowPathLabel(workflowPath)}」推进。是否确认？\n1. 确认\n2. 暂不确认\n`);
   const confirmation = await askNumber(prompter, '请输入选择（1-2）：', 2);
   if (confirmation !== 1) {
     throw new Error(`已取消本次需求澄清确认；本次选择未保存。可重新执行 aiw task review ${taskId}。`);
   }
-  return selections;
+  return { selections, workflowPath };
+}
+
+async function promptWorkflowPath(
+  assessment: WorkflowPathAssessment,
+  prompter: ReviewPrompter,
+  stdout: NodeJS.WritableStream,
+): Promise<WorkflowPathId> {
+  stdout.write('\n工作方式建议\n');
+  if (assessment.quick.eligible) {
+    stdout.write(`AI 建议：快速修改（来源约 ${assessment.signals.sourceCharacters} 字、1 个验收项、无待确认结论）\n`);
+    stdout.write('1. 快速修改：跳过独立技术方案，仍完成单元计划、代码、真实测试和验收。\n');
+    stdout.write('2. 标准需求：保留技术方案，适合希望额外审查实现方案的情况。\n');
+    return (await askNumber(prompter, '请输入选择（1-2）：', 2)) === 1 ? 'quick' : 'standard';
+  }
+  stdout.write('AI 建议：标准需求\n');
+  assessment.quick.reasons.forEach((reason) => stdout.write(`- ${reason.message}\n`));
+  stdout.write('本任务存在上述情况，需完成技术方案、计划和业务单元交付。\n');
+  return 'standard';
 }
 
 function writeDecisionContext(
