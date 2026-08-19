@@ -10,10 +10,14 @@ export class NodeProcessRunner implements ProcessRunner {
       let stderr = '';
       let timedOut = false;
       let forceKillTimer: NodeJS.Timeout | undefined;
+      const terminate = () => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        child.kill('SIGTERM');
+        forceKillTimer ??= setTimeout(() => child.kill('SIGKILL'), 5_000);
+      };
       const timeoutTimer = setTimeout(() => {
         timedOut = true;
-        child.kill('SIGTERM');
-        forceKillTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+        terminate();
       }, input.timeoutMs);
       const clearTimers = () => {
         clearTimeout(timeoutTimer);
@@ -40,8 +44,12 @@ export class NodeProcessRunner implements ProcessRunner {
       });
       child.once('close', (exitCode, signal) => {
         clearTimers();
+        input.signal?.removeEventListener('abort', onAbort);
         resolve({ exitCode, signal, stdout, stderr, timedOut });
       });
+      const onAbort = () => terminate();
+      if (input.signal?.aborted === true) onAbort();
+      else input.signal?.addEventListener('abort', onAbort, { once: true });
       void (async () => {
         try {
           if (child.pid === undefined) throw new Error('无法获取 Codex 进程 ID');

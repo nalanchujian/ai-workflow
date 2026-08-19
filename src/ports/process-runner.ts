@@ -4,6 +4,8 @@ export interface ProcessRunInput {
   cwd: string;
   stdin: string;
   timeoutMs: number;
+  /** Cancels only this child process; used to safely finish a CLI interruption. */
+  signal?: AbortSignal;
   onStarted?: (processId: number) => Promise<void> | void;
   /** Explicit child environment. Omit only for trusted local diagnostic commands. */
   env?: NodeJS.ProcessEnv;

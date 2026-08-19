@@ -31,6 +31,23 @@ describe('NodeProcessRunner', () => {
     expect(result.timedOut).toBe(true);
   });
 
+  it('terminates only the active child when its abort signal is raised', async () => {
+    const runner = new NodeProcessRunner();
+    const controller = new AbortController();
+    const pending = runner.run({
+      command: process.execPath,
+      args: ['-e', 'setTimeout(() => process.exit(0), 10_000)'],
+      cwd: process.cwd(),
+      stdin: '',
+      timeoutMs: 20_000,
+      signal: controller.signal,
+    });
+
+    controller.abort('terminal closed');
+
+    await expect(pending).resolves.toMatchObject({ exitCode: null, signal: 'SIGTERM', timedOut: false });
+  });
+
   it('returns the child exit result when stdin closes before the input is written', async () => {
     const runner = new NodeProcessRunner();
 

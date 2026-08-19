@@ -148,6 +148,28 @@ describe('ImplementationWorkPlanner', () => {
     expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 units；请改为 workUnitIds。');
   });
 
+  it('rejects prose and malformed package-script arguments in planned verification commands', () => {
+    const invalidBreakdown = [
+      'schemaVersion: aiw.work-breakdown/v1',
+      'units:',
+      '  - id: page',
+      '    title: 实现页面',
+      '    goal: 实现列表页面',
+      '    acceptanceRefs: [AC-01]',
+      '    factRefs: [FACT-PAGE-01]',
+      '    steps: [实现页面]',
+      '    verification: ["pnpm run tsc -- --noEmit", "页面组件测试"]',
+      'acceptanceCoverage:',
+      '  - acceptanceId: AC-01',
+      '    disposition: implement',
+      '    workUnitIds: [page]',
+    ].join('\n');
+
+    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('验证命令无效');
+    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('多余的 `--`');
+    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用自然语言描述');
+  });
+
   it('rejects a multi-unit plan when the task selected quick delivery', async () => {
     const projectRoot = await createTempDirectory('aiw-work-planner-');
     directories.push(projectRoot);

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { AcceptanceCatalogSchema, type AcceptanceCatalog } from '../domain/acceptance-catalog.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
+import { verificationCommandError } from '../domain/verification-command.js';
 import { completedArtifactPath } from '../domain/handoff.js';
 import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
@@ -59,6 +60,12 @@ export const WorkBreakdownSchema = z.object({
     }
     if (unit.blockedBy.some((id) => !unit.decisionRefs.includes(id))) {
       context.addIssue({ code: 'custom', path: ['units', index, 'decisionRefs'], message: 'blockedBy 中的决策必须同时出现在 decisionRefs' });
+    }
+    for (const [verificationIndex, command] of unit.verification.entries()) {
+      const message = verificationCommandError(command);
+      if (message !== undefined) {
+        context.addIssue({ code: 'custom', path: ['units', index, 'verification', verificationIndex], message: `验证命令无效：${message}` });
+      }
     }
   }
   if (hasCycle(breakdown.units.map((unit) => ({ id: unit.id, dependsOn: unit.dependsOn })))) {

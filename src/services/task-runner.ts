@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import type { CodexAdapter } from '../adapters/codex-adapter.js';
@@ -41,6 +41,7 @@ export class TaskRunnerError extends Error {
 
 export class TaskRunner {
   private readonly runLock: TaskRunLock;
+  private activeRun: ActiveRun | undefined;
 
   constructor(private readonly deps: {
     taskStore: TaskStore;
@@ -69,6 +70,26 @@ export class TaskRunner {
     } finally {
       await lease.release();
     }
+  }
+
+  /**
+   * Called by the CLI's SIGINT/SIGTERM handler. The signal is converted into a
+   * durable cancellation request before the child is terminated, so a task is
+   * never left indefinitely in `running` merely because the terminal closed.
+   */
+  async requestCancellation(input: { taskId: string; nodeId: string; reason: string }): Promise<boolean> {
+    const active = this.activeRun;
+    if (active === undefined || active.taskId !== input.taskId || active.nodeId !== input.nodeId) return false;
+    await mkdir(active.runDirectory, { recursive: true });
+    await writeFile(join(active.runDirectory, 'cancel-request.json'), JSON.stringify({
+      taskId: input.taskId,
+      nodeId: input.nodeId,
+      runId: active.runId,
+      requestedAt: new Date().toISOString(),
+      note: input.reason,
+    }) + '\n', 'utf8');
+    active.controller.abort(input.reason);
+    return true;
   }
 
   private async runLocked(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult> {
@@ -172,31 +193,38 @@ export class TaskRunner {
 
     const startedTask = transitionNode(task, input.nodeId, { type: 'start', runId });
     await this.deps.taskStore.update(startedTask);
-    if (scope === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少任务事实写入边界');
-    await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
-    const agentFactBaselinePath = `runs/${runId}/agent-task-fact-baseline.json`;
-    const recordedAgentFactBaseline = await snapshotAiWorkflowFacts(this.deps.taskStore.projectDirectory());
-    await this.deps.taskStore.createFact(task.id, agentFactBaselinePath, JSON.stringify({
-      schemaVersion: 'aiw.agent-task-fact-baseline/v1',
-      taskId: task.id,
-      nodeId: input.nodeId,
-      runId,
-      capturedAt: new Date().toISOString(),
-      facts: recordedAgentFactBaseline,
-    }, null, 2) + '\n');
-    // Capture again after persisting the baseline record itself. This is the
-    // exact file state handed to Codex; any later .aiw/ mutation is therefore
-    // attributable to the agent, not to runner setup.
-    const agentFactBaseline = await snapshotAiWorkflowFacts(this.deps.taskStore.projectDirectory());
-    const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline, finalizedManifest, agentFactBaseline)), contextManifest: finalizedManifest });
-    await this.writeResult(task.id, runId, result);
-    const next = result.status === 'succeeded'
-      ? transitionNode(startedTask, input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
-      : result.status === 'cancelled'
-        ? transitionNode(startedTask, input.nodeId, { type: 'cancel', note: result.error?.message ?? '已取消当前运行' })
-        : transitionNode(startedTask, input.nodeId, { type: 'fail', message: result.error?.message ?? `运行未完成：${result.status}` });
-    await this.deps.taskStore.update(next);
-    return result;
+    const controller = new AbortController();
+    const activeRun: ActiveRun = { taskId: task.id, nodeId: input.nodeId, runId, runDirectory, controller };
+    this.activeRun = activeRun;
+    try {
+      if (scope === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少任务事实写入边界');
+      await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
+      const agentFactBaselinePath = `runs/${runId}/agent-task-fact-baseline.json`;
+      const recordedAgentFactBaseline = await snapshotAiWorkflowFacts(this.deps.taskStore.projectDirectory());
+      await this.deps.taskStore.createFact(task.id, agentFactBaselinePath, JSON.stringify({
+        schemaVersion: 'aiw.agent-task-fact-baseline/v1',
+        taskId: task.id,
+        nodeId: input.nodeId,
+        runId,
+        capturedAt: new Date().toISOString(),
+        facts: recordedAgentFactBaseline,
+      }, null, 2) + '\n');
+      // Capture again after persisting the baseline record itself. This is the
+      // exact file state handed to Codex; any later .aiw/ mutation is therefore
+      // attributable to the agent, not to runner setup.
+      const protectedTaskFacts = await snapshotAiWorkflowFactsWithContents(this.deps.taskStore.projectDirectory());
+      const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline, finalizedManifest, protectedTaskFacts, controller.signal)), contextManifest: finalizedManifest });
+      await this.writeResult(task.id, runId, result);
+      const next = result.status === 'succeeded'
+        ? transitionNode(startedTask, input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
+        : result.status === 'cancelled'
+          ? transitionNode(startedTask, input.nodeId, { type: 'cancel', note: result.error?.message ?? '已取消当前运行' })
+          : transitionNode(startedTask, input.nodeId, { type: 'fail', message: result.error?.message ?? `运行未完成：${result.status}` });
+      await this.deps.taskStore.update(next);
+      return result;
+    } finally {
+      if (this.activeRun === activeRun) this.activeRun = undefined;
+    }
   }
 
   private async execute(
@@ -206,9 +234,10 @@ export class TaskRunner {
     scope: TaskFactWriteScope,
     baseline: ChangeBaseline,
     manifest: ContextManifest,
-    agentFactBaseline: TaskFactSnapshot,
+    protectedTaskFacts: TaskFactSnapshotWithContents,
+    signal: AbortSignal,
   ): Promise<RunResult> {
-    if (await cancellationRequested(request.runDirectory)) {
+    if (signal.aborted || await cancellationRequested(request.runDirectory)) {
       return cancelledResult(request, '已收到取消请求，未启动 Codex');
     }
     let result: RunResult;
@@ -217,22 +246,28 @@ export class TaskRunner {
         onProcessStarted: async (processId) => {
           await writeFile(join(request.runDirectory, 'process.json'), JSON.stringify({ processId, startedAt: new Date().toISOString() }) + '\n', 'utf8');
         },
+        signal,
       });
     } catch (error) {
       result = failedResult(request, 'CODEX_EXECUTION_ERROR', error instanceof Error ? error.message : 'Codex 调用失败');
     }
-    if (await cancellationRequested(request.runDirectory)) {
+    if (signal.aborted || await cancellationRequested(request.runDirectory)) {
       result = cancelledResult(request, '已取消当前 Codex 运行');
     }
-    const agentTaskFacts = await inspectAgentTaskFactChanges(this.deps.taskStore.projectDirectory(), agentFactBaseline, scope);
+    const agentTaskFacts = await inspectAgentTaskFactChanges(this.deps.taskStore.projectDirectory(), protectedTaskFacts.hashes, scope);
     if (agentTaskFacts.violations.length > 0) {
+      const restoredTaskFactPaths = await restoreTaskFactViolations(
+        this.deps.taskStore.projectDirectory(),
+        protectedTaskFacts.contents,
+        agentTaskFacts.violations,
+      );
       const expectedHandoff = request.artifacts.find((path) => path.startsWith(`handoffs/${nodeId}/`) && path.endsWith('.yaml'));
       const staleHandoffs = agentTaskFacts.violations.filter((path) => path.startsWith(`.aiw/tasks/${task.id}/handoffs/${nodeId}/`));
       const message = staleHandoffs.length === 0
-        ? `检测到不允许写入的任务事实：${agentTaskFacts.violations.join(', ')}`
-        : `检测到写入旧交接包：${staleHandoffs.join(', ')}。本次运行只允许写入 ${expectedHandoff ?? '当前 revision 的交接包'}；请勿根据节点的历史 revision 重写旧文件。`;
+        ? `检测到不允许写入的任务事实：${agentTaskFacts.violations.join(', ')}。AIW 已自动还原这些历史或受保护事实。`
+        : `检测到写入旧交接包：${staleHandoffs.join(', ')}。本次运行只允许写入 ${expectedHandoff ?? '当前 revision 的交接包'}；AIW 已自动还原旧文件。`;
       await this.persistChangeEvidence(task, {
-        ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts)),
+        ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts, undefined, restoredTaskFactPaths)),
         failure: failureEvidence('task-facts', 'TASK_FACT_WRITE_VIOLATION', message),
       });
       return failedResult(request, 'TASK_FACT_WRITE_VIOLATION', message);
@@ -257,7 +292,16 @@ export class TaskRunner {
           runId: request.runId,
           taskStore: this.deps.taskStore,
           projectRoot: this.deps.taskStore.projectDirectory(),
+          signal,
         });
+      }
+      if (signal.aborted || await cancellationRequested(request.runDirectory)) {
+        const cancelled = cancelledResult(request, '已取消当前运行');
+        await this.persistChangeEvidence(task, {
+          ...(await this.recordChangeEvidence(task, request, scope, cancelled, baseline, agentTaskFacts)),
+          failure: failureEvidence('cancelled', 'RUN_CANCELLED', '已取消当前运行'),
+        });
+        return cancelled;
       }
       evidence = await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts);
       if (evidence.git.historyChanged) {
@@ -368,7 +412,7 @@ export class TaskRunner {
     };
   }
 
-  private async recordChangeEvidence(task: Task, request: RunRequest, scope: TaskFactWriteScope, result: RunResult, baseline: ChangeBaseline, agentTaskFacts: AgentTaskFactChanges, artifacts?: OutputRecord[]): Promise<ChangeEvidence> {
+  private async recordChangeEvidence(task: Task, request: RunRequest, scope: TaskFactWriteScope, result: RunResult, baseline: ChangeBaseline, agentTaskFacts: AgentTaskFactChanges, artifacts?: OutputRecord[], restoredTaskFactPaths?: string[]): Promise<ChangeEvidence> {
     const projectRoot = this.deps.taskStore.projectDirectory();
     const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot });
     const taskFactViolations = agentTaskFacts.violations;
@@ -381,6 +425,7 @@ export class TaskRunner {
       schemaVersion: 'aiw.change-evidence/v2', taskId: task.id, nodeId: scope.nodeId, runId: request.runId,
       baseline,
       changedPaths, taskFactViolations, agentTaskFacts: agentTaskFacts.changes, changedFiles,
+      ...(restoredTaskFactPaths === undefined ? {} : { restoredTaskFactPaths }),
       untrackedPaths,
       git: { before: baseline.git ?? {}, after, historyChanged: !sameGitRevision(baseline.git, after) },
       patch,
@@ -394,7 +439,7 @@ export class TaskRunner {
   private async persistChangeEvidence(task: Task, evidence: ChangeEvidence): Promise<void> {
     const { patch, ...sharedEvidence } = evidence;
     await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change.patch`, patch);
-    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v2', taskId: task.id, runId: evidence.runId, changedPaths: evidence.changedPaths, untrackedPaths: evidence.untrackedPaths, taskFactViolations: evidence.taskFactViolations, patchSha256: evidence.diff.sha256 }, null, 2) + '\n');
+    await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-diff.json`, JSON.stringify({ schemaVersion: 'aiw.change-diff/v2', taskId: task.id, runId: evidence.runId, changedPaths: evidence.changedPaths, untrackedPaths: evidence.untrackedPaths, taskFactViolations: evidence.taskFactViolations, ...(evidence.restoredTaskFactPaths === undefined ? {} : { restoredTaskFactPaths: evidence.restoredTaskFactPaths }), patchSha256: evidence.diff.sha256 }, null, 2) + '\n');
     await this.deps.taskStore.createFact(task.id, `runs/${evidence.runId}/change-evidence.json`, JSON.stringify(sharedEvidence, null, 2) + '\n');
   }
 
@@ -431,6 +476,14 @@ interface TaskFactWriteScope {
   platformOwnedTaskPaths: string[];
 }
 
+interface ActiveRun {
+  taskId: string;
+  nodeId: string;
+  runId: string;
+  runDirectory: string;
+  controller: AbortController;
+}
+
 interface ChangeEvidence {
   schemaVersion: 'aiw.change-evidence/v2';
   taskId: string;
@@ -440,6 +493,7 @@ interface ChangeEvidence {
   changedPaths: string[];
   taskFactViolations: string[];
   agentTaskFacts: TaskFactChange[];
+  restoredTaskFactPaths?: string[];
   changedFiles: Array<{ path: string; sha256?: string; deleted?: true }>;
   untrackedPaths: string[];
   git: { before: { head?: string; branch?: string }; after: { head?: string; branch?: string }; historyChanged: boolean };
@@ -476,7 +530,7 @@ function matchesAllowedPath(path: string, allowed: string): boolean {
 }
 
 function isPlatformManagedOutput(path: string): boolean {
-  return path === 'artifacts/test-results.yaml';
+  return path === 'artifacts/test-results.yaml' || path.endsWith('/test-results.yaml');
 }
 
 /**
@@ -486,8 +540,20 @@ function isPlatformManagedOutput(path: string): boolean {
  * never accidentally granted to the agent as writable paths.
  */
 async function snapshotAiWorkflowFacts(projectRoot: string): Promise<TaskFactSnapshot> {
+  const snapshot = await snapshotAiWorkflowFactsWithContents(projectRoot);
+  return snapshot.hashes;
+}
+
+type TaskFactContents = Record<string, Buffer>;
+
+type TaskFactSnapshotWithContents = {
+  hashes: TaskFactSnapshot;
+  contents: TaskFactContents;
+};
+
+async function snapshotAiWorkflowFactsWithContents(projectRoot: string): Promise<TaskFactSnapshotWithContents> {
   const root = join(projectRoot, '.aiw');
-  const entries: Array<{ path: string; sha256: string }> = [];
+  const entries: Array<{ path: string; content: Buffer }> = [];
   async function visit(directory: string, relativeDirectory: string): Promise<void> {
     let children: Dirent<string>[];
     try {
@@ -504,12 +570,43 @@ async function snapshotAiWorkflowFacts(projectRoot: string): Promise<TaskFactSna
         return;
       }
       if (!child.isFile()) return;
-      const content = await readFile(absolutePath);
-      entries.push({ path: relativePath, sha256: createHash('sha256').update(content).digest('hex') });
+      entries.push({ path: relativePath, content: await readFile(absolutePath) });
     }));
   }
   await visit(root, '.aiw');
-  return Object.fromEntries(entries.sort((left, right) => left.path.localeCompare(right.path)).map(({ path, sha256 }) => [path, sha256]));
+  const sorted = entries.sort((left, right) => left.path.localeCompare(right.path));
+  return {
+    hashes: Object.fromEntries(sorted.map(({ path, content }) => [path, createHash('sha256').update(content).digest('hex')])),
+    contents: Object.fromEntries(sorted.map(({ path, content }) => [path, content])),
+  };
+}
+
+/**
+ * Task facts are auditable inputs, not disposable agent scratch files. The
+ * write scope detects violations; this companion restore step ensures a
+ * detected write cannot silently corrupt an approved revision before users
+ * inspect or commit the failure evidence.
+ */
+async function restoreTaskFactViolations(projectRoot: string, baseline: TaskFactContents, violations: string[]): Promise<string[]> {
+  const restored: string[] = [];
+  for (const path of violations) {
+    if (!path.startsWith('.aiw/')) continue;
+    const absolutePath = join(projectRoot, path);
+    const original = baseline[path];
+    if (original === undefined) {
+      try {
+        await rm(absolutePath, { force: true });
+        restored.push(path);
+      } catch (error) {
+        if (!isMissingFile(error)) throw error;
+      }
+      continue;
+    }
+    await mkdir(join(absolutePath, '..'), { recursive: true });
+    await writeFile(absolutePath, original);
+    restored.push(path);
+  }
+  return restored;
 }
 
 async function inspectAgentTaskFactChanges(projectRoot: string, baseline: TaskFactSnapshot, scope: TaskFactWriteScope): Promise<AgentTaskFactChanges> {

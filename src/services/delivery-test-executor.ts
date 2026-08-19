@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { stringify } from 'yaml';
 
 import { minimalChildEnvironment } from '../adapters/child-process-environment.js';
+import { parseVerificationCommand } from '../domain/verification-command.js';
 import { type TestResults, TestResultsSchema } from '../domain/test-results.js';
 import type { Task, TaskNode } from '../domain/task.js';
 import { nextArtifactPath } from '../domain/handoff.js';
@@ -39,6 +40,7 @@ export class DeliveryTestExecutor {
     runId: string;
     taskStore: TaskStore;
     projectRoot: string;
+    signal?: AbortSignal;
   }): Promise<TestResults> {
     const plan = deliveryTestPlan(input.node);
     if (plan.length === 0) {
@@ -46,6 +48,7 @@ export class DeliveryTestExecutor {
     }
     const items: TestResults['items'] = [];
     for (const item of plan) {
+      if (input.signal?.aborted === true) break;
       const evidencePath = `runs/${input.runId}/tests/${item.id}.json`;
       let record: Record<string, unknown>;
       let status: TestResults['items'][number]['status'];
@@ -58,6 +61,7 @@ export class DeliveryTestExecutor {
           stdin: '',
           timeoutMs: this.deps.timeoutMs ?? DEFAULT_TEST_TIMEOUT_MS,
           env: minimalChildEnvironment(),
+          ...(input.signal === undefined ? {} : { signal: input.signal }),
         });
         exitCode = result.exitCode;
         status = result.exitCode === 0 && !result.timedOut && result.signal === null
@@ -111,16 +115,6 @@ async function writeTaskFile(taskStore: TaskStore, taskId: string, path: string,
   const destination = join(taskStore.taskDirectory(taskId), path);
   await mkdir(join(destination, '..'), { recursive: true });
   await writeFile(destination, content, 'utf8');
-}
-
-function parseVerificationCommand(command: string): Pick<Parameters<ProcessRunner['run']>[0], 'command' | 'args'> {
-  if (/[|;&<>`]|\$\(/.test(command)) {
-    throw new Error('验证命令不能包含 shell 管道、重定向、串联或命令替换；请在计划中使用单一可执行命令。');
-  }
-  const tokens = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((token) => token.replace(/^(['"])(.*)\1$/, '$2')) ?? [];
-  const [executable, ...args] = tokens;
-  if (executable === undefined) throw new Error('验证命令不能为空');
-  return { command: executable, args };
 }
 
 function testSummary(record: Record<string, unknown>): string {

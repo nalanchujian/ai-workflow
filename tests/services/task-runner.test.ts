@@ -263,6 +263,29 @@ describe('TaskRunner', () => {
     });
   });
 
+  it('restores historical task facts when Codex writes outside the current node outputs', async () => {
+    const fixture = await createRunnerFixture({
+      writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
+      writeTaskFacts: [{
+        path: '.aiw/tasks/refund-123/artifacts/solution/r1/solution.md',
+        content: '# 被错误覆盖的历史方案\n',
+      }],
+    });
+    const historicalPath = join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'solution', 'r1', 'solution.md');
+    await mkdir(join(historicalPath, '..'), { recursive: true });
+    await writeFile(historicalPath, '# 已批准的历史方案\n', 'utf8');
+
+    const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { code: 'TASK_FACT_WRITE_VIOLATION', message: expect.stringContaining('artifacts/solution/r1/solution.md') },
+    });
+    await expect(readFile(historicalPath, 'utf8')).resolves.toBe('# 已批准的历史方案\n');
+    await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8'))
+      .resolves.toContain('artifacts/solution/r1/solution.md');
+  });
+
   it('rejects Codex writes to task.yaml and the current run evidence directory', async () => {
     const fixture = await createRunnerFixture({
       writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
@@ -347,6 +370,19 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('cancelled');
     expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('cancelled');
+  });
+
+  it('persists cancellation and releases a terminal-interrupted active run', async () => {
+    const fixture = await createRunnerFixture({ waitForAbort: true });
+    const pending = fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
+    await waitFor(() => fixture.processCalls.length === 1);
+
+    await expect(fixture.runner.requestCancellation({ taskId: 'refund-123', nodeId: 'clarify', reason: 'CLI 收到 SIGTERM' })).resolves.toBe(true);
+
+    await expect(pending).resolves.toMatchObject({ status: 'cancelled', error: { code: 'AIW_CANCELLED' } });
+    expect((await fixture.taskStore.load('refund-123')).nodes.clarify?.status).toBe('cancelled');
+    await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'result.json'), 'utf8'))
+      .resolves.toContain('cancelled');
   });
 
   it('allows a cancelled node to be run again with a new current result', async () => {
@@ -529,6 +565,7 @@ async function createRunnerFixture(options: {
   untrackedPaths?: string[];
   gitRevisions?: Array<{ head?: string; branch?: string }>;
   signal?: string | null;
+  waitForAbort?: boolean;
   writeArtifact?: string;
   writeHandoff?: string;
   decisionRegister?: string;
@@ -585,6 +622,16 @@ async function createRunnerFixture(options: {
     processRunner: {
       async run(input) {
         processCalls.push(input);
+        if (options.waitForAbort === true) {
+          await new Promise<void>((resolve) => {
+            if (input.signal?.aborted === true) {
+              resolve();
+              return;
+            }
+            input.signal?.addEventListener('abort', () => resolve(), { once: true });
+          });
+          return { exitCode: null, signal: 'SIGTERM', stdout: '', stderr: '', timedOut: false };
+        }
         if (options.missingExecutable) {
           throw new ExecutableNotFoundError('codex');
         }
@@ -684,4 +731,12 @@ async function temporaryDirectory(): Promise<string> {
   directories.push(directory);
   await mkdir(directory, { recursive: true });
   return directory;
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error('等待异步运行启动超时');
 }

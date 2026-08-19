@@ -22,11 +22,24 @@ export function createTaskRunCommand(deps: { runner: TaskRunner; taskState: Task
         options.dryRun === true ? `正在构建「${nodeId}」节点上下文` : `正在执行「${nodeId}」节点，等待 Codex 完成`,
       );
       let result: Awaited<ReturnType<TaskRunner['run']>>;
+      let interruptionRequested = false;
+      const handleSignal = (signal: NodeJS.Signals) => {
+        if (interruptionRequested) return;
+        interruptionRequested = true;
+        process.stderr.write(`\n收到 ${signal}，正在安全停止「${nodeId}」节点并保存运行证据…\n`);
+        void deps.runner.requestCancellation({ taskId, nodeId, reason: `CLI 收到 ${signal}` })
+          .catch(() => undefined);
+      };
+      process.once('SIGINT', handleSignal);
+      process.once('SIGTERM', handleSignal);
       try {
         result = await deps.runner.run({ taskId, nodeId, dryRun: options.dryRun ?? false, includes: options.include });
       } catch (error) {
         progress.fail(`「${nodeId}」节点执行失败`);
         throw error;
+      } finally {
+        process.removeListener('SIGINT', handleSignal);
+        process.removeListener('SIGTERM', handleSignal);
       }
       if (result.status === 'succeeded') {
         progress.succeed(options.dryRun === true ? '节点上下文已生成' : `「${nodeId}」节点执行完成`);

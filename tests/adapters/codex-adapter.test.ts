@@ -157,8 +157,45 @@ describe('CodexAdapter', () => {
     expect(context).toContain('artifacts/test-results.yaml');
     expect(context).toContain('AIW 会在 Codex 结束后作为唯一执行者运行');
     expect(context).not.toContain('- .aiw/tasks/refund-123/artifacts/test-results.yaml');
-    expect(context).toContain('不要**在 `delivery.md`、Handoff 或其他 Codex 产物中填写');
+    expect(context).toContain('不要**在交付报告、Handoff 或其他 Codex 产物中填写');
     expect(context).toContain('本次运行中完成代码实现、工程验证和验收测试');
+  });
+
+  it('places an exact output receipt after a stale skill instruction for a regenerated delivery node', async () => {
+    const projectRoot = await temporaryDirectory();
+    const runDirectory = join(projectRoot, '.aiw-runtime', 'run-regenerated-delivery');
+    const adapter = new CodexAdapter({
+      processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
+    });
+    const request = runRequest({ projectRoot, runDirectory });
+    request.task = {
+      ...request.task,
+      nodeId: 'delivery-list-custom-metrics-r2',
+      phase: 'implement',
+      testPlan: [{ id: 'TEST-LIST-01', command: 'node scripts/list.test.mjs' }],
+    };
+    request.artifacts = [
+      'artifacts/delivery-list-custom-metrics-r2/r1/delivery.md',
+      'artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml',
+      'artifacts/delivery-list-custom-metrics-r2/r1/acceptance-results.yaml',
+      'handoffs/delivery-list-custom-metrics-r2/r1.yaml',
+    ];
+    request.context.skill = {
+      ...request.context.skill,
+      content: '旧版技能错误地写着：生成 artifacts/delivery.md 和 artifacts/acceptance-results.yaml。',
+    };
+
+    await adapter.run(request);
+
+    const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    const receipt = context.slice(context.lastIndexOf('<aiw-output-receipt>'));
+    expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/delivery.md');
+    expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/acceptance-results.yaml');
+    expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml（仅 AIW 写入）');
+    expect(receipt).toContain('.aiw/tasks/refund-123/handoffs/delivery-list-custom-metrics-r2/r1.yaml');
+    expect(receipt).toContain('忽略低优先级技能中的旧路径示例');
+    expect(receipt).not.toContain('artifacts/delivery.md');
+    expect(context).not.toContain('- .aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml');
   });
 
   it('requires task artifacts to use Simplified Chinese by default', async () => {

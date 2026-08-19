@@ -14,10 +14,14 @@ export async function completeNode(projectRoot: string, taskId: string, nodeId: 
   const outputPaths = outputPathsForNextRun(nodeId, node);
   const testId = `TEST-${(node.workUnitId ?? 'delivery').toUpperCase()}-01`;
   const firstArtifact = outputPaths.find((path) => path.startsWith('artifacts/'));
+  const deliveryArtifact = outputPaths.find((path) => path.endsWith('/delivery.md'));
   if (firstArtifact === undefined) {
     throw new Error(`节点 ${nodeId} 缺少声明产物`);
   }
   for (const path of outputPaths) {
+    // AIW, not Codex, writes the canonical result after executing the
+    // approved test commands. This must hold for versioned delivery outputs.
+    if (node.phase === 'implement' && path.endsWith('/test-results.yaml')) continue;
     const destination = join(store.taskDirectory(taskId), path);
     await mkdir(join(destination, '..'), { recursive: true });
     const content = path === handoffPath(nodeId, node.revision + 1)
@@ -42,10 +46,8 @@ export async function completeNode(projectRoot: string, taskId: string, nodeId: 
               ? '# 技术方案\n\n## 方案结论\n\n沿用现有退款流程。\n\n## 架构与接口影响\n\n不新增依赖。\n\n## 风险与待决事项\n\n无。\n'
               : node.phase === 'implement'
                 ? path.endsWith('/acceptance-results.yaml')
-          ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: passed\n    evidence:\n      - artifacts/delivery.md\n    testResultRefs: [${testId}]\n`
-          : path.endsWith('/test-results.yaml')
-            ? `schemaVersion: aiw.test-results/v1\nrunId: placeholder-run\nitems:\n  - id: ${testId}\n    command: pnpm test\n    status: passed\n    exitCode: 0\n    summary: 已执行退款功能自动化测试，目标用例通过。\n    evidencePath: runs/placeholder-run/tests/${testId}.json\n    evidenceSha256: ${'a'.repeat(64)}\n`
-            : `# 交付报告\n\n## 实际变更\n\n完成退款功能。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试计划\n\n${testId}：\`pnpm test\`\n\n## 逐项验收\n\nAC-01 通过，等待 AIW 测试执行结果确认。\n\n## 未完成事项与风险\n\n无。\n`
+          ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: passed\n    evidence:\n      - ${deliveryArtifact ?? firstArtifact}\n    testResultRefs: [${testId}]\n`
+          : `# 交付报告\n\n## 实际变更\n\n完成退款功能。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试计划\n\n${testId}：\`pnpm test\`\n\n## 逐项验收\n\nAC-01 通过，等待 AIW 测试执行结果确认。\n\n## 未完成事项与风险\n\n无。\n`
         : `# ${nodeId}\n\n## 结论\n\n已完成当前节点并保留可追溯结果。\n`;
     await writeFile(destination, content, 'utf8');
   }
