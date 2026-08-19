@@ -8,6 +8,7 @@ import { TaskStore } from '../../src/services/task-store.js';
 import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { ProjectRepositoryError } from '../../src/ports/project-repository.js';
 import type { InstalledSkill } from '../../src/domain/skill.js';
+import type { InstalledWorkflowProfile } from '../../src/domain/workflow-profile.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
 describe('TaskInitializer', () => {
@@ -230,9 +231,9 @@ describe('TaskInitializer', () => {
   });
 });
 
-function profile() {
+function profile(): InstalledWorkflowProfile {
   return {
-    name: 'standard-web-feature', version: '1.0.0', description: 'Standard web feature workflow', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
+    name: 'standard-web-feature', version: '1.0.0', description: 'Standard web feature workflow', aiwCompatibility: '>=4.0.0 <5.0.0', artifactContract: 'aiw.task-output/v1', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
     skills: {
       clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', implement: 'typescript-web-implementation@1.0.0',
     },
@@ -243,7 +244,7 @@ function allSkills(): InstalledSkill[] {
   return [
     ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'implement'],
   ].map(([name, phase]) => ({
-    name, version: '1.0.0', description: `${name} skill`, phases: [phase as InstalledSkill['phases'][number]], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash(name),
+    name, version: '1.0.0', description: `${name} skill`, aiwCompatibility: '>=4.0.0 <5.0.0', artifactContract: 'aiw.task-output/v1', phases: [phase as InstalledSkill['phases'][number]], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash(name),
     methodSources: [{ id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0', revision: 'a'.repeat(40), sha256: hash(`method-${name}`) }],
   }));
 }

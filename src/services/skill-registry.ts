@@ -17,6 +17,14 @@ const RegistryV2Schema = z.object({
 type Registry = z.infer<typeof RegistryV2Schema>;
 type RegistryReplacement = Pick<Registry, 'skills' | 'profiles'> & { methods?: InstalledBundledMethod[] };
 type RegistrySourceReplacement = RegistryReplacement & { sourceUrl: string };
+type RegistryInstallSnapshot = Pick<Registry, 'skills'> & { recoveredInvalidRegistry: boolean };
+
+class InvalidSkillRegistryError extends Error {
+  constructor(cause: unknown) {
+    super('技能注册表与当前 AIW 输出契约不兼容；请运行 aiw skills update --ref <团队版本> 重新安装团队技能包。', { cause });
+    this.name = 'InvalidSkillRegistryError';
+  }
+}
 
 export class SkillRegistry {
   constructor(private readonly path: string) {}
@@ -31,6 +39,22 @@ export class SkillRegistry {
 
   async listMethods(): Promise<InstalledBundledMethod[]> {
     return (await this.read()).methods;
+  }
+
+  /**
+   * Installation is the one safe recovery path for a registry created by an
+   * older CLI. It deliberately discards that unreadable registry only after
+   * the incoming package has passed all parsing and contract checks.
+   */
+  async snapshotForInstall(): Promise<RegistryInstallSnapshot> {
+    try {
+      return { skills: (await this.read()).skills, recoveredInvalidRegistry: false };
+    } catch (error) {
+      if (error instanceof InvalidSkillRegistryError) {
+        return { skills: [], recoveredInvalidRegistry: true };
+      }
+      throw error;
+    }
   }
 
   async find(name: string, version?: string): Promise<InstalledSkill | undefined> {
@@ -85,8 +109,16 @@ export class SkillRegistry {
     await rename(temporaryPath, this.path);
   }
 
-  async replaceSource(input: RegistrySourceReplacement): Promise<void> {
-    const current = await this.read();
+  async replaceSource(input: RegistrySourceReplacement, options: { recoverInvalidRegistry?: boolean } = {}): Promise<void> {
+    let current: Registry;
+    try {
+      current = await this.read();
+    } catch (error) {
+      if (!options.recoverInvalidRegistry || !(error instanceof InvalidSkillRegistryError)) {
+        throw error;
+      }
+      current = emptyRegistry();
+    }
     const incomingRevisions = new Set([
       ...input.skills.map((skill) => skill.registrySource.revision),
       ...input.profiles.map((profile) => profile.registrySource.revision),
@@ -103,15 +135,25 @@ export class SkillRegistry {
   }
 
   private async read(): Promise<Registry> {
+    let content: string;
     try {
-      return RegistryV2Schema.parse(parse(await readFile(this.path, 'utf8')));
+      content = await readFile(this.path, 'utf8');
     } catch (error) {
       if (isMissingFile(error)) {
-        return { schemaVersion: 'aiw.skill-registry/v2', skills: [], profiles: [], methods: [] };
+        return emptyRegistry();
       }
-      throw new Error('技能注册表无效', { cause: error });
+      throw error;
+    }
+    try {
+      return RegistryV2Schema.parse(parse(content));
+    } catch (error) {
+      throw new InvalidSkillRegistryError(error);
     }
   }
+}
+
+function emptyRegistry(): Registry {
+  return { schemaVersion: 'aiw.skill-registry/v2', skills: [], profiles: [], methods: [] };
 }
 
 function oneOrUndefined<T>(items: T[], errorMessage: string): T | undefined {

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { RegistrySourceSchema } from './task.js';
+import { OutputContractVersion, SupportedAiwCompatibility } from './output-contract.js';
 
 const stageKeys = ['clarify', 'solution', 'plan', 'implement'] as const;
 
@@ -8,6 +9,8 @@ export const WorkflowProfileSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9-]*$/),
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
   description: z.string().min(1).refine((value) => !value.includes('\n')),
+  aiwCompatibility: z.literal(SupportedAiwCompatibility),
+  artifactContract: z.literal(OutputContractVersion),
   skills: z.object({
     clarify: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
     solution: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),

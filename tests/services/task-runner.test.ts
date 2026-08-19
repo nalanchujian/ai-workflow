@@ -536,7 +536,7 @@ openRisks: []
     })).not.toThrow();
   });
 
-  it('rejects a valid-looking artifact left over from a previous run', async () => {
+  it('rejects a valid-looking formal artifact when the current staging output is missing', async () => {
     const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']] });
     const staleArtifacts = join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'clarify', 'r1');
     await mkdir(staleArtifacts, { recursive: true });
@@ -550,9 +550,9 @@ openRisks: []
 
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
 
-    expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_STALE' } });
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_MISSING' } });
     const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
-    expect(evidence).toMatchObject({ failure: { stage: 'artifact', code: 'ARTIFACT_STALE' } });
+    expect(evidence).toMatchObject({ failure: { stage: 'artifact', code: 'ARTIFACT_MISSING' } });
   });
 });
 
@@ -608,6 +608,8 @@ async function createRunnerFixture(options: {
       name: skill.name,
       version: skill.version,
       description: '澄清需求',
+      aiwCompatibility: '>=4.0.0 <5.0.0',
+      artifactContract: 'aiw.task-output/v1',
       phases: ['clarify'],
       registrySource: skill.registrySource,
       sha256: skill.sha256,
@@ -640,7 +642,7 @@ async function createRunnerFixture(options: {
           const clarify = current.nodes.clarify!;
           const artifact = (name: string) => {
             const path = nextArtifactPath('clarify', clarify, `artifacts/${name}`);
-            return join(taskStore.taskDirectory(task.id), path);
+            return join(taskStore.taskDirectory(task.id), 'runs', 'run-1', 'staging', path);
           };
           await mkdir(join(artifact('brief.md'), '..'), { recursive: true });
           await writeFile(artifact('brief.md'), options.writeArtifact === 'done\n' ? options.writeArtifact : validBrief(options.writeArtifact), 'utf8');
@@ -649,7 +651,7 @@ async function createRunnerFixture(options: {
           await writeFile(artifact('acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
           await writeFile(artifact('acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n', 'utf8');
           await writeFile(artifact('decision-register.yaml'), options.decisionRegister ?? 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
-          await writeHandoff(taskStore, task.id, options.writeHandoff);
+          await writeHandoff(taskStore, task.id, options.writeHandoff, 'run-1');
         }
         for (const fact of options.writeTaskFacts ?? []) {
           const path = join(projectRoot, fact.path);
@@ -704,14 +706,15 @@ async function createRunnerFixture(options: {
   return { runner, taskStore, processCalls };
 }
 
-async function writeHandoff(taskStore: TaskStore, taskId: string, content?: string): Promise<void> {
+async function writeHandoff(taskStore: TaskStore, taskId: string, content?: string, runId = 'run-1'): Promise<void> {
   const task = await taskStore.load(taskId);
   const node = task.nodes.clarify;
   if (node === undefined) throw new Error('clarify node missing');
   const path = handoffPath('clarify', node.revision + 1);
-  await mkdir(join(taskStore.taskDirectory(task.id), 'handoffs', 'clarify'), { recursive: true });
+  const stagingPath = join('runs', runId, 'staging', path);
+  await mkdir(join(taskStore.taskDirectory(task.id), 'runs', runId, 'staging', 'handoffs', 'clarify'), { recursive: true });
   const brief = nextArtifactPath('clarify', node, 'artifacts/brief.md');
-  await writeFile(join(taskStore.taskDirectory(task.id), path), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nrevision: ${node.revision + 1}\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: ${brief}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+  await writeFile(join(taskStore.taskDirectory(task.id), stagingPath), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nrevision: ${node.revision + 1}\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: ${brief}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
 }
 
 function mapLegacyArtifactPath(path: string, taskId: string, node: NonNullable<ReturnType<typeof createSevenPhaseTask>['nodes']['clarify']>): string {

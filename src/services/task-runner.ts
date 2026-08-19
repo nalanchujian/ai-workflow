@@ -14,6 +14,7 @@ import { TestResultsSchema } from '../domain/test-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
+import { codexOutputEntries, outputContractFor, type OutputContract } from '../domain/output-contract.js';
 import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { validateMarkdownArtifactContract } from '../domain/artifact-contracts.js';
 import { parse } from 'yaml';
@@ -143,7 +144,8 @@ export class TaskRunner {
 
     const runId = this.deps.runIdFactory?.() ?? randomUUID();
     const runDirectory = join(this.deps.runtimeRoot, task.id, runId);
-    const scope = input.dryRun ? undefined : await this.taskFactWriteScope(task, input.nodeId, runId);
+    const outputContract = outputContractFor(runId, outputPaths);
+    const scope = input.dryRun ? undefined : await this.taskFactWriteScope(task, input.nodeId, runId, outputContract);
     const contextManifestFactPath = `runs/${runId}/context-manifest.json`;
     const request: RunRequest = {
       schemaVersion: 'aiw.run/v2',
@@ -162,6 +164,7 @@ export class TaskRunner {
       runDirectory,
       mode: input.dryRun ? 'dry-run' : 'execute',
       artifacts: outputPaths,
+      outputContract,
       context: {
         skill: { name: skill.name, version: skill.version, content: skill.body },
         methodSources: methods.map((method) => ({ id: method.source.id, content: method.content })),
@@ -198,6 +201,7 @@ export class TaskRunner {
     this.activeRun = activeRun;
     try {
       if (scope === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少任务事实写入边界');
+      await prepareOutputStaging(this.deps.taskStore, task.id, outputContract);
       await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
       const agentFactBaselinePath = `runs/${runId}/agent-task-fact-baseline.json`;
       const recordedAgentFactBaseline = await snapshotAiWorkflowFacts(this.deps.taskStore.projectDirectory());
@@ -292,6 +296,7 @@ export class TaskRunner {
           runId: request.runId,
           taskStore: this.deps.taskStore,
           projectRoot: this.deps.taskStore.projectDirectory(),
+          outputPath: request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/test-results.yaml'))?.stagingPath,
           signal,
         });
       }
@@ -303,13 +308,23 @@ export class TaskRunner {
         });
         return cancelled;
       }
-      evidence = await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts);
-      if (evidence.git.historyChanged) {
+      const stagedContents = await readStagedOutputContents(task, this.deps.taskStore, request.outputContract);
+      const artifacts = await outputRecordsFromContents(task, this.deps.taskStore, nodeId, baseline.outputs, manifest, stagedContents);
+      // A staged result is not yet a task fact. Check for forbidden Git
+      // history/branch mutation before any promotion so a failed run can
+      // never publish output that was produced under an invalid baseline.
+      const prePromotionEvidence = await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts);
+      if (prePromotionEvidence.git.historyChanged) {
         const message = '检测到 Codex 修改了 Git 提交或分支，当前运行已停止';
-        await this.persistChangeEvidence(task, { ...evidence, failure: failureEvidence('git-history', 'GIT_HISTORY_MUTATION', message) });
+        await this.persistChangeEvidence(task, { ...prePromotionEvidence, failure: failureEvidence('git-history', 'GIT_HISTORY_MUTATION', message) });
         return failedResult(request, 'GIT_HISTORY_MUTATION', message);
       }
-      const artifacts = await outputRecords(task, this.deps.taskStore, nodeId, baseline.outputs, manifest);
+      await promoteStagedOutputs(this.deps.taskStore, task.id, request.outputContract, stagedContents);
+      evidence = mergeChangeEvidence(
+        prePromotionEvidence,
+        await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts),
+      );
+      await this.deps.taskStore.removeFacts(task.id, [`runs/${request.runId}/staging`]);
       await this.persistChangeEvidence(task, { ...evidence, artifacts });
       return RunResultSchema.parse({ ...result, artifacts });
     } catch (error) {
@@ -385,24 +400,22 @@ export class TaskRunner {
     }
   }
 
-  private async taskFactWriteScope(task: Task, nodeId: string, runId: string): Promise<TaskFactWriteScope> {
+  private async taskFactWriteScope(task: Task, nodeId: string, runId: string, outputContract: OutputContract): Promise<TaskFactWriteScope> {
     const node = task.nodes[nodeId];
     if (node === undefined) {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', `未知节点：${nodeId}`);
     }
     const taskRoot = relative(this.deps.taskStore.projectDirectory(), this.deps.taskStore.taskDirectory(task.id)).replaceAll('\\', '/');
     const outputPaths = outputPathsForNextRun(nodeId, node);
-    const platformManagedOutputs = outputPaths.filter(isPlatformManagedOutput);
-    const agentWritableTaskPaths = outputPaths
-      .filter((path) => !isPlatformManagedOutput(path))
-      .map((path) => `${taskRoot}/${path}`);
+    const agentWritableTaskPaths = codexOutputEntries(outputContract)
+      .map((entry) => `${taskRoot}/${entry.stagingPath}`);
     const platformOwnedTaskPaths = [
       `${taskRoot}/task.yaml`,
       `${taskRoot}/runs/${runId}/**`,
-      ...platformManagedOutputs.map((path) => `${taskRoot}/${path}`),
+      ...outputPaths.map((path) => `${taskRoot}/${path}`),
     ];
     return {
-      schemaVersion: 'aiw.change-scope/v3',
+      schemaVersion: 'aiw.change-scope/v4',
       taskId: task.id,
       nodeId,
       runId,
@@ -467,7 +480,7 @@ export class TaskRunner {
 }
 
 interface TaskFactWriteScope {
-  schemaVersion: 'aiw.change-scope/v3';
+  schemaVersion: 'aiw.change-scope/v4';
   taskId: string;
   nodeId: string;
   runId: string;
@@ -511,6 +524,24 @@ interface ChangeBaseline {
   git?: { head?: string; branch?: string };
 }
 
+/**
+ * The first snapshot is the agent's final state before publication; the
+ * second is the published task state. Keep their union so the shared evidence
+ * contains both business-code changes and the newly promoted formal facts.
+ */
+function mergeChangeEvidence(before: ChangeEvidence, after: ChangeEvidence): ChangeEvidence {
+  const byPath = <T extends { path: string }>(items: T[]): T[] => [...new Map(items.map((item) => [item.path, item])).values()];
+  return {
+    ...after,
+    changedPaths: [...new Set([...before.changedPaths, ...after.changedPaths])].sort(),
+    taskFactViolations: [...new Set([...before.taskFactViolations, ...after.taskFactViolations])].sort(),
+    agentTaskFacts: byPath([...before.agentTaskFacts, ...after.agentTaskFacts]),
+    changedFiles: byPath([...before.changedFiles, ...after.changedFiles]),
+    untrackedPaths: [...new Set([...before.untrackedPaths, ...after.untrackedPaths])].sort(),
+    git: before.git.historyChanged ? before.git : after.git,
+  };
+}
+
 type TaskFactSnapshot = Record<string, string>;
 
 type TaskFactChange = {
@@ -527,10 +558,6 @@ type AgentTaskFactChanges = {
 
 function matchesAllowedPath(path: string, allowed: string): boolean {
   return allowed.endsWith('/**') ? path.startsWith(allowed.slice(0, -2)) : path === allowed;
-}
-
-function isPlatformManagedOutput(path: string): boolean {
-  return path === 'artifacts/test-results.yaml' || path.endsWith('/test-results.yaml');
 }
 
 /**
@@ -649,12 +676,13 @@ async function loadContextFiles(task: Task, taskStore: TaskStore, manifest: Cont
   }));
 }
 
-async function outputRecords(
+async function outputRecordsFromContents(
   task: Task,
   taskStore: TaskStore,
   nodeId: string,
   baseline: ChangeBaseline['outputs'],
   manifest: ContextManifest | undefined,
+  contents: Map<string, Buffer>,
 ): Promise<OutputRecord[]> {
   const node = task.nodes[nodeId];
   if (node === undefined) {
@@ -666,10 +694,8 @@ async function outputRecords(
   }
   const evidencePaths = handoffEvidencePaths(task, nodeId, manifest);
   const artifacts = await Promise.all(outputPaths.map(async (path) => {
-    let content: Buffer;
-    try {
-      content = await readFile(join(taskStore.taskDirectory(task.id), path));
-    } catch {
+    const content = contents.get(path);
+    if (content === undefined) {
       throw new TaskRunnerError('ARTIFACT_MISSING', `节点未生成声明产物：${path}`);
     }
     validateArtifactContent(task, nodeId, path, content.toString('utf8'), evidencePaths);
@@ -681,6 +707,38 @@ async function outputRecords(
   }));
   await validateArtifactSet(task, taskStore, nodeId, new Map(artifacts.map((artifact) => [artifact.path, artifact.content])));
   return artifacts.map(({ path, sha256 }) => ({ path, sha256 }));
+}
+
+async function readStagedOutputContents(task: Task, taskStore: TaskStore, contract: OutputContract): Promise<Map<string, Buffer>> {
+  const contents = await Promise.all(contract.entries.map(async (entry) => {
+    try {
+      return [entry.finalPath, await readFile(join(taskStore.taskDirectory(task.id), entry.stagingPath))] as const;
+    } catch {
+      throw new TaskRunnerError('ARTIFACT_MISSING', `节点暂存产物缺失：${entry.finalPath}`);
+    }
+  }));
+  return new Map(contents);
+}
+
+async function prepareOutputStaging(taskStore: TaskStore, taskId: string, contract: OutputContract): Promise<void> {
+  await Promise.all(codexOutputEntries(contract).map(async (entry) => {
+    await mkdir(join(taskStore.taskDirectory(taskId), entry.stagingPath, '..'), { recursive: true });
+  }));
+}
+
+async function promoteStagedOutputs(
+  taskStore: TaskStore,
+  taskId: string,
+  contract: OutputContract,
+  contents: Map<string, Buffer>,
+): Promise<void> {
+  for (const entry of contract.entries) {
+    const content = contents.get(entry.finalPath);
+    if (content === undefined) {
+      throw new TaskRunnerError('ARTIFACT_MISSING', `节点暂存产物缺失：${entry.finalPath}`);
+    }
+    await taskStore.createFact(taskId, entry.finalPath, content.toString('utf8'));
+  }
 }
 
 async function outputBaseline(task: Task, taskStore: TaskStore, nodeId: string, outputPaths: string[]): Promise<ChangeBaseline['outputs']> {

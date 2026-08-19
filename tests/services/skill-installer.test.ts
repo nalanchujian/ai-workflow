@@ -48,7 +48,7 @@ describe('SkillInstaller', () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);
     const { repository } = await createBundledSkillRepositoryFixture(directory);
-    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: invalid reference\nphases: [clarify]\nmethodSources:\n  - id: superpowers:missing-method\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: invalid reference\naiwCompatibility: ">=4.0.0 <5.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:missing-method\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({
       git: { async clone() { return { directory: repository, revision: 'b'.repeat(40) }; } },
@@ -64,7 +64,7 @@ describe('SkillInstaller', () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);
     const { repository } = await createBundledSkillRepositoryFixture(directory);
-    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 1.0.0\ndescription: requirement skill\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: configured:missing\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 1.0.0\ndescription: requirement skill\naiwCompatibility: ">=4.0.0 <5.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: configured:missing\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
 
@@ -133,5 +133,31 @@ describe('SkillInstaller', () => {
     await expect(installer.install({ url: 'file:///tmp/skills.git' })).rejects.toThrow('技能包来源仅支持 HTTPS 或 SSH Git URL');
     await expect(installer.install({ url: '../skills' })).rejects.toThrow('技能包来源仅支持 HTTPS 或 SSH Git URL');
     expect(cloneCalls).toBe(0);
+  });
+
+  it('rejects a skill that hard-codes an AIW task path', async () => {
+    const directory = await createTempDirectory('aiw-skill-installer-');
+    directories.push(directory);
+    const { repository } = await createBundledSkillRepositoryFixture(directory);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: fixed path\naiwCompatibility: ">=4.0.0 <5.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- 请写入 artifacts/brief.md\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
+
+    await expect(installer.install({ url: 'https://example.test/skills.git' })).rejects.toThrow('不得固化 AIW 平台路径');
+    await expect(registry.list()).resolves.toEqual([]);
+  });
+
+  it('replaces an incompatible legacy registry when installing a valid package', async () => {
+    const directory = await createTempDirectory('aiw-skill-installer-');
+    directories.push(directory);
+    const { repository } = await createBundledSkillRepositoryFixture(directory);
+    const registryPath = join(directory, 'registry.yaml');
+    await writeFile(registryPath, 'schemaVersion: aiw.skill-registry/v2\nskills:\n  - legacy: true\nprofiles: []\nmethods: []\n');
+    const registry = new SkillRegistry(registryPath);
+    const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
+
+    await installer.install({ url: 'https://example.test/skills.git' });
+
+    await expect(registry.list()).resolves.toHaveLength(4);
   });
 });

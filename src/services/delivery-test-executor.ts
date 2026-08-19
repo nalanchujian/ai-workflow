@@ -40,6 +40,9 @@ export class DeliveryTestExecutor {
     runId: string;
     taskStore: TaskStore;
     projectRoot: string;
+    /** AIW may keep the complete node output set in a per-run staging area
+     * until all report and acceptance checks have passed. */
+    outputPath?: string;
     signal?: AbortSignal;
   }): Promise<TestResults> {
     const plan = deliveryTestPlan(input.node);
@@ -105,7 +108,7 @@ export class DeliveryTestExecutor {
       });
     }
     const results = TestResultsSchema.parse({ schemaVersion: 'aiw.test-results/v1', runId: input.runId, items });
-    const outputPath = nextArtifactPath(input.nodeId, input.node, 'artifacts/test-results.yaml');
+    const outputPath = input.outputPath ?? nextArtifactPath(input.nodeId, input.node, 'artifacts/test-results.yaml');
     await writeTaskFile(input.taskStore, input.task.id, outputPath, stringify(results));
     return results;
   }

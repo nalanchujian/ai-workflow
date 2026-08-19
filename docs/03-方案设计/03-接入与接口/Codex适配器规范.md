@@ -20,7 +20,15 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
   "contextManifestPath": "/absolute/path/to/repository/.aiw/tasks/refund-123/runs/run_01JABC/context-manifest.json",
   "runDirectory": "/absolute/path/to/user-home/.aiw/runtime/refund-123/run_01JABC",
   "mode": "execute",
-  "artifacts": ["artifacts/plan/r1/implementation-plan.md", "artifacts/plan/r1/work-breakdown.yaml", "handoffs/plan/r1.yaml"]
+  "artifacts": ["artifacts/plan/r1/implementation-plan.md", "artifacts/plan/r1/work-breakdown.yaml", "handoffs/plan/r1.yaml"],
+  "outputContract": {
+    "schemaVersion": "aiw.task-output/v1",
+    "entries": [{
+      "finalPath": "artifacts/plan/r1/implementation-plan.md",
+      "stagingPath": "runs/run_01JABC/staging/artifacts/plan/r1/implementation-plan.md",
+      "writer": "codex"
+    }]
+  }
 }
 ```
 
@@ -55,7 +63,7 @@ Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业�
 
 每次执行还会写入 `change-scope.json`（执行前的 Agent 可写产物与平台专属事实边界）、`agent-task-fact-baseline.json`（交给 Codex 前的 `.aiw/` 哈希快照）、`change-diff.json`（执行后实际变更路径、非法任务事实写入及自动恢复路径）、`change.patch`（全部未跟踪文本文件的补丁）和 `change-evidence.json`（Git 基线、文件哈希及 Agent 实际改写的 `.aiw/` 路径）。实施节点可以修改完成当前目标所需的任意业务代码和测试；计划与工作单元应说明目标、验收、依赖、步骤和验证方式，而不是穷举文件路径。
 
-Adapter 传递给 Codex 的任务产物地址必须是相对于业务仓库根目录的完整、版本化路径，例如 `.aiw/tasks/<task-id>/artifacts/clarify/r1/brief.md`，不得仅传递逻辑名 `artifacts/brief.md`。技能内容之后还必须追加“最终输出回执”，重复列出本次唯一可写的精确路径，以覆盖旧技能中可能存在的固定路径示例。同一运行中，只有版本化 `artifacts/<node-id>/r<revision>/...`（排除 AIW 专属的 `test-results.yaml`）与 `handoffs/<node-id>/r<revision>.yaml` 可由 Codex 写入；`task.yaml`、`runs/<run-id>/`、`test-results.yaml`、审批、决策事实和项目配置均只由 AIW 写入。Runner 在启动 Codex 后对整个 `.aiw/` 建立内容快照；任何越权写入均会自动还原、使节点失败并保留运行证据。
+Adapter 传递给 Codex 的任务产物地址必须来自本次 `outputContract`，不得仅传递逻辑名。正式产物路径和暂存路径均由 Runner 唯一生成；技能正文不拥有、也不得推断任何物理路径。技能内容之后必须追加“输出回执”，只列出本次运行的精确**暂存路径**、对应正式路径和写入者，以覆盖旧技能中可能存在的固定路径示例。Codex 只能写入回执中 `writer: codex` 的暂存文件；`test-results.yaml` 等 `writer: aiw` 文件由平台专属生成。Codex 退出后，Runner 先校验所有暂存产物、测试证据和 Handoff，再以原子方式发布至正式 revision；校验失败时正式产物保持不变，暂存内容作为本次运行证据保留。`task.yaml`、审批、决策事实、运行证据和项目配置均只由 AIW 写入。Runner 在启动 Codex 后对整个 `.aiw/` 建立内容快照；任何越权写入均会自动还原、使节点失败并保留运行证据。
 
 Handoff 是摘要而不是新的事实来源：其中 `facts[].id` 必须复用正式事实登记中的 `FACT-*`，`decisions[].id` 必须是 AIW 已登记的 `DEC-*`，并引用对应的 `decisions/<DEC-id>/r<n>.yaml`。Adapter 不得引导 Codex 将尚未确认的候选方案写成 Handoff 决策。
 

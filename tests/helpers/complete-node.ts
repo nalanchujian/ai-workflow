@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { TaskStore } from '../../src/services/task-store.js';
 import { handoffPath, outputPathsForNextRun } from '../../src/domain/handoff.js';
 
-export async function completeNode(projectRoot: string, taskId: string, nodeId: string): Promise<void> {
+export async function completeNode(projectRoot: string, taskId: string, nodeId: string, runId: string): Promise<void> {
   const store = new TaskStore(projectRoot);
   const task = await store.load(taskId);
   const node = task.nodes[nodeId];
@@ -22,7 +22,7 @@ export async function completeNode(projectRoot: string, taskId: string, nodeId: 
     // AIW, not Codex, writes the canonical result after executing the
     // approved test commands. This must hold for versioned delivery outputs.
     if (node.phase === 'implement' && path.endsWith('/test-results.yaml')) continue;
-    const destination = join(store.taskDirectory(taskId), path);
+    const destination = join(store.taskDirectory(taskId), 'runs', runId, 'staging', path);
     await mkdir(join(destination, '..'), { recursive: true });
     const content = path === handoffPath(nodeId, node.revision + 1)
       ? `schemaVersion: aiw.handoff/v1\ntaskId: ${taskId}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision + 1}\nsummary: 已完成${node.title}并记录可追溯交接结论。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`

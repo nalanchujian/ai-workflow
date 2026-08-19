@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { OutputRecordSchema } from './task.js';
 import { ContextManifestSchema } from './context.js';
+import { OutputContractSchema } from './output-contract.js';
 
 export const RunModeSchema = z.enum(['dry-run', 'execute']);
 export const RunStatusSchema = z.enum(['succeeded', 'failed', 'unavailable', 'cancelled']);
@@ -32,6 +33,7 @@ export const RunRequestSchema = z.object({
   runDirectory: z.string().min(1),
   mode: RunModeSchema,
   artifacts: z.array(z.string().min(1)),
+  outputContract: OutputContractSchema,
   context: z.object({
     skill: z.object({ name: z.string().min(1), version: z.string().min(1), content: z.string().min(1) }),
     methodSources: z.array(z.object({ id: z.string().min(1), content: z.string().min(1) })),

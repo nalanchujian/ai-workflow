@@ -52,7 +52,11 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
       if (nodeId === undefined) {
         throw new Error('未找到当前节点');
       }
-      await completeNode(fixture.projectRoot, taskId, nodeId);
+      const runId = /runs\/([^/]+)\/staging\//.exec(input.stdin)?.[1];
+      if (runId === undefined) {
+        throw new Error('未找到本次暂存运行目录');
+      }
+      await completeNode(fixture.projectRoot, taskId, nodeId, runId);
     };
 
     for (const nodeId of ['clarify', 'solution', 'plan']) {

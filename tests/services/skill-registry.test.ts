@@ -33,13 +33,13 @@ describe('SkillRegistry', () => {
     ]));
   });
 
-  it('rejects a registry created by an older application version', async () => {
+  it('explains that a registry created by an older application version needs a skill update', async () => {
     const directory = await createTempDirectory('aiw-skill-registry-');
     directories.push(directory);
     const path = join(directory, 'registry.yaml');
     await writeFile(path, 'schemaVersion: aiw.skill-registry/v1\nskills: []\nprofiles: []\n', 'utf8');
 
-    await expect(new SkillRegistry(path).list()).rejects.toThrow('技能注册表无效');
+    await expect(new SkillRegistry(path).list()).rejects.toThrow('输出契约不兼容');
   });
 });
 

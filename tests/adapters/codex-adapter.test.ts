@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { CodexAdapter } from '../../src/adapters/codex-adapter.js';
 import type { RunRequest } from '../../src/domain/run.js';
+import { outputContractFor } from '../../src/domain/output-contract.js';
 import { ExecutableNotFoundError } from '../../src/ports/process-runner.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -62,7 +63,7 @@ describe('CodexAdapter', () => {
     await adapter.run(runRequest({ projectRoot, runDirectory }));
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
-    expect(context).toContain('- .aiw/tasks/refund-123/artifacts/brief.md');
+    expect(context).toContain('- .aiw/tasks/refund-123/runs/run-1/staging/artifacts/brief.md（发布后成为 artifacts/brief.md）');
   });
 
   it('requires the agent to generate a versioned structured handoff', async () => {
@@ -74,12 +75,13 @@ describe('CodexAdapter', () => {
     const request = runRequest({ projectRoot, runDirectory });
     request.task.nodeRevision = 5;
     request.artifacts.push('handoffs/clarify/r3.yaml');
+    request.outputContract = outputContractFor(request.runId, request.artifacts);
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
-    expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/handoffs/clarify/r3.yaml');
-    expect(context).toContain('唯一**交接包是：.aiw/tasks/refund-123/handoffs/clarify/r3.yaml（输出 revision：3）');
+    expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify/r3.yaml');
+    expect(context).toContain('唯一**交接包先写入：.aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify/r3.yaml，经 AIW 校验后发布为 handoffs/clarify/r3.yaml（输出 revision：3）');
     expect(context).toContain('completed-revision="5" output-revision="3"');
     expect(context).toContain('phase: clarify');
     expect(context).toContain('revision: 3');
@@ -105,6 +107,7 @@ describe('CodexAdapter', () => {
     const request = runRequest({ projectRoot, runDirectory });
     request.task.nodeId = 'plan';
     request.artifacts = ['artifacts/implementation-plan.md', 'artifacts/work-breakdown.yaml'];
+    request.outputContract = outputContractFor(request.runId, request.artifacts);
 
     await adapter.run(request);
 
@@ -125,6 +128,7 @@ describe('CodexAdapter', () => {
     });
     const request = runRequest({ projectRoot, runDirectory });
     request.artifacts.push('artifacts/fact-register.yaml', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml');
+    request.outputContract = outputContractFor(request.runId, request.artifacts);
 
     await adapter.run(request);
 
@@ -149,6 +153,7 @@ describe('CodexAdapter', () => {
     const request = runRequest({ projectRoot, runDirectory });
     request.task = { ...request.task, nodeId: 'delivery-list', phase: 'implement', testPlan: [{ id: 'TEST-LIST-01', command: 'pnpm test -- list' }] };
     request.artifacts = ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'];
+    request.outputContract = outputContractFor(request.runId, request.artifacts);
 
     await adapter.run(request);
 
@@ -180,6 +185,7 @@ describe('CodexAdapter', () => {
       'artifacts/delivery-list-custom-metrics-r2/r1/acceptance-results.yaml',
       'handoffs/delivery-list-custom-metrics-r2/r1.yaml',
     ];
+    request.outputContract = outputContractFor(request.runId, request.artifacts);
     request.context.skill = {
       ...request.context.skill,
       content: '旧版技能错误地写着：生成 artifacts/delivery.md 和 artifacts/acceptance-results.yaml。',
@@ -189,10 +195,11 @@ describe('CodexAdapter', () => {
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     const receipt = context.slice(context.lastIndexOf('<aiw-output-receipt>'));
-    expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/delivery.md');
-    expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/acceptance-results.yaml');
+    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics-r2/r1/delivery.md');
+    expect(receipt).toContain('发布正式路径：.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/delivery.md');
+    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics-r2/r1/acceptance-results.yaml');
     expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml（仅 AIW 写入）');
-    expect(receipt).toContain('.aiw/tasks/refund-123/handoffs/delivery-list-custom-metrics-r2/r1.yaml');
+    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/handoffs/delivery-list-custom-metrics-r2/r1.yaml');
     expect(receipt).toContain('忽略低优先级技能中的旧路径示例');
     expect(receipt).not.toContain('artifacts/delivery.md');
     expect(context).not.toContain('- .aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml');
@@ -257,6 +264,7 @@ function runRequest(input: { projectRoot: string; runDirectory: string }): RunRe
     runDirectory: input.runDirectory,
     mode: 'execute',
     artifacts: ['artifacts/brief.md'],
+    outputContract: outputContractFor('run-1', ['artifacts/brief.md']),
     context: {
       skill: { name: 'requirements-clarification', version: '1.0.0', content: '澄清需求并输出 brief。' },
       methodSources: [{ id: 'superpowers:brainstorming', content: '先理解问题。' }],
