@@ -55,8 +55,8 @@ schemaVersion: aiw.local/v1
 workflow:
   defaultSkillSource:
     url: https://github.com/nalanchujian/ai-workflow-skills.git
-    ref: v12.0.1
-  defaultProfile: standard-web-feature@12.0.1
+    ref: v0.0.1
+  defaultProfile: standard-web-feature@0.0.1
 
 # 单次交给 Codex 的完整上下文上限。超过时 AIW 会拒绝执行并给出拆分建议。
 # 降低可节省 token；提高可承载更大的需求，但会增加调用成本。

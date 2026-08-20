@@ -27,7 +27,7 @@ aiw history show <task-id> <run-id> [--project <path>]
 
 若发现多个兼容的 Codex MCP Server，使用 `--connector-server <name>` 明确选择；没有连接器时仍可使用本地文件和公开 URL。
 
-默认工作流为 `standard-web-feature@12.0.1`，来源为 `ai-workflow-skills@v12.0.1`。
+默认工作流为 `standard-web-feature@0.0.1`，来源为 `ai-workflow-skills@v0.0.1`。
 
 ### `aiw doctor`
 
@@ -103,7 +103,7 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 
 ### `aiw skills update --ref <tag-or-commit>`
 
-升级本机默认技能包并切换同名默认模板版本。它只影响新任务；旧任务继续使用创建时锁定版本。当前交付单元模型需要 `ai-workflow-skills@v12.0.1` 及以上版本。
+升级本机默认技能包并切换同名默认模板版本。它只影响新任务；旧任务继续使用创建时锁定版本。当前交付单元模型需要 `ai-workflow-skills@v0.0.1` 及以上版本。
 
 其他技能维护命令：
 

@@ -48,7 +48,7 @@ describe('SkillInstaller', () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);
     const { repository } = await createBundledSkillRepositoryFixture(directory);
-    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: invalid reference\naiwCompatibility: ">=4.0.0 <5.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:missing-method\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: invalid reference\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:missing-method\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({
       git: { async clone() { return { directory: repository, revision: 'b'.repeat(40) }; } },
@@ -64,7 +64,7 @@ describe('SkillInstaller', () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);
     const { repository } = await createBundledSkillRepositoryFixture(directory);
-    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 1.0.0\ndescription: requirement skill\naiwCompatibility: ">=4.0.0 <5.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: configured:missing\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 1.0.0\ndescription: requirement skill\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: configured:missing\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
 
@@ -139,7 +139,7 @@ describe('SkillInstaller', () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);
     const { repository } = await createBundledSkillRepositoryFixture(directory);
-    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: fixed path\naiwCompatibility: ">=4.0.0 <5.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- 请写入 artifacts/brief.md\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: fixed path\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- 请写入 artifacts/brief.md\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
 

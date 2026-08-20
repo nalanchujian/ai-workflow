@@ -87,6 +87,6 @@ git diff --check
 
 ## 发布前置条件
 
-- `ai-workflow-skills` 发布 `standard-web-feature@12.0.1` 并创建 Git tag `v12.0.1`；
+- `ai-workflow-skills` 发布 `standard-web-feature@0.0.1` 并创建 Git tag `v0.0.1`；
 - `ai-workflow` 发布包含该默认工作流的新版 npm 包；
 - 旧七阶段任务不与新模型混用，升级后重新创建任务。

@@ -7,7 +7,7 @@ import { z } from 'zod';
  */
 export const OutputContractVersion = 'aiw.task-output/v1' as const;
 /** The current CLI major and artifact protocol understood by this runtime. */
-export const SupportedAiwCompatibility = '>=4.0.0 <5.0.0' as const;
+export const SupportedAiwCompatibility = '>=0.0.1 <1.0.0' as const;
 
 export const OutputContractEntrySchema = z.object({
   finalPath: z.string().min(1),

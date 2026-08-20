@@ -604,7 +604,7 @@ async function createRunnerFixture(options: {
       name: skill.name,
       version: skill.version,
       description: '澄清需求',
-      aiwCompatibility: '>=4.0.0 <5.0.0',
+      aiwCompatibility: '>=0.0.1 <1.0.0',
       artifactContract: 'aiw.task-output/v1',
       phases: ['clarify'],
       registrySource: skill.registrySource,
