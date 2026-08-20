@@ -16,7 +16,7 @@ describe('public npm distribution metadata', () => {
       scripts: Record<string, string>;
     };
 
-    expect(packageJson.name).toBe('@nalanchujian/ai-workflow');
+    expect(packageJson.name).toBe('@nalanchujian/aiw');
     expect(packageJson.private).toBe(false);
     expect(packageJson.bin).toEqual({ aiw: './dist/cli.js' });
     expect(packageJson.files).toEqual(['dist', 'README.md']);

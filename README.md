@@ -48,7 +48,7 @@ MVP 聚焦“本机单 Agent + Git 共享任务事实与团队技能仓库”。
 ## 目标工作流
 
 ```bash
-npm install -g @nalanchujian/ai-workflow
+npm install -g @nalanchujian/aiw
 aiw init
 aiw task init --project . --source https://example.com/requirements
 # 输出 taskId，例如 task-20260813-120000-000；将其填入下方命令
@@ -93,7 +93,7 @@ pnpm exec tsx src/cli.ts skills install <git-url>
 推荐从 npm 公共 Registry 安装：
 
 ```bash
-npm install -g @nalanchujian/ai-workflow
+npm install -g @nalanchujian/aiw
 aiw --help
 aiw init
 aiw doctor --project /你的业务仓库
@@ -102,8 +102,8 @@ aiw doctor --project /你的业务仓库
 升级和卸载：
 
 ```bash
-npm update -g @nalanchujian/ai-workflow
-npm uninstall -g @nalanchujian/ai-workflow
+npm update -g @nalanchujian/aiw
+npm uninstall -g @nalanchujian/aiw
 ```
 
 `aiw init` 生成不含凭据的 `~/.aiw/config.yaml`，并安装配置中锁定的默认团队技能包。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；如 Codex 中存在唯一兼容的文档 MCP，初始化会自动建立映射。团队升级默认技能时执行 `aiw skills update --ref <tag-or-commit>`；安装成功后会同步切换同名默认模板的新版本。本机 Registry 以 Git revision 保留同一来源的多个版本，未完成任务仍可按其锁定版本继续执行。当前 MVP 不会自动删除旧版本，也尚未提供技能缓存清理命令。

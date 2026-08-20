@@ -4,7 +4,7 @@
 
 ## 目标
 
-维护可从 npm 公共 Registry 安装的 `aiw` CLI：包名为 `@nalanchujian/ai-workflow`，全局命令保持为 `aiw`。发布只能由发布者在本机显式触发，AIW 的日常任务流程和 CI 不会自动发布。
+维护可从 npm 公共 Registry 安装的 `aiw` CLI：包名为 `@nalanchujian/aiw`，全局命令保持为 `aiw`。发布只能由发布者在本机显式触发，AIW 的日常任务流程和 CI 不会自动发布。
 
 ## 发布边界
 
@@ -24,7 +24,7 @@
 
 ```json
 {
-  "name": "@nalanchujian/ai-workflow",
+  "name": "@nalanchujian/aiw",
   "private": false,
   "publishConfig": {
     "access": "public",
@@ -50,7 +50,7 @@
 
 **结果：**
 
-- README 以 `npm install -g @nalanchujian/ai-workflow` 作为默认安装方式；本地链接仅用于开发。
+- README 以 `npm install -g @nalanchujian/aiw` 作为默认安装方式；本地链接仅用于开发。
 - 文档说明升级和卸载命令，以及安装后运行 `aiw doctor`。
 - 开发指南说明版本递增、`npm login`、`pnpm pack:check`、`npm publish --access public --registry=https://registry.npmjs.org` 的人工发布顺序。
 - 明确 npm 令牌、`~/.aiw/config.yaml`、文档连接器/Codex 凭据不得写入仓库或包中。
