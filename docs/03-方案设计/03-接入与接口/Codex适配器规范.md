@@ -31,7 +31,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
 }
 ```
 
-Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。执行模式还必须要求业务工作树干净，记录 Git 提交/分支和空工作树基线，以及当前节点的任务事实写入边界；Adapter 返回后由 Runner 采集全部 Git 变更路径、原始 diff 哈希、未跟踪文件补丁及变更文件哈希。当前 Codex 直接在 `projectRoot` 工作区执行，不使用独立 Git worktree。业务代码和测试可按当前节点目标修改，不通过计划中的文件路径白名单阻断；但写入其他 `.aiw/` 任务事实、修改 Git 历史或切换分支必须保留证据、将节点标记失败，不能进入下一节点。检测到未授权 `.aiw/` 写入时，Runner 先将该文件恢复为交给 Codex 前的内容，再记录违规路径和恢复记录，避免当前任务事实被污染；业务代码改动不会自动还原。每次成功事件关联 `change-evidence.json`，使实现说明、验证报告可追溯到实际变更。它还必须从本机 Registry 重新读取节点锁定的 `SKILL.md` 和内置方法，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
+Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。执行模式还必须要求源业务工作树干净，记录 Git 提交/分支和空工作树基线，以及当前节点的任务事实写入边界。计划生成的交付单元会把 `projectRoot` 替换为本次运行目录下的 detached Git worktree；其他节点仍使用源仓库任务目录。Adapter 返回后由 Runner 从实际执行目录采集全部 Git 变更路径、原始 diff 哈希、未跟踪文件补丁及变更文件哈希。业务代码和测试可按当前节点目标修改，不通过计划中的文件路径白名单阻断；但写入其他 `.aiw/` 任务事实、修改 Git 历史或切换分支必须保留证据、将节点标记失败，不能进入下一节点。检测到未授权 `.aiw/` 写入时，Runner 先在隔离区还原该文件，再记录违规路径和恢复记录。交付单元全部验证通过后，Runner 才把排除 `.aiw/` 的业务补丁发布到源工作区；失败时直接清理 worktree，源业务代码保持不变。每次成功事件关联 `change-evidence.json`，并记录隔离执行模式、源 HEAD、补丁哈希和发布路径，使实现说明、验证报告可追溯到实际变更。它还必须从本机 Registry 重新读取节点锁定的 `SKILL.md` 和内置方法，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
 
 ## 输出：RunResult
 

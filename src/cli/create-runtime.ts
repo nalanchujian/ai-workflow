@@ -4,6 +4,7 @@ import { CodexAdapter } from '../adapters/codex-adapter.js';
 import { CodexTomlMcpServerConfigResolver } from '../adapters/codex-toml-mcp-server-config-resolver.js';
 import { FetchNetworkClient } from '../adapters/fetch-network-client.js';
 import { GitRepositoryStatus } from '../adapters/git-repository-status.js';
+import { GitDeliveryWorkspaceManager } from '../adapters/git-delivery-workspace.js';
 import { NodeProcessRunner } from '../adapters/node-process-runner.js';
 import { ShellGitClient } from '../adapters/shell-git-client.js';
 import { StdioMcpClient } from '../adapters/stdio-mcp-client.js';
@@ -38,6 +39,7 @@ import type { NetworkClient } from '../ports/network-client.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
 import type { RepositoryStatus, WorkingTreeStatus } from '../ports/repository-status.js';
+import type { DeliveryWorkspaceManager } from '../ports/delivery-workspace.js';
 
 export interface CliRuntime {
   registry: SkillRegistry;
@@ -66,6 +68,7 @@ export function createCliRuntime(input: {
     mcpClient?: McpClient;
     mcpServerConfigResolver?: McpServerConfigResolver;
     mcpServerCatalog?: McpServerCatalog;
+    deliveryWorkspaceManager?: DeliveryWorkspaceManager;
   };
 }): CliRuntime {
   const projectRoot = input.projectRoot();
@@ -124,6 +127,7 @@ export function createCliRuntime(input: {
     adapter: codexAdapter,
     deliveryTestExecutor: new DeliveryTestExecutor({ processRunner: input.ports.processRunner }),
     projectTestProfiles: new ProjectTestProfiles({ processRunner: input.ports.processRunner }),
+    ...(input.ports.deliveryWorkspaceManager === undefined ? {} : { deliveryWorkspaceManager: input.ports.deliveryWorkspaceManager }),
     runtimeRoot,
     runLock: taskLock,
   });
@@ -163,6 +167,7 @@ export function createProductionCliRuntime(input: { homeDirectory: string; proje
       mcpClient: new StdioMcpClient(),
       mcpServerConfigResolver: mcpServerConfig,
       mcpServerCatalog: mcpServerConfig,
+      deliveryWorkspaceManager: new GitDeliveryWorkspaceManager(),
     },
   });
 }

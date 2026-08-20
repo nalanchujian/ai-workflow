@@ -11,7 +11,7 @@ import { declaredOutputPath, handoffPath, HandoffSchema, nextArtifactPath, outpu
 import { hasTestPlanEvidence, validateAcceptanceTestEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
 import { AcceptanceIntentSchema } from '../domain/acceptance-intent.js';
-import { TestResultsSchema } from '../domain/test-results.js';
+import { TestResultsSchema, type TestResults } from '../domain/test-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
@@ -20,6 +20,7 @@ import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { validateMarkdownArtifactContract } from '../domain/artifact-contracts.js';
 import { parse } from 'yaml';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
+import type { DeliveryWorkspace, DeliveryWorkspaceManager, DeliveryWorkspacePublishResult } from '../ports/delivery-workspace.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
 import { ImplementationWorkPlannerError, WorkBreakdownSchema, validateWorkBreakdown } from './implementation-work-planner.js';
@@ -58,6 +59,7 @@ export class TaskRunner {
     deliveryTestExecutor?: DeliveryTestExecutor;
     projectTestProfiles?: ProjectTestProfiles;
     workflowPathService?: WorkflowPathService;
+    deliveryWorkspaceManager?: DeliveryWorkspaceManager;
     runtimeRoot: string;
     runIdFactory?: () => string;
     runLock?: TaskRunLock;
@@ -157,18 +159,62 @@ export class TaskRunner {
 
     const runId = this.deps.runIdFactory?.() ?? randomUUID();
     const runDirectory = join(this.deps.runtimeRoot, task.id, runId);
+    const deliveryWorkspace = input.dryRun || !isDeliveryUnit(node) || this.deps.deliveryWorkspaceManager === undefined
+      ? undefined
+      : await this.deps.deliveryWorkspaceManager.prepare({
+        projectRoot: this.deps.taskStore.projectDirectory(),
+        runtimeRoot: this.deps.runtimeRoot,
+        taskId: task.id,
+        nodeId: input.nodeId,
+        runId,
+      });
+    try {
+      return await this.runPrepared({
+        input,
+        task,
+        node,
+        skill,
+        methods,
+        testProfiles,
+        outputPaths,
+        manifest,
+        runId,
+        runDirectory,
+        deliveryWorkspace,
+      });
+    } finally {
+      await deliveryWorkspace?.dispose();
+    }
+  }
+
+  private async runPrepared(input: {
+    input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] };
+    task: Task;
+    node: Task['nodes'][string];
+    skill: Awaited<ReturnType<TaskRunner['loadLockedSkill']>>;
+    methods: Awaited<ReturnType<MethodSourceResolverPort['readLocked']>>[];
+    testProfiles: Awaited<ReturnType<ProjectTestProfiles['list']>>;
+    outputPaths: string[];
+    manifest: ContextManifest;
+    runId: string;
+    runDirectory: string;
+    deliveryWorkspace?: DeliveryWorkspace;
+  }): Promise<RunResult> {
+    const { task, node, skill, methods, testProfiles, outputPaths, manifest, runId, runDirectory, deliveryWorkspace } = input;
+    const executionProjectRoot = deliveryWorkspace?.projectRoot ?? this.deps.taskStore.projectDirectory();
+    const executionTaskStore = deliveryWorkspace === undefined ? this.deps.taskStore : new TaskStore(executionProjectRoot);
     const outputContract = outputContractFor(runId, outputPaths);
-    const scope = input.dryRun ? undefined : await this.taskFactWriteScope(task, input.nodeId, runId, outputContract);
+    const scope = input.input.dryRun ? undefined : await this.taskFactWriteScope(task, input.input.nodeId, runId, outputContract);
     const contextManifestFactPath = `runs/${runId}/context-manifest.json`;
     const request: RunRequest = {
       schemaVersion: 'aiw.run/v2',
       runId,
       task: {
         id: task.id,
-        nodeId: input.nodeId,
-        phase: node.phase,
+        nodeId: input.input.nodeId,
+        phase: node.phase as RunRequest['task']['phase'],
         ...(task.workflowPath === undefined ? {} : { workflowPath: task.workflowPath.id }),
-        projectRoot: this.deps.taskStore.projectDirectory(),
+        projectRoot: executionProjectRoot,
         testPlan: isDeliveryUnit(node) ? deliveryTestPlan(node) : [],
         testProfiles: testProfiles.map((profile) => ({
           id: profile.id,
@@ -180,7 +226,7 @@ export class TaskRunner {
       instruction: node.title,
       contextManifestPath: join(this.deps.taskStore.taskDirectory(task.id), contextManifestFactPath),
       runDirectory,
-      mode: input.dryRun ? 'dry-run' : 'execute',
+      mode: input.input.dryRun ? 'dry-run' : 'execute',
       artifacts: outputPaths,
       outputContract,
       context: {
@@ -197,53 +243,71 @@ export class TaskRunner {
     const baseline: ChangeBaseline = {
       path: `runs/${runId}/change-baseline.json`,
       changedPaths: [],
-      outputs: input.dryRun ? [] : await outputBaseline(task, this.deps.taskStore, input.nodeId, outputPaths),
-      ...(input.dryRun ? {} : { git: await this.deps.changeInspector.revision({ projectRoot: this.deps.taskStore.projectDirectory() }) }),
+      outputs: input.input.dryRun ? [] : await outputBaseline(task, this.deps.taskStore, input.input.nodeId, outputPaths),
+      ...(input.input.dryRun ? {} : { git: await this.deps.changeInspector.revision({ projectRoot: executionProjectRoot }) }),
     };
-    if (!input.dryRun) {
+    if (!input.input.dryRun) {
       await this.deps.taskStore.createFact(task.id, baseline.path, JSON.stringify({
-        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: baseline.changedPaths, outputs: baseline.outputs, ...(baseline.git === undefined ? {} : { git: baseline.git }),
+        schemaVersion: 'aiw.change-baseline/v1', taskId: task.id, nodeId: input.input.nodeId, runId, capturedAt: new Date().toISOString(), changedPaths: baseline.changedPaths, outputs: baseline.outputs, ...(baseline.git === undefined ? {} : { git: baseline.git }),
       }, null, 2) + '\n');
     }
 
-    if (input.dryRun) {
+    if (input.input.dryRun) {
       const result = RunResultSchema.parse({ ...(await this.deps.adapter.run(request)), contextManifest: finalizedManifest });
       await this.writeResult(task.id, runId, result);
       return result;
     }
 
-    const startedTask = transitionNode(task, input.nodeId, { type: 'start', runId });
+    const startedTask = transitionNode(task, input.input.nodeId, { type: 'start', runId });
     await this.deps.taskStore.update(startedTask);
     const controller = new AbortController();
-    const activeRun: ActiveRun = { taskId: task.id, nodeId: input.nodeId, runId, runDirectory, controller };
+    const activeRun: ActiveRun = { taskId: task.id, nodeId: input.input.nodeId, runId, runDirectory, controller };
     this.activeRun = activeRun;
     try {
       if (scope === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '执行节点缺少任务事实写入边界');
-      await prepareOutputStaging(this.deps.taskStore, task.id, outputContract);
+      await prepareOutputStaging(executionTaskStore, task.id, outputContract);
       await this.deps.taskStore.createFact(task.id, `runs/${runId}/change-scope.json`, JSON.stringify(scope, null, 2) + '\n');
       const agentFactBaselinePath = `runs/${runId}/agent-task-fact-baseline.json`;
-      const recordedAgentFactBaseline = await snapshotAiWorkflowFacts(this.deps.taskStore.projectDirectory());
+      const recordedAgentFactBaseline = await snapshotAiWorkflowFacts(executionProjectRoot);
       await this.deps.taskStore.createFact(task.id, agentFactBaselinePath, JSON.stringify({
         schemaVersion: 'aiw.agent-task-fact-baseline/v1',
         taskId: task.id,
-        nodeId: input.nodeId,
+        nodeId: input.input.nodeId,
         runId,
         capturedAt: new Date().toISOString(),
         facts: recordedAgentFactBaseline,
       }, null, 2) + '\n');
-      // Capture again after persisting the baseline record itself. This is the
-      // exact file state handed to Codex; any later .aiw/ mutation is therefore
-      // attributable to the agent, not to runner setup.
-      const protectedTaskFacts = await snapshotAiWorkflowFactsWithContents(this.deps.taskStore.projectDirectory());
-      const result = RunResultSchema.parse({ ...(await this.execute(request, startedTask, input.nodeId, scope, baseline, finalizedManifest, protectedTaskFacts, controller.signal)), contextManifest: finalizedManifest });
+      const protectedTaskFacts = await snapshotAiWorkflowFactsWithContents(executionProjectRoot);
+      const result = RunResultSchema.parse({
+        ...(await this.execute(
+          request,
+          startedTask,
+          input.input.nodeId,
+          scope,
+          baseline,
+          finalizedManifest,
+          protectedTaskFacts,
+          controller.signal,
+          { projectRoot: executionProjectRoot, taskStore: executionTaskStore, deliveryWorkspace },
+        )),
+        contextManifest: finalizedManifest,
+      });
       await this.writeResult(task.id, runId, result);
       const next = result.status === 'succeeded'
-        ? transitionNode(startedTask, input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
+        ? transitionNode(startedTask, input.input.nodeId, { type: 'succeed', runId, outputs: result.artifacts, evidencePath: `runs/${runId}/change-evidence.json` })
         : result.status === 'cancelled'
-          ? transitionNode(startedTask, input.nodeId, { type: 'cancel', note: result.error?.message ?? '已取消当前运行' })
-          : transitionNode(startedTask, input.nodeId, { type: 'fail', message: result.error?.message ?? `运行未完成：${result.status}` });
+          ? transitionNode(startedTask, input.input.nodeId, { type: 'cancel', note: result.error?.message ?? '已取消当前运行' })
+          : transitionNode(startedTask, input.input.nodeId, { type: 'fail', message: result.error?.message ?? `运行未完成：${result.status}` });
       await this.deps.taskStore.update(next);
       return result;
+    } catch (error) {
+      try {
+        await deliveryWorkspace?.rollback();
+      } catch (rollbackError) {
+        const message = rollbackError instanceof Error ? rollbackError.message : '业务补丁自动回滚失败';
+        throw new TaskRunnerError('ARTIFACT_INVALID', `${error instanceof Error ? error.message : '交付单元收尾失败'}；${message}`);
+      }
+      throw error;
     } finally {
       if (this.activeRun === activeRun) this.activeRun = undefined;
     }
@@ -258,6 +322,7 @@ export class TaskRunner {
     manifest: ContextManifest,
     protectedTaskFacts: TaskFactSnapshotWithContents,
     signal: AbortSignal,
+    execution: RunExecutionWorkspace,
   ): Promise<RunResult> {
     if (signal.aborted || await cancellationRequested(request.runDirectory)) {
       return cancelledResult(request, '已收到取消请求，未启动 Codex');
@@ -276,29 +341,32 @@ export class TaskRunner {
     if (signal.aborted || await cancellationRequested(request.runDirectory)) {
       result = cancelledResult(request, '已取消当前 Codex 运行');
     }
-    const agentTaskFacts = await inspectAgentTaskFactChanges(this.deps.taskStore.projectDirectory(), protectedTaskFacts.hashes, scope);
+    const agentTaskFacts = await inspectAgentTaskFactChanges(execution.projectRoot, protectedTaskFacts.hashes, scope);
     if (agentTaskFacts.violations.length > 0) {
       const restoredTaskFactPaths = await restoreTaskFactViolations(
-        this.deps.taskStore.projectDirectory(),
+        execution.projectRoot,
         protectedTaskFacts.contents,
         agentTaskFacts.violations,
       );
       const expectedHandoff = request.artifacts.find((path) => path === handoffPath(nodeId));
       const message = `检测到不允许写入的任务事实：${agentTaskFacts.violations.join(', ')}。本次运行只允许通过暂存区发布当前节点产物（${expectedHandoff ?? '当前节点交接包'}）；AIW 已自动还原这些改动。`;
       await this.persistChangeEvidence(task, {
-        ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts, undefined, restoredTaskFactPaths)),
+        ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts, execution, undefined, restoredTaskFactPaths)),
         failure: failureEvidence('task-facts', 'TASK_FACT_WRITE_VIOLATION', message),
       });
       return failedResult(request, 'TASK_FACT_WRITE_VIOLATION', message);
     }
     if (result.status !== 'succeeded') {
       await this.persistChangeEvidence(task, {
-        ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts)),
+        ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts, execution)),
         failure: failureEvidence(result.status === 'cancelled' ? 'cancelled' : 'adapter', result.error?.code ?? 'CODEX_EXECUTION_ERROR', result.error?.message ?? `运行未完成：${result.status}`),
       });
       return result;
     }
     let evidence: ChangeEvidence | undefined;
+    let publication: DeliveryWorkspacePublishResult | undefined;
+    let previousFormalOutputs: Map<string, Buffer | undefined> | undefined;
+    let formalOutputsPromoted = false;
     try {
       if (isDeliveryUnit(task.nodes[nodeId]!)) {
         if (this.deps.deliveryTestExecutor === undefined) {
@@ -309,24 +377,25 @@ export class TaskRunner {
           nodeId,
           node: task.nodes[nodeId]!,
           runId: request.runId,
-          taskStore: this.deps.taskStore,
-          projectRoot: this.deps.taskStore.projectDirectory(),
+          taskStore: execution.taskStore,
+          projectRoot: execution.projectRoot,
           outputPath: request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/test-results.yaml'))?.stagingPath,
           signal,
         });
+        await copyTestEvidence(task.id, tests, execution.taskStore, this.deps.taskStore);
         const intentOutput = request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/acceptance-intent.yaml'));
         const resultOutput = request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/acceptance-results.yaml'));
         if (intentOutput === undefined || resultOutput === undefined) {
           throw new TaskRunnerError('ARTIFACT_INVALID', '交付单元缺少验收意图或平台验收结果产物声明');
         }
-        const intentContent = await readFile(join(this.deps.taskStore.taskDirectory(task.id), intentOutput.stagingPath), 'utf8');
+        const intentContent = await readFile(join(execution.taskStore.taskDirectory(task.id), intentOutput.stagingPath), 'utf8');
         const acceptance = evaluateDeliveryAcceptance({
           intent: parseAcceptanceIntent(intentContent),
           tests,
           acceptanceRefs: task.nodes[nodeId]!.acceptanceRefs,
           verificationPlan: task.nodes[nodeId]!.verificationPlan,
         });
-        await this.deps.taskStore.createFact(task.id, resultOutput.stagingPath, serializeAcceptanceResults(acceptance));
+        await execution.taskStore.createFact(task.id, resultOutput.stagingPath, serializeAcceptanceResults(acceptance));
       }
       if (nodeId === 'plan') {
         const breakdownOutput = request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/work-breakdown.yaml'));
@@ -340,34 +409,54 @@ export class TaskRunner {
       if (signal.aborted || await cancellationRequested(request.runDirectory)) {
         const cancelled = cancelledResult(request, '已取消当前运行');
         await this.persistChangeEvidence(task, {
-          ...(await this.recordChangeEvidence(task, request, scope, cancelled, baseline, agentTaskFacts)),
+          ...(await this.recordChangeEvidence(task, request, scope, cancelled, baseline, agentTaskFacts, execution)),
           failure: failureEvidence('cancelled', 'RUN_CANCELLED', '已取消当前运行'),
         });
         return cancelled;
       }
-      const stagedContents = await readStagedOutputContents(task, this.deps.taskStore, request.outputContract);
-      const artifacts = await outputRecordsFromContents(task, this.deps.taskStore, nodeId, baseline.outputs, manifest, stagedContents);
+      const stagedContents = await readStagedOutputContents(task, execution.taskStore, request.outputContract);
+      const artifacts = await outputRecordsFromContents(task, execution.taskStore, nodeId, baseline.outputs, manifest, stagedContents);
       // A staged result is not yet a task fact. Check for forbidden Git
       // history/branch mutation before any promotion so a failed run can
       // never publish output that was produced under an invalid baseline.
-      const prePromotionEvidence = await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts);
+      const prePromotionEvidence = await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts, execution);
       if (prePromotionEvidence.git.historyChanged) {
         const message = '检测到 Codex 修改了 Git 提交或分支，当前运行已停止';
         await this.persistChangeEvidence(task, { ...prePromotionEvidence, failure: failureEvidence('git-history', 'GIT_HISTORY_MUTATION', message) });
         return failedResult(request, 'GIT_HISTORY_MUTATION', message);
       }
+      previousFormalOutputs = await snapshotFormalOutputs(this.deps.taskStore, task.id, request.outputContract);
+      publication = await execution.deliveryWorkspace?.publish();
       await promoteStagedOutputs(this.deps.taskStore, task.id, request.outputContract, stagedContents);
+      formalOutputsPromoted = true;
       evidence = mergeChangeEvidence(
         prePromotionEvidence,
-        await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts),
+        await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts, execution),
       );
-      await this.deps.taskStore.removeFacts(task.id, [`runs/${request.runId}/staging`]);
-      await this.persistChangeEvidence(task, { ...evidence, artifacts });
+      await execution.taskStore.removeFacts(task.id, [`runs/${request.runId}/staging`]);
+      await this.persistChangeEvidence(task, { ...evidence, artifacts, ...(publication === undefined ? {} : { publication: publicationEvidence(publication) }) });
       return RunResultSchema.parse({ ...result, artifacts });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '节点产物校验失败';
+      let rollbackFailure: string | undefined;
+      if (publication?.published === true && execution.deliveryWorkspace !== undefined) {
+        try {
+          await execution.deliveryWorkspace.rollback();
+        } catch (rollbackError) {
+          rollbackFailure = rollbackError instanceof Error ? rollbackError.message : '业务补丁自动回滚失败';
+        }
+      }
+      if (formalOutputsPromoted && previousFormalOutputs !== undefined) {
+        try {
+          await restoreFormalOutputs(this.deps.taskStore, task.id, previousFormalOutputs);
+        } catch (restoreError) {
+          const detail = restoreError instanceof Error ? restoreError.message : '正式任务产物自动恢复失败';
+          rollbackFailure = rollbackFailure === undefined ? detail : `${rollbackFailure}；${detail}`;
+        }
+      }
+      const baseMessage = error instanceof Error ? error.message : '节点产物校验失败';
+      const message = rollbackFailure === undefined ? baseMessage : `${baseMessage}；${rollbackFailure}`;
       const code = error instanceof TaskRunnerError ? error.code : 'ARTIFACT_INVALID';
-      const captured = evidence ?? await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts);
+      const captured = evidence ?? await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts, execution);
       await this.persistChangeEvidence(task, { ...captured, failure: failureEvidence('artifact', code, message) });
       return failedResult(request, code, message);
     }
@@ -462,12 +551,14 @@ export class TaskRunner {
     };
   }
 
-  private async recordChangeEvidence(task: Task, request: RunRequest, scope: TaskFactWriteScope, result: RunResult, baseline: ChangeBaseline, agentTaskFacts: AgentTaskFactChanges, artifacts?: OutputRecord[], restoredTaskFactPaths?: string[]): Promise<ChangeEvidence> {
-    const projectRoot = this.deps.taskStore.projectDirectory();
-    const changedPaths = await this.deps.changeInspector.changedPaths({ projectRoot });
+  private async recordChangeEvidence(task: Task, request: RunRequest, scope: TaskFactWriteScope, result: RunResult, baseline: ChangeBaseline, agentTaskFacts: AgentTaskFactChanges, execution: RunExecutionWorkspace, artifacts?: OutputRecord[], restoredTaskFactPaths?: string[]): Promise<ChangeEvidence> {
+    const projectRoot = execution.projectRoot;
+    const changedPaths = (await this.deps.changeInspector.changedPaths({ projectRoot }))
+      .filter((path) => execution.deliveryWorkspace === undefined || !isExecutionInfrastructurePath(path));
     const taskFactViolations = agentTaskFacts.violations;
     const rawDiff = await this.deps.changeInspector.diff({ projectRoot });
-    const untrackedPaths = await this.deps.changeInspector.untrackedPaths({ projectRoot });
+    const untrackedPaths = (await this.deps.changeInspector.untrackedPaths({ projectRoot }))
+      .filter((path) => execution.deliveryWorkspace === undefined || !isExecutionInfrastructurePath(path));
     const changedFiles = await Promise.all(changedPaths.map(async (path) => ({ path, ...(await fileHash(projectRoot, path)) })));
     const after = await this.deps.changeInspector.revision({ projectRoot });
     const patch = `${rawDiff}${await untrackedPatch(projectRoot, untrackedPaths)}`;
@@ -482,6 +573,9 @@ export class TaskRunner {
       diff: { sha256: createHash('sha256').update(patch).digest('hex'), lineCount: patch === '' ? 0 : patch.split(/\r?\n/).length - 1 },
       ...(result.process === undefined ? {} : { process: result.process }),
       ...(artifacts === undefined ? {} : { artifacts }),
+      ...(execution.deliveryWorkspace === undefined ? {} : {
+        executionWorkspace: { mode: 'git-worktree' as const, sourceHead: execution.deliveryWorkspace.sourceHead },
+      }),
     };
     return evidence;
   }
@@ -534,6 +628,12 @@ interface ActiveRun {
   controller: AbortController;
 }
 
+interface RunExecutionWorkspace {
+  projectRoot: string;
+  taskStore: TaskStore;
+  deliveryWorkspace?: DeliveryWorkspace;
+}
+
 interface ChangeEvidence {
   schemaVersion: 'aiw.change-evidence/v2';
   taskId: string;
@@ -551,6 +651,8 @@ interface ChangeEvidence {
   diff: { sha256: string; lineCount: number };
   process?: unknown;
   artifacts?: OutputRecord[];
+  executionWorkspace?: { mode: 'git-worktree'; sourceHead: string };
+  publication?: { published: boolean; patchSha256: string; changedPaths: string[] };
   failure?: { stage: 'adapter' | 'task-facts' | 'artifact' | 'git-history' | 'cancelled'; code: string; message: string };
 }
 
@@ -577,6 +679,30 @@ function mergeChangeEvidence(before: ChangeEvidence, after: ChangeEvidence): Cha
     untrackedPaths: [...new Set([...before.untrackedPaths, ...after.untrackedPaths])].sort(),
     git: before.git.historyChanged ? before.git : after.git,
   };
+}
+
+function publicationEvidence(result: DeliveryWorkspacePublishResult): NonNullable<ChangeEvidence['publication']> {
+  return {
+    published: result.published,
+    patchSha256: result.patchSha256,
+    changedPaths: result.changedPaths,
+  };
+}
+
+function isExecutionInfrastructurePath(path: string): boolean {
+  return path === 'node_modules' || path.startsWith('node_modules/');
+}
+
+async function copyTestEvidence(taskId: string, tests: TestResults, source: TaskStore, target: TaskStore): Promise<void> {
+  if (source.projectDirectory() === target.projectDirectory()) return;
+  for (const item of tests.items) {
+    const content = await readFile(join(source.taskDirectory(taskId), item.evidencePath), 'utf8');
+    const hash = createHash('sha256').update(content).digest('hex');
+    if (hash !== item.evidenceSha256) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', `测试证据在复制前发生变化：${item.evidencePath}`);
+    }
+    await target.replaceFact(taskId, item.evidencePath, content);
+  }
 }
 
 type TaskFactSnapshot = Record<string, string>;
@@ -775,6 +901,29 @@ async function promoteStagedOutputs(
       throw new TaskRunnerError('ARTIFACT_MISSING', `节点暂存产物缺失：${entry.finalPath}`);
     }
     await taskStore.replaceFact(taskId, entry.finalPath, content.toString('utf8'));
+  }
+}
+
+async function snapshotFormalOutputs(taskStore: TaskStore, taskId: string, contract: OutputContract): Promise<Map<string, Buffer | undefined>> {
+  const snapshot = new Map<string, Buffer | undefined>();
+  for (const entry of contract.entries) {
+    try {
+      snapshot.set(entry.finalPath, await readFile(join(taskStore.taskDirectory(taskId), entry.finalPath)));
+    } catch (error) {
+      if (!isMissingFile(error)) throw error;
+      snapshot.set(entry.finalPath, undefined);
+    }
+  }
+  return snapshot;
+}
+
+async function restoreFormalOutputs(taskStore: TaskStore, taskId: string, snapshot: Map<string, Buffer | undefined>): Promise<void> {
+  for (const [path, content] of snapshot) {
+    if (content === undefined) {
+      await taskStore.removeFacts(taskId, [path]);
+      continue;
+    }
+    await taskStore.replaceFact(taskId, path, content.toString('utf8'));
   }
 }
 

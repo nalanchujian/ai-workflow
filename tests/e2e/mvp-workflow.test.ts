@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { createCliRuntime } from '../../src/cli/create-runtime.js';
@@ -10,6 +10,7 @@ import { completeNode } from '../helpers/complete-node.js';
 import { runCli } from '../helpers/run-cli.js';
 import { createBundledSkillRepositoryFixture } from '../helpers/skill-repository-fixture.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
+import type { DeliveryWorkspaceManager } from '../../src/ports/delivery-workspace.js';
 
 const directories: string[] = [];
 const taskId = 'task-20260813-120000-000';
@@ -56,7 +57,7 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
       if (runId === undefined) {
         throw new Error('未找到本次暂存运行目录');
       }
-      await completeNode(fixture.projectRoot, taskId, nodeId, runId);
+      await completeNode(input.cwd, taskId, nodeId, runId);
     };
 
     for (const nodeId of ['clarify', 'solution', 'plan']) {
@@ -92,6 +93,46 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
     const status = await runCli(['task', 'status', taskId, '--json'], fixture.runtime);
     expect(JSON.parse(status.stdout).nodes['delivery-main'].status).toBe('completed');
     expect(fixture.process.calls).toHaveLength(6); // 4 个 Codex 节点 + 计划测试健康检查 + AIW 执行的交付测试
+    expect(fixture.deliveryWorkspaces.published).toBe(1);
+    expect(fixture.deliveryWorkspaces.disposed).toBe(1);
+  });
+
+  it('discards isolated business changes when a delivery Codex run fails', async () => {
+    const fixture = await createFixture();
+    await runCli(['skills', 'install', fixture.skillRepositoryUrl], fixture.runtime);
+    await runCli(['task', 'init', '--project', fixture.projectRoot, '--source', fixture.requirementsPath, '--skill-profile', 'standard-web-feature@2.0.0'], fixture.runtime);
+    fixture.repository.commitTaskFacts();
+    fixture.process.onRun = async (input) => {
+      if (input.stdin === '') return;
+      const nodeId = /node="([a-z0-9-]+)"/.exec(input.stdin)?.[1];
+      const runId = /runs\/([^/]+)\/staging\//.exec(input.stdin)?.[1];
+      if (nodeId === undefined || runId === undefined) throw new Error('缺少节点运行信息');
+      await completeNode(input.cwd, taskId, nodeId, runId);
+    };
+    for (const nodeId of ['clarify', 'solution', 'plan']) {
+      await runCli(['task', 'run', taskId, nodeId], fixture.runtime);
+      fixture.repository.commitTaskFacts();
+      if (nodeId === 'clarify') {
+        await runCli(['task', 'review', taskId, '--actor', 'tech-lead', '--confirm'], fixture.runtime);
+        fixture.repository.commitTaskFacts();
+      }
+      if (nodeId === 'plan') {
+        await runCli(['task', 'approve', taskId, nodeId, '--actor', 'tech-lead'], fixture.runtime);
+        fixture.repository.commitTaskFacts();
+      }
+    }
+    fixture.process.onRun = async (input) => {
+      if (input.stdin === '') return;
+      await writeFile(join(input.cwd, 'isolated-change.ts'), 'export const leaked = true;\n', 'utf8');
+      throw new Error('simulated Codex failure');
+    };
+
+    const failed = await runCli(['task', 'run', taskId, 'delivery-main', '--json'], fixture.runtime);
+
+    expect(JSON.parse(failed.stdout).status).toBe('failed');
+    await expect(readFile(join(fixture.projectRoot, 'isolated-change.ts'), 'utf8')).rejects.toThrow();
+    expect(fixture.deliveryWorkspaces.published).toBe(0);
+    expect(fixture.deliveryWorkspaces.disposed).toBe(1);
   });
 
 });
@@ -108,6 +149,7 @@ async function createFixture() {
   const skillRepositoryUrl = 'https://example.test/skills.git';
   const repository = new FakeRepositoryStatus();
   const process = new FakeProcessRunner();
+  const deliveryWorkspaces = new FakeDeliveryWorkspaceManager();
   const runtime = createCliRuntime({
     homeDirectory: localHome,
     projectRoot: () => projectRoot,
@@ -117,7 +159,31 @@ async function createFixture() {
       repositoryStatus: repository,
       network: new FakeNetworkClient(),
       processRunner: process,
+      deliveryWorkspaceManager: deliveryWorkspaces,
     },
   });
-  return { runtime, repository, process, projectRoot, requirementsPath, skillRepositoryUrl };
+  return { runtime, repository, process, deliveryWorkspaces, projectRoot, requirementsPath, skillRepositoryUrl };
+}
+
+class FakeDeliveryWorkspaceManager implements DeliveryWorkspaceManager {
+  published = 0;
+  disposed = 0;
+
+  async prepare(input: Parameters<DeliveryWorkspaceManager['prepare']>[0]) {
+    const workspaceRoot = join(input.runtimeRoot, input.taskId, input.runId, 'workspace');
+    await cp(input.projectRoot, workspaceRoot, { recursive: true });
+    return {
+      projectRoot: workspaceRoot,
+      sourceHead: 'test-head',
+      publish: async () => {
+        this.published += 1;
+        return { published: false, patch: '', patchSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', changedPaths: [] };
+      },
+      rollback: async () => {},
+      dispose: async () => {
+        this.disposed += 1;
+        await rm(workspaceRoot, { recursive: true, force: true });
+      },
+    };
+  }
 }
