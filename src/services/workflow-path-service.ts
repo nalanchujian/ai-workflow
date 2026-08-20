@@ -31,7 +31,7 @@ export class WorkflowPathService {
 
   async assess(task: Task): Promise<WorkflowPathAssessment> {
     const clarify = task.nodes.clarify;
-    if (clarify === undefined || clarify.revision === 0) {
+    if (clarify?.hasResult !== true) {
       throw new WorkflowPathError('需求澄清尚未生成，无法评估工作方式');
     }
     const [artifacts, sourceContents] = await Promise.all([
@@ -61,7 +61,6 @@ export class WorkflowPathService {
     return WorkflowPathAssessmentSchema.parse({
       schemaVersion: 'aiw.workflow-path-assessment/v1',
       taskId: task.id,
-      clarifyRevision: clarify.revision,
       policyVersion: WORKFLOW_PATH_POLICY_VERSION,
       recommendedPath: reasons.length === 0 ? 'quick' : 'standard',
       signals: {
@@ -77,14 +76,14 @@ export class WorkflowPathService {
     });
   }
 
-  artifactPath(clarifyRevision: number): string {
-    return `workflow-assessments/clarify-r${clarifyRevision}.yaml`;
+  artifactPath(): string {
+    return 'workflow-assessments/clarify.yaml';
   }
 
   serialize(assessment: WorkflowPathAssessment): { path: string; content: string; sha256: string } {
     const content = stringify(assessment);
     return {
-      path: this.artifactPath(assessment.clarifyRevision),
+      path: this.artifactPath(),
       content,
       sha256: createHash('sha256').update(content).digest('hex'),
     };
@@ -94,8 +93,8 @@ export class WorkflowPathService {
     const selection = task.workflowPath;
     if (selection === undefined) return;
     const clarify = task.nodes.clarify;
-    if (clarify === undefined || clarify.revision !== selection.clarifyRevision) {
-      throw new WorkflowPathError('当前工作方式与需求澄清版本不一致；请重新执行 aiw task review 确认。');
+    if (clarify?.hasResult !== true) {
+      throw new WorkflowPathError('当前工作方式缺少需求澄清结果；请重新执行 aiw task review 确认。');
     }
     let content: string;
     try {
@@ -108,7 +107,7 @@ export class WorkflowPathService {
       throw new WorkflowPathError('工作方式评估记录已变化；请重新执行 aiw task review 确认。');
     }
     const assessment = WorkflowPathAssessmentSchema.parse(parse(content));
-    if (assessment.taskId !== task.id || assessment.clarifyRevision !== clarify.revision || assessment.policyVersion !== selection.policyVersion) {
+    if (assessment.taskId !== task.id || assessment.policyVersion !== selection.policyVersion) {
       throw new WorkflowPathError('工作方式评估记录与当前任务不匹配；请重新执行 aiw task review 确认。');
     }
     if (selection.id === 'quick' && !assessment.quick.eligible) {

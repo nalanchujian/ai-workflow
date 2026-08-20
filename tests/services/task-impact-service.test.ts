@@ -14,7 +14,7 @@ const directories: string[] = [];
 describe('TaskImpactService', () => {
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('materializes a versioned source → fact → decision → AC → delivery-unit graph', async () => {
+  it('materializes the current source → fact → decision → AC → delivery-unit graph', async () => {
     const { task, store } = await createImpactTask();
 
     const graph = await readCurrentImpactGraph(task, store);
@@ -22,8 +22,6 @@ describe('TaskImpactService', () => {
     expect(graph).toMatchObject({
       schemaVersion: 'aiw.impact-graph/v1',
       taskId: task.id,
-      clarifyRevision: 1,
-      planRevision: 1,
     });
     expect(graph?.facts).toContainEqual(expect.objectContaining({
       id: 'FACT-API-01',
@@ -62,19 +60,18 @@ async function createImpactTask(options: { invalidUnitFacts?: boolean; materiali
     metaPath: 'sources/requirements/r1/meta.json',
     contentSha256: 'a'.repeat(64),
   };
-  task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', revision: 1 };
-  task.nodes.solution = { ...task.nodes.solution!, status: 'completed', revision: 1 };
-  task.nodes.plan = { ...task.nodes.plan!, status: 'completed', revision: 1 };
+  task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', hasResult: true };
+  task.nodes.solution = { ...task.nodes.solution!, status: 'completed', hasResult: true };
+  task.nodes.plan = { ...task.nodes.plan!, status: 'completed', hasResult: true };
   task.decisions = [{
     id: 'DEC-API-01',
-    revision: 1,
     status: 'waiting_external',
     optionId: 'wait-api',
     actor: 'tech-lead',
     at: '2026-08-18T00:00:00.000Z',
     owner: 'backend',
     unblockCondition: '服务端字段契约和联调样例已经确认。',
-    factPath: 'decisions/DEC-API-01/r1.yaml',
+    factPath: 'decisions/DEC-API-01.yaml',
   }];
   await store.create(task);
   const taskDirectory = store.taskDirectory(task.id);
@@ -170,8 +167,6 @@ acceptanceCoverage:
   materialized.task.impactGraph = {
     path: graph.path,
     sha256: graph.sha256,
-    clarifyRevision: 1,
-    planRevision: 1,
   };
   await store.update(materialized.task);
   return { task: await store.load(task.id), store, directory };

@@ -18,14 +18,23 @@ describe('TaskSchema', () => {
     expect(() => TaskSchema.parse(task)).toThrow(/skill/i);
   });
 
+  it('rejects a node operation revision instead of silently accepting a legacy result model', () => {
+    const task = createSevenPhaseTask();
+    const input = structuredClone(task) as Record<string, unknown>;
+    const nodes = input.nodes as Record<string, Record<string, unknown>>;
+    nodes.clarify!.revision = 1;
+
+    expect(() => TaskSchema.parse(input)).toThrow(/unrecognized key/i);
+  });
+
   it('exposes only fact paths registered by the task decisions', () => {
     const task = createSevenPhaseTask();
     task.decisions = [{
-      id: 'DEC-API-01', revision: 1, status: 'resolved', optionId: 'use-api', actor: 'tester',
-      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r1.yaml',
+      id: 'DEC-API-01', status: 'resolved', optionId: 'use-api', actor: 'tester',
+      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01.yaml',
     }];
 
-    expect(registeredDecisionFactPaths(task)).toEqual(['decisions/DEC-API-01/r1.yaml']);
-    expect(registeredDecisionFactPaths(task)).not.toContain('decisions/unknown/r1.yaml');
+    expect(registeredDecisionFactPaths(task)).toEqual(['decisions/DEC-API-01.yaml']);
+    expect(registeredDecisionFactPaths(task)).not.toContain('decisions/unknown.yaml');
   });
 });

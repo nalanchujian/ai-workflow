@@ -34,22 +34,20 @@ export const WorkflowPathIdSchema = z.enum(['quick', 'standard']);
 
 /**
  * The selected delivery path is a task fact, not an invocation flag.  It is
- * chosen after clarification, therefore the choice is tied to the exact
- * clarification revision and to the assessment bytes that justified it.
+ * chosen after clarification, therefore the choice is tied to the current
+ * assessment bytes that justified it.
  */
 export const WorkflowPathSelectionSchema = z.object({
   id: WorkflowPathIdSchema,
   assessmentPath: z.string().regex(relativePathPattern, '工作方式评估必须是任务根目录内的相对路径'),
   assessmentSha256: z.string().regex(sha256Pattern, '工作方式评估必须记录 SHA-256 哈希'),
-  clarifyRevision: z.number().int().positive(),
   policyVersion: z.string().min(1),
   selectedAt: z.string().datetime(),
   selectedBy: z.string().min(1),
-});
+}).strict();
 
 export const DecisionResolutionSchema = z.object({
   id: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效'),
-  revision: z.number().int().positive(),
   // A task decision has exactly two pre-delivery outcomes: it is resolved for
   // this scope, or it is waiting for an external condition. Scope changes
   // restart from the source snapshot; delivery risks are recorded only by the
@@ -132,16 +130,18 @@ export const TaskNodeSchema = z.object({
   skill: SkillLockSchema.optional(),
   requiresApproval: z.boolean(),
   status: NodeStatusSchema,
-  revision: z.number().int().nonnegative(),
+  /** Whether this node has a current result. Re-runs replace it in place. */
+  hasResult: z.boolean().default(false),
   outputs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
   contextPath: z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径').optional(),
-  generatedFromPlanRevision: z.number().int().positive().optional(),
+  /** Generated delivery units belong to the current plan. */
+  generatedFromPlan: z.boolean().optional(),
   workUnitId: z.string().regex(/^[a-z][a-z0-9-]{0,40}$/, '工作单元 ID 格式无效').optional(),
   verificationCommands: z.array(z.string().min(1)).default([]),
   acceptanceRefs: z.array(z.string().regex(/^AC-\d{2,}$/, '验收项 ID 格式无效')).default([]),
   decisionRefs: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   blockedByDecisionIds: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).optional(),
-});
+}).strict();
 
 export const TaskEventSchema = z.object({
   type: z.enum([
@@ -202,13 +202,13 @@ export const TaskSchema = TaskBaseSchema.superRefine((task, context) => {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'skill'], message: '可执行节点必须锁定技能' });
     }
 
-    if (node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.acceptanceRefs.length === 0) {
+    if (node.phase === 'implement' && node.generatedFromPlan === true && node.acceptanceRefs.length === 0) {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'acceptanceRefs'], message: '交付单元必须声明至少一个验收项' });
     }
-    if (node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.workUnitId === undefined) {
+    if (node.phase === 'implement' && node.generatedFromPlan === true && node.workUnitId === undefined) {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'workUnitId'], message: '交付单元必须声明工作单元 ID' });
     }
-    if (node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.verificationCommands.length === 0) {
+    if (node.phase === 'implement' && node.generatedFromPlan === true && node.verificationCommands.length === 0) {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'verificationCommands'], message: '交付单元必须声明至少一条由 AIW 执行的验证命令' });
     }
     if (node.blockedByDecisionIds?.some((id) => !node.decisionRefs.includes(id))) {

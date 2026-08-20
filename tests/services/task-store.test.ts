@@ -33,12 +33,12 @@ describe('TaskStore', () => {
     const task = createSevenPhaseTask();
     await store.create(task);
     await store.createFact(task.id, 'artifacts/brief.md', '# Brief\n');
-    await store.createFact(task.id, 'handoffs/clarify/r1.yaml', 'handoff\n');
+    await store.createFact(task.id, 'handoffs/clarify.yaml', 'handoff\n');
 
-    await store.removeFacts(task.id, ['artifacts/brief.md', 'handoffs/clarify']);
+    await store.removeFacts(task.id, ['artifacts/brief.md', 'handoffs/clarify.yaml']);
 
     await expect(readFile(join(store.taskDirectory(task.id), 'artifacts', 'brief.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'clarify', 'r1.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'clarify.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(store.load(task.id)).resolves.toMatchObject({ id: task.id });
   });
 });

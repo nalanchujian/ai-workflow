@@ -72,22 +72,20 @@ export class TaskDecisionService {
     if (input.impact === 'replan' && (fact === undefined || fact.length < 16)) {
       throw new Error('重新规划必须提供新增事实，且至少包含 16 个字符');
     }
-    const revision = current.revision + 1;
     const inputFactPath = input.impact === 'replan'
-      ? `external-inputs/${proposal.id}/r${revision}.yaml`
+      ? `external-inputs/${proposal.id}.yaml`
       : undefined;
     if (inputFactPath !== undefined) {
       const recordedAt = new Date().toISOString();
       const externalFact = ExternalDecisionInputSchema.parse({
         schemaVersion: 'aiw.external-decision-input/v1',
         decisionId: proposal.id,
-        decisionRevision: revision,
         summary: fact,
         ...(input.evidence === undefined || input.evidence.trim().length === 0 ? {} : { evidence: input.evidence.trim() }),
         recordedBy: input.actor,
         recordedAt,
       });
-      await this.deps.taskStore.createFact(task.id, inputFactPath, stringify(externalFact));
+      await this.deps.taskStore.replaceFact(task.id, inputFactPath, stringify(externalFact));
     }
     return this.record(task, proposal, {
       status: 'resolved',
@@ -102,19 +100,17 @@ export class TaskDecisionService {
   private async record(
     task: Task,
     proposal: DecisionItem,
-    input: Omit<DecisionResolution, 'id' | 'revision' | 'at' | 'factPath'>,
+    input: Omit<DecisionResolution, 'id' | 'at' | 'factPath'>,
   ): Promise<Task> {
     const previous = task.decisions.find((decision) => decision.id === proposal.id);
-    const revision = (previous?.revision ?? 0) + 1;
-    const factPath = `decisions/${proposal.id}/r${revision}.yaml`;
+    const factPath = `decisions/${proposal.id}.yaml`;
     const resolution: DecisionResolution = {
       id: proposal.id,
-      revision,
       at: new Date().toISOString(),
       factPath,
       ...input,
     };
-    await this.deps.taskStore.createFact(task.id, factPath, stringify({
+    await this.deps.taskStore.replaceFact(task.id, factPath, stringify({
       schemaVersion: 'aiw.decision/v1',
       decision: proposal,
       resolution,
@@ -130,9 +126,9 @@ export class TaskDecisionService {
     const requiresReplan = previous?.status === 'waiting_external' && resolution.status === 'resolved' && resolution.resolutionImpact === 'replan';
     const next = requiresReplan
       // A replan introduces a new business input. Although the impact graph can
-      // identify the candidate units, today's solution and plan are shared,
-      // revisioned artifacts; letting a unit run against their old revision
-      // would make the graph look precise while using a stale design. Only the
+      // identify the candidate units, today's solution and plan are shared
+      // current artifacts; letting a unit run against stale content would make
+      // the graph look precise while using a stale design. Only the
       // execution-only path may unlock a unit directly.
       ? invalidateNodeAndDependents(task, 'solution', `决策 ${proposal.id} 已补充影响方案的新事实；必须重新生成技术方案和实施计划`)
       : resolution.status === 'resolved'
@@ -144,11 +140,11 @@ export class TaskDecisionService {
 
   private async readRegister(task: Task): Promise<DecisionRegister> {
     const clarify = task.nodes.clarify;
-    const registerPath = clarify === undefined || clarify.revision === 0
+    const registerPath = clarify?.hasResult !== true
       ? undefined
       : completedArtifactPath('clarify', clarify, 'artifacts/decision-register.yaml');
     if (registerPath === undefined) {
-      throw new Error('无法读取决策登记：需求澄清尚未生成当前 revision');
+      throw new Error('无法读取决策登记：需求澄清尚未生成当前结果');
     }
     try {
       return DecisionRegisterSchema.parse(parse(await readFile(join(this.deps.taskStore.taskDirectory(task.id), registerPath), 'utf8')));

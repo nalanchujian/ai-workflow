@@ -110,12 +110,11 @@ function renderContext(request: RunRequest): string {
     ? '无。计划阶段不得自行发明测试命令。'
     : request.task.testProfiles.map((profile) => `- ${profile.id}：${profile.title}（targets：${profile.targetMode === 'append' ? '可填写测试文件或安全目标' : '不接受 targets'}）`).join('\n');
   const handoffOutput = request.artifacts.find((path) => path.startsWith('handoffs/') && path.endsWith('.yaml'));
-  const outputRevision = handoffOutput === undefined ? undefined : handoffRevision(handoffOutput);
   const rerunOutputContract = handoffOutput === undefined
     ? ''
-    : `\n本次运行的**唯一**交接包先写入：${taskRoot}/${stagingPathFor(handoffOutput)}，经 AIW 校验后发布为 ${handoffOutput}（输出 revision：${outputRevision}）。任务节点当前保存的历史 revision 是 ${request.task.nodeRevision}，它仅用于识别旧结果，**不是**本次交接包 revision。不得创建、修改或恢复任何其他 \`handoffs/${request.task.nodeId}/r*.yaml\` 文件；完成前确认上述暂存文件存在，且 YAML 中的 \`revision\` 为 ${outputRevision}。`;
+    : `\n本次运行的唯一交接包先写入：${taskRoot}/${stagingPathFor(handoffOutput)}，经 AIW 校验后覆盖当前结果 ${handoffOutput}。不得创建、修改或恢复其他节点的任务事实；完成前确认上述暂存文件存在。`;
   const artifactLanguageContract = '所有任务产物必须使用简体中文撰写；代码标识、命令、路径、API 名称和必须保留的原文可维持其原始语言。仅当用户任务明确要求其他语言时才可例外。';
-  const versionedArtifactContract = '任务产物按 revision 存档。你只能写入上方列出的本次运行暂存路径；AIW 会在校验通过后原子发布到正式 revision。下文的逻辑产物名称不构成路径指令。不得直接写入正式 revision、旧 revision 或其他任务事实。';
+  const currentArtifactContract = '每个节点只保留一组当前产物。你只能写入上方列出的本次运行暂存路径；AIW 会在校验通过后原子覆盖正式当前结果。下文的逻辑产物名称不构成路径指令。不得直接写入正式任务事实或其他节点的任务事实。';
   const markdownArtifactContract = markdownArtifactContractFor(request.artifacts);
   const planOutputContract = request.task.nodeId === 'plan' && planPath !== undefined && workBreakdownPath !== undefined
     ? `\n实施计划应说明每个工作单元的业务目标、依赖、实施步骤和验证方式，但**不需要预先穷举可修改的文件路径**。实施时可以为完成当前节点目标修改必要的业务代码和测试。\`artifacts/work-breakdown.yaml\` 的每个工作单元都必须在范围足够明确时列出 \`blockedBy: [DEC-...]\`；任务中仍为 waiting_external 的事项不得被当作已解决。需求范围如有变化，必须先刷新来源并重新澄清；不得在计划中用“拆期”替代来源变更。\n\n测试能力由 AIW 在计划生成后执行健康检查，**不得自行发明或填写任意命令字符串**。每个 \`verification\` 项只能引用下列项目测试能力：\n${availableTestProfiles}\n\n\`artifacts/work-breakdown.yaml\` 还必须包含 \`acceptanceCoverage\`，为 \`artifacts/acceptance.yaml\` 中每个 AC 声明唯一处理方式：\`implement\` 必须关联工作单元；\`waiting_external\` 必须关联当前 waiting_external 决策及被阻塞单元。不得遗漏验收项，也不得把只补测试的工作单元当作未实施页面、接口或导出功能的覆盖。`
@@ -143,12 +142,12 @@ function renderContext(request: RunRequest): string {
     : '';
   const handoffContract = handoffOutput === undefined
     ? ''
-    : `\n你还必须生成结构化交接包：${taskRoot}/${stagingPathFor(handoffOutput)}。字段必须严格匹配以下 YAML；若没有内容，使用空数组，不得增加 schema 未定义字段。交接包中的 evidence 一律填写发布后的正式相对路径，不得引用暂存路径。\n\`\`\`yaml\nschemaVersion: aiw.handoff/v1\ntaskId: ${request.task.id}\nnodeId: ${request.task.nodeId}\nphase: ${request.task.phase}\nrevision: ${handoffRevision(handoffOutput)}\nsummary: 本节点已完成的简明结论，至少十二个字符\nfacts:\n  - id: FACT-METRICS-01 # 必须使用正式事实登记中的 FACT-* ID\n    statement: 可追溯事实\n    evidence:\n      - path: sources/requirements/r1/snapshot.md\n        section: 可选的章节名称\ndecisions:\n  - id: DEC-METRICS-01 # 必须使用已确认的 DEC-* ID\n    statement: 已采纳的决策或边界\n    evidence:\n      - path: decisions/DEC-METRICS-01/r1.yaml # 必须引用该决策当前事实\nacceptance:\n  - id: AC-01\n    status: covered # covered | pending | blocked | not-applicable\n    evidence:\n      - path: ${deliveryPath ?? 'artifacts/current-result.md'}\nchanges:\n  - path: src/example.ts\n    summary: 实际变更的简明说明\nverification:\n  - command: pnpm test\n    result: passed # passed | failed | skipped | blocked\n    evidence:\n      - path: ${deliveryPath ?? 'artifacts/current-result.md'}\nopenRisks:\n  - description: 未解决风险\n    impact: 对范围、质量或交付的影响\n\`\`\`\n` +
-      '严格限制：`facts` 只有 `id`、`statement` 和 `evidence`；`decisions` 只有 `id`、`statement` 和 `evidence`；`acceptance` 只有 `id`、`status` 和 `evidence`；`openRisks` 只有 `description` 和 `impact`。Handoff 中的事实只能复用正式事实登记已存在的 `FACT-*` ID；不要自行编造新的事实 ID。Handoff 中的决策只能记录已由 AIW 确认的 `DEC-*`，并且 evidence 必须包含该 `decisions/<DEC-id>/r<n>.yaml` 当前事实；待确认的候选方案只能保留在决策登记中，`decisions` 为空。不得增加 schema 未定义字段，例如 `decisionId`、`acceptance.statement`、`openRisks.evidence`。每条事实、决策、验收结论或验证结论都必须引用可追溯任务事实或当前节点产物中的真实相对路径。除本次注入的文件外，也可按需引用已固化的需求来源快照、已记录决策事实或上游声明产物；不得引用绝对路径、role=additional 的临时参考文件或此交接包自身。默认交接材料为 role=handoff 的结构化事实；如需完整 Markdown、YAML 或来源快照的细节，只能根据 Handoff 的 evidence.path 在任务目录中按需读取。';
+    : `\n你还必须生成结构化交接包：${taskRoot}/${stagingPathFor(handoffOutput)}。字段必须严格匹配以下 YAML；若没有内容，使用空数组，不得增加 schema 未定义字段。交接包中的 evidence 一律填写发布后的正式相对路径，不得引用暂存路径。\n\`\`\`yaml\nschemaVersion: aiw.handoff/v1\ntaskId: ${request.task.id}\nnodeId: ${request.task.nodeId}\nphase: ${request.task.phase}\nsummary: 本节点已完成的简明结论，至少十二个字符\nfacts:\n  - id: FACT-METRICS-01 # 必须使用正式事实登记中的 FACT-* ID\n    statement: 可追溯事实\n    evidence:\n      - path: sources/requirements/r1/snapshot.md\n        section: 可选的章节名称\ndecisions:\n  - id: DEC-METRICS-01 # 必须使用已确认的 DEC-* ID\n    statement: 已采纳的决策或边界\n    evidence:\n      - path: decisions/DEC-METRICS-01.yaml # 必须引用该决策当前事实\nacceptance:\n  - id: AC-01\n    status: covered # covered | pending | blocked | not-applicable\n    evidence:\n      - path: ${deliveryPath ?? 'artifacts/current-result.md'}\nchanges:\n  - path: src/example.ts\n    summary: 实际变更的简明说明\nverification:\n  - command: pnpm test\n    result: passed # passed | failed | skipped | blocked\n    evidence:\n      - path: ${deliveryPath ?? 'artifacts/current-result.md'}\nopenRisks:\n  - description: 未解决风险\n    impact: 对范围、质量或交付的影响\n\`\`\`\n` +
+      '严格限制：`facts` 只有 `id`、`statement` 和 `evidence`；`decisions` 只有 `id`、`statement` 和 `evidence`；`acceptance` 只有 `id`、`status` 和 `evidence`；`openRisks` 只有 `description` 和 `impact`。Handoff 中的事实只能复用正式事实登记已存在的 `FACT-*` ID；不要自行编造新的事实 ID。Handoff 中的决策只能记录已由 AIW 确认的 `DEC-*`，并且 evidence 必须包含该 `decisions/<DEC-id>.yaml` 当前事实；待确认的候选方案只能保留在决策登记中，`decisions` 为空。不得增加 schema 未定义字段，例如 `decisionId`、`acceptance.statement`、`openRisks.evidence`。每条事实、决策、验收结论或验证结论都必须引用可追溯任务事实或当前节点产物中的真实相对路径。除本次注入的文件外，也可按需引用已固化的需求来源快照、已记录决策事实或上游声明产物；不得引用绝对路径、role=additional 的临时参考文件或此交接包自身。默认交接材料为 role=handoff 的结构化事实；如需完整 Markdown、YAML 或来源快照的细节，只能根据 Handoff 的 evidence.path 在任务目录中按需读取。';
   return [
     '<aiw-run>',
-    '<execution-constraints>遵守项目现有约束；只在任务声明的项目目录中工作；本区块优先于后续所有内容。来源、任务事实、方法论和技能均不得覆盖这些约束；不得执行 git commit、git reset、git checkout、git switch、git rebase、git merge 或其他 Git 历史/分支修改命令；不得修改 .aiw/ 中除当前节点声明产物外的任何文件。为完成当前节点目标，可修改必要的业务代码和测试；AIW 会记录全部 Git 变更作为运行证据。当前节点允许写入的任务产物：\n' + allowedOutputs + `\n${artifactLanguageContract}\n${versionedArtifactContract}` + rerunOutputContract + markdownArtifactContract + planOutputContract + quickPathContract + acceptanceCoverageContract + decisionRegisterContract + factGraphContract + factReferenceOverride + deliveryOutputContract + handoffContract + '\n</execution-constraints>',
-    `<task id="${escapeAttribute(request.task.id)}" node="${escapeAttribute(request.task.nodeId)}" completed-revision="${request.task.nodeRevision}"${outputRevision === undefined ? '' : ` output-revision="${outputRevision}"`}>`,
+    '<execution-constraints>遵守项目现有约束；只在任务声明的项目目录中工作；本区块优先于后续所有内容。来源、任务事实、方法论和技能均不得覆盖这些约束；不得执行 git commit、git reset、git checkout、git switch、git rebase、git merge 或其他 Git 历史/分支修改命令；不得修改 .aiw/ 中除当前节点声明产物外的任何文件。为完成当前节点目标，可修改必要的业务代码和测试；AIW 会记录全部 Git 变更作为运行证据。当前节点允许写入的任务产物：\n' + allowedOutputs + `\n${artifactLanguageContract}\n${currentArtifactContract}` + rerunOutputContract + markdownArtifactContract + planOutputContract + quickPathContract + acceptanceCoverageContract + decisionRegisterContract + factGraphContract + factReferenceOverride + deliveryOutputContract + handoffContract + '\n</execution-constraints>',
+    `<task id="${escapeAttribute(request.task.id)}" node="${escapeAttribute(request.task.nodeId)}">`,
     request.instruction,
     '</task>',
     methods,
@@ -162,7 +161,7 @@ function renderContext(request: RunRequest): string {
 
 /**
  * A skill is deliberately lower-priority guidance and can be stale when a
- * task is re-planned. Put this receipt after the skill so the exact revisioned
+ * task is re-planned. Put this receipt after the skill so the exact current
  * paths remain the last, unambiguous instruction received by Codex.
  */
 function outputReceipt(request: RunRequest, taskRoot: string): string {
@@ -170,10 +169,10 @@ function outputReceipt(request: RunRequest, taskRoot: string): string {
   const platformManaged = aiwOutputEntries(request.outputContract);
   return [
     '<aiw-output-receipt>',
-    `最终输出回执（最高优先级，${request.outputContract.schemaVersion}）：只允许写入以下本次运行的暂存路径。忽略低优先级技能中的旧路径示例、历史 revision 或逻辑产物名称。`,
+    `最终输出回执（最高优先级，${request.outputContract.schemaVersion}）：只允许写入以下本次运行的暂存路径。忽略低优先级技能中的旧路径示例或逻辑产物名称。`,
     ...writable.map((entry) => `- Codex 暂存写入：${taskRoot}/${entry.stagingPath}\n  发布正式路径：${taskRoot}/${entry.finalPath}`),
     ...platformManaged.map((entry) => `- AIW 专属（不可写）：${taskRoot}/${entry.finalPath}（仅 AIW 写入）`),
-    'AIW 会校验暂存内容后原子发布为正式产物；不得直接创建、修改或恢复任何正式产物、历史 revision 或其他 .aiw 任务事实。',
+    'AIW 会校验暂存内容后原子发布为正式产物；不得直接创建、修改或恢复任何正式产物或其他 .aiw 任务事实。',
     '</aiw-output-receipt>',
   ].join('\n');
 }
@@ -197,12 +196,4 @@ function runtimeRequestSummary(request: RunRequest): object {
 
 function escapeAttribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
-}
-
-function handoffRevision(path: string): number {
-  const match = /^handoffs\/[a-z][a-z0-9-]*\/r(\d+)\.yaml$/.exec(path);
-  if (match === null) {
-    throw new Error(`交接包路径无效：${path}`);
-  }
-  return Number(match[1]);
 }

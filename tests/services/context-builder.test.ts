@@ -20,7 +20,7 @@ describe('ContextBuilder', () => {
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory }).build({ task, nodeId: 'plan', includes: [] });
 
     expect(manifest.files.map((file) => file.path)).toEqual([
-      handoffPath('solution', 0),
+      handoffPath('solution'),
     ]);
     expect(manifest.skill.methodSources).toContainEqual(expect.objectContaining({ id: 'superpowers:writing-plans', revision: 'd'.repeat(40) }));
   });
@@ -32,22 +32,22 @@ describe('ContextBuilder', () => {
       ...task.nodes.implement,
       title: '交付详情页',
       outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
-      contextPath: 'artifacts/work-units/r1/delivery-details.md',
-      generatedFromPlanRevision: 1,
+      contextPath: 'artifacts/work-units/delivery-details.md',
+      generatedFromPlan: true,
       acceptanceRefs: ['AC-01'],
     };
     task.nodes['delivery-integration'] = {
       ...task.nodes['delivery-details'],
       title: '交付集成验收',
       dependsOn: ['delivery-details'],
-      contextPath: 'artifacts/work-units/r1/delivery-integration.md',
+      contextPath: 'artifacts/work-units/delivery-integration.md',
     };
     const detailsPath = completedArtifactPath('delivery-details', task.nodes['delivery-details']!, 'artifacts/delivery.md');
     await mkdir(join(directory, detailsPath, '..'), { recursive: true });
     await writeFile(join(directory, detailsPath), '# 详情页实施记录\n', 'utf8');
-    await mkdir(join(directory, 'artifacts', 'work-units', 'r1'), { recursive: true });
-    await writeFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-details.md'), '# 交付单元上下文\n', 'utf8');
-    await writeFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-integration.md'), '# 交付单元上下文\n', 'utf8');
+    await mkdir(join(directory, 'artifacts', 'work-units'), { recursive: true });
+    await writeFile(join(directory, 'artifacts', 'work-units', 'delivery-details.md'), '# 交付单元上下文\n', 'utf8');
+    await writeFile(join(directory, 'artifacts', 'work-units', 'delivery-integration.md'), '# 交付单元上下文\n', 'utf8');
     for (const nodeId of ['clarify', 'solution', 'plan', 'delivery-details']) {
       await writeHandoff(directory, task, nodeId);
     }
@@ -55,13 +55,13 @@ describe('ContextBuilder', () => {
     const builder = new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory });
 
     expect((await builder.build({ task, nodeId: 'solution', includes: [] })).files)
-      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('clarify', 0) }));
+      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('clarify') }));
     expect((await builder.build({ task, nodeId: 'plan', includes: [] })).files)
-      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('solution', 0) }));
+      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('solution') }));
     expect((await builder.build({ task, nodeId: 'delivery-details', includes: [] })).files)
-      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('plan', 0) }));
+      .toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('plan') }));
     const integrationManifest = await builder.build({ task, nodeId: 'delivery-integration', includes: [] });
-    expect(integrationManifest.files).toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('delivery-details', 0) }));
+    expect(integrationManifest.files).toContainEqual(expect.objectContaining({ role: 'handoff', path: handoffPath('delivery-details') }));
   });
 
   it('injects the approved plan handoff and its isolated delivery-unit context', async () => {
@@ -70,27 +70,27 @@ describe('ContextBuilder', () => {
     task.nodes['delivery-main'] = {
       ...task.nodes.implement,
       title: '交付退款功能',
-      contextPath: 'artifacts/work-units/r1/delivery-main.md',
-      generatedFromPlanRevision: 1,
+      contextPath: 'artifacts/work-units/delivery-main.md',
+      generatedFromPlan: true,
       acceptanceRefs: ['AC-01'],
     };
     await writeHandoff(directory, task, 'plan');
-    await mkdir(join(directory, 'artifacts', 'work-units', 'r1'), { recursive: true });
-    await writeFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-main.md'), '# 交付单元上下文\n', 'utf8');
+    await mkdir(join(directory, 'artifacts', 'work-units'), { recursive: true });
+    await writeFile(join(directory, 'artifacts', 'work-units', 'delivery-main.md'), '# 交付单元上下文\n', 'utf8');
 
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
       .build({ task, nodeId: 'delivery-main', includes: [] });
 
     expect(manifest.files.map((file) => file.path)).toEqual([
-      handoffPath('plan', 0),
-      'artifacts/work-units/r1/delivery-main.md',
+      handoffPath('plan'),
+      'artifacts/work-units/delivery-main.md',
     ]);
   });
 
   it('keeps decision alternatives out of solution and plan after review', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
-    task.nodes.clarify!.revision = 1;
+    task.nodes.clarify!.hasResult = true;
     await writeHandoff(directory, task, 'solution');
     const registerPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/decision-register.yaml');
     await mkdir(join(directory, registerPath, '..'), { recursive: true });
@@ -107,37 +107,37 @@ describe('ContextBuilder', () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
     task.decisions = [{
-      id: 'DEC-API-01', revision: 1, status: 'resolved', optionId: 'use-api', actor: 'tester',
-      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r1.yaml',
+      id: 'DEC-API-01', status: 'resolved', optionId: 'use-api', actor: 'tester',
+      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01.yaml',
     }];
     await writeHandoff(directory, task, 'clarify');
-    await mkdir(join(directory, 'decisions', 'DEC-API-01'), { recursive: true });
-    await writeFile(join(directory, 'decisions', 'DEC-API-01', 'r1.yaml'), 'schemaVersion: aiw.decision/v1\n', 'utf8');
+    await mkdir(join(directory, 'decisions'), { recursive: true });
+    await writeFile(join(directory, 'decisions', 'DEC-API-01.yaml'), 'schemaVersion: aiw.decision/v1\n', 'utf8');
 
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
       .build({ task, nodeId: 'solution', includes: [] });
 
-    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'decisions/DEC-API-01/r1.yaml' }));
+    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'decisions/DEC-API-01.yaml' }));
   });
 
   it('passes plan-changing external decision facts to solution and plan', async () => {
     const directory = await taskDirectory();
     const task = createSevenPhaseTask();
     task.decisions = [{
-      id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api', actor: 'backend-lead',
-      at: '2026-08-18T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r2.yaml',
-      resolutionImpact: 'replan', inputFactPath: 'external-inputs/DEC-API-01/r2.yaml',
+      id: 'DEC-API-01', status: 'resolved', optionId: 'wait-api', actor: 'backend-lead',
+      at: '2026-08-18T00:00:00.000Z', factPath: 'decisions/DEC-API-01.yaml',
+      resolutionImpact: 'replan', inputFactPath: 'external-inputs/DEC-API-01.yaml',
     }];
     await writeHandoff(directory, task, 'clarify');
-    await mkdir(join(directory, 'decisions', 'DEC-API-01'), { recursive: true });
-    await mkdir(join(directory, 'external-inputs', 'DEC-API-01'), { recursive: true });
-    await writeFile(join(directory, 'decisions', 'DEC-API-01', 'r2.yaml'), 'schemaVersion: aiw.decision/v1\n', 'utf8');
-    await writeFile(join(directory, 'external-inputs', 'DEC-API-01', 'r2.yaml'), 'schemaVersion: aiw.external-decision-input/v1\nsummary: 正式接口已定义字段映射与导出响应。\n', 'utf8');
+    await mkdir(join(directory, 'decisions'), { recursive: true });
+    await mkdir(join(directory, 'external-inputs'), { recursive: true });
+    await writeFile(join(directory, 'decisions', 'DEC-API-01.yaml'), 'schemaVersion: aiw.decision/v1\n', 'utf8');
+    await writeFile(join(directory, 'external-inputs', 'DEC-API-01.yaml'), 'schemaVersion: aiw.external-decision-input/v1\nsummary: 正式接口已定义字段映射与导出响应。\n', 'utf8');
 
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
       .build({ task, nodeId: 'solution', includes: [] });
 
-    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'external-inputs/DEC-API-01/r2.yaml' }));
+    expect(manifest.files).toContainEqual(expect.objectContaining({ role: 'artifact', path: 'external-inputs/DEC-API-01.yaml' }));
   });
 
   it('injects the plan handoff together with the current implementation work unit Markdown', async () => {
@@ -146,19 +146,19 @@ describe('ContextBuilder', () => {
     task.nodes['implement-export'] = {
       ...task.nodes.implement,
       title: '实现导出',
-      contextPath: 'artifacts/work-units/r1/implement-export.md',
+      contextPath: 'artifacts/work-units/implement-export.md',
       outputs: ['artifacts/subtasks/implement-export.md'],
     };
-    await mkdir(join(directory, 'artifacts', 'work-units', 'r1'), { recursive: true });
-    await writeFile(join(directory, 'artifacts', 'work-units', 'r1', 'implement-export.md'), '# 导出实施上下文\n', 'utf8');
+    await mkdir(join(directory, 'artifacts', 'work-units'), { recursive: true });
+    await writeFile(join(directory, 'artifacts', 'work-units', 'implement-export.md'), '# 导出实施上下文\n', 'utf8');
     await writeHandoff(directory, task, 'plan');
 
     const manifest = await new ContextBuilder({ taskDirectory: () => directory, projectRoot: () => directory })
       .build({ task, nodeId: 'implement-export', includes: [] });
 
     expect(manifest.files.map((file) => file.path)).toEqual([
-      handoffPath('plan', 0),
-      'artifacts/work-units/r1/implement-export.md',
+      handoffPath('plan'),
+      'artifacts/work-units/implement-export.md',
     ]);
   });
 
@@ -169,7 +169,7 @@ describe('ContextBuilder', () => {
       ...task.nodes.implement,
       title: '实现详情页',
       outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
-      generatedFromPlanRevision: 1,
+      generatedFromPlan: true,
       acceptanceRefs: ['AC-01'],
     };
     await mkdir(join(directory, 'artifacts', 'subtasks'), { recursive: true });
@@ -181,7 +181,7 @@ describe('ContextBuilder', () => {
       .build({ task, nodeId: 'delivery-integration', includes: [] });
 
     expect(manifest.files.map((file) => file.path)).toEqual([
-      handoffPath('delivery-details', 0),
+      handoffPath('delivery-details'),
     ]);
   });
 
@@ -231,7 +231,7 @@ describe('ContextBuilder', () => {
     });
 
     expect(manifest.budget.breakdown).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'handoff', label: handoffPath('solution', 0) }),
+      expect.objectContaining({ category: 'handoff', label: handoffPath('solution') }),
       expect.objectContaining({ category: 'node-instruction', label: '节点指令' }),
       expect.objectContaining({ category: 'skill' }),
       expect.objectContaining({ category: 'method-source' }),
@@ -308,7 +308,7 @@ async function writeHandoff(directory: string, task: ReturnType<typeof createSev
   const firstOutput = completedArtifactPath(nodeId, node, node.outputs[0]!);
   await mkdir(join(directory, firstOutput, '..'), { recursive: true });
   await writeFile(join(directory, firstOutput), '# 节点产物\n', 'utf8');
-  const path = handoffPath(nodeId, node.revision);
-  await mkdir(join(directory, 'handoffs', nodeId), { recursive: true });
-  await writeFile(join(directory, path), `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并提供结构化交接内容。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已形成可供下游使用的结论。\n    evidence:\n      - path: ${firstOutput}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+  const path = handoffPath(nodeId);
+  await mkdir(join(directory, 'handoffs'), { recursive: true });
+  await writeFile(join(directory, path), `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nsummary: 已完成${node.title}并提供结构化交接内容。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已形成可供下游使用的结论。\n    evidence:\n      - path: ${firstOutput}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
 }

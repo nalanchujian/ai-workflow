@@ -60,32 +60,31 @@ describe('TaskRunner', () => {
     expect(retried.events).toContainEqual(expect.objectContaining({ type: 'fail', nodeId: 'clarify', reason: 'Codex CLI 异常退出' }));
   });
 
-  it('creates a new revision when a completed node is re-run and preserves historical facts', async () => {
+  it('overwrites the current node result when a completed node is re-run', async () => {
     const fixture = await createRunnerFixture({
-      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r2.yaml']],
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/clarify/brief.md', '.aiw/tasks/refund-123/handoffs/clarify.yaml']],
       writeArtifact: '# 需求澄清\n\n## 结论\n\n这是覆盖重跑后生成的新澄清结论。\n',
     });
     const task = await fixture.taskStore.load('refund-123');
     task.nodes.clarify!.status = 'completed';
-    task.nodes.clarify!.revision = 1;
+    task.nodes.clarify!.hasResult = true;
     task.nodes.solution!.status = 'completed';
-    task.nodes.solution!.revision = 1;
-    task.approvalRefs = ['approvals/clarify/r1.yaml'];
+    task.nodes.solution!.hasResult = true;
+    task.approvalRefs = ['approvals/clarify.yaml'];
     await fixture.taskStore.update(task);
-    await fixture.taskStore.createFact(task.id, 'artifacts/clarify/r1/brief.md', '# 旧澄清\n');
-    await fixture.taskStore.createFact(task.id, 'artifacts/solution/r1/solution.md', '# 旧方案\n');
-    await fixture.taskStore.createFact(task.id, 'handoffs/clarify/r1.yaml', '旧交接\n');
-    await fixture.taskStore.createFact(task.id, 'approvals/clarify/r1.yaml', '旧审批\n');
+    await fixture.taskStore.createFact(task.id, 'artifacts/clarify/brief.md', '# 旧澄清\n');
+    await fixture.taskStore.createFact(task.id, 'artifacts/solution/solution.md', '# 旧方案\n');
+    await fixture.taskStore.createFact(task.id, 'handoffs/clarify.yaml', '旧交接\n');
+    await fixture.taskStore.createFact(task.id, 'approvals/clarify.yaml', '旧审批\n');
 
     const result = await fixture.runner.run({ taskId: task.id, nodeId: 'clarify', dryRun: false, includes: [] });
 
     expect(result.status).toBe('succeeded');
-    expect((await fixture.taskStore.load(task.id)).nodes.clarify).toMatchObject({ status: 'awaiting_approval', revision: 2 });
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'clarify', 'r2', 'brief.md'), 'utf8')).resolves.toContain('覆盖重跑后');
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'clarify', 'r1', 'brief.md'), 'utf8')).resolves.toContain('旧澄清');
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'solution', 'r1', 'solution.md'), 'utf8')).resolves.toContain('旧方案');
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'handoffs', 'clarify', 'r1.yaml'), 'utf8')).resolves.toContain('旧交接');
-    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'approvals', 'clarify', 'r1.yaml'), 'utf8')).resolves.toContain('旧审批');
+    expect((await fixture.taskStore.load(task.id)).nodes.clarify).toMatchObject({ status: 'awaiting_approval', hasResult: true });
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'clarify', 'brief.md'), 'utf8')).resolves.toContain('覆盖重跑后');
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'artifacts', 'solution', 'solution.md'), 'utf8')).resolves.toContain('旧方案');
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'handoffs', 'clarify.yaml'), 'utf8')).resolves.toContain('可追溯交接');
+    await expect(readFile(join(fixture.taskStore.taskDirectory(task.id), 'approvals', 'clarify.yaml'), 'utf8')).resolves.toContain('旧审批');
   });
 
   it('rejects a run when another process holds the task execution lock', async () => {
@@ -152,7 +151,7 @@ describe('TaskRunner', () => {
 
   it('invalidates an upstream stage before a downstream run when its approved artifact was changed', async () => {
     const fixture = await createRunnerFixture({
-      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify.yaml']],
       writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
     });
     await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
@@ -167,17 +166,16 @@ describe('TaskRunner', () => {
     ));
     completed.nodes.clarify!.status = 'completed';
     completed.nodes.solution!.status = 'ready';
-    completed.approvalRefs = ['approvals/clarify/r1.yaml'];
-    await fixture.taskStore.createFact(completed.id, 'approvals/clarify/r1.yaml', JSON.stringify({
+    completed.approvalRefs = ['approvals/clarify.yaml'];
+    await fixture.taskStore.createFact(completed.id, 'approvals/clarify.yaml', JSON.stringify({
       nodeId: 'clarify',
-      nodeRevision: 1,
       artifactHashes,
       decision: 'approved',
       actor: 'tech-lead',
       at: '2026-08-18T00:00:00.000Z',
     }) + '\n');
     await fixture.taskStore.update(completed);
-    await writeFile(join(fixture.taskStore.taskDirectory(completed.id), 'artifacts', 'clarify', 'r1', 'brief.md'), validBrief('审批后被改写的需求结论。'), 'utf8');
+    await writeFile(join(fixture.taskStore.taskDirectory(completed.id), 'artifacts', 'clarify', 'brief.md'), validBrief('审批后被改写的需求结论。'), 'utf8');
 
     await expect(fixture.runner.run({ taskId: completed.id, nodeId: 'solution', dryRun: false, includes: [] }))
       .rejects.toMatchObject({ code: 'ARTIFACT_STALE', message: expect.stringContaining('已标记失效') });
@@ -263,27 +261,27 @@ describe('TaskRunner', () => {
     });
   });
 
-  it('restores historical task facts when Codex writes outside the current node outputs', async () => {
+  it('restores another node’s current task facts when Codex writes outside the current node outputs', async () => {
     const fixture = await createRunnerFixture({
       writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
       writeTaskFacts: [{
-        path: '.aiw/tasks/refund-123/artifacts/solution/r1/solution.md',
-        content: '# 被错误覆盖的历史方案\n',
+        path: '.aiw/tasks/refund-123/artifacts/solution/solution.md',
+        content: '# 被错误覆盖的当前方案\n',
       }],
     });
-    const historicalPath = join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'solution', 'r1', 'solution.md');
-    await mkdir(join(historicalPath, '..'), { recursive: true });
-    await writeFile(historicalPath, '# 已批准的历史方案\n', 'utf8');
+    const protectedPath = join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'solution', 'solution.md');
+    await mkdir(join(protectedPath, '..'), { recursive: true });
+    await writeFile(protectedPath, '# 已批准的当前方案\n', 'utf8');
 
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
 
     expect(result).toMatchObject({
       status: 'failed',
-      error: { code: 'TASK_FACT_WRITE_VIOLATION', message: expect.stringContaining('artifacts/solution/r1/solution.md') },
+      error: { code: 'TASK_FACT_WRITE_VIOLATION', message: expect.stringContaining('artifacts/solution/solution.md') },
     });
-    await expect(readFile(historicalPath, 'utf8')).resolves.toBe('# 已批准的历史方案\n');
+    await expect(readFile(protectedPath, 'utf8')).resolves.toBe('# 已批准的当前方案\n');
     await expect(readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8'))
-      .resolves.toContain('artifacts/solution/r1/solution.md');
+      .resolves.toContain('artifacts/solution/solution.md');
   });
 
   it('rejects Codex writes to task.yaml and the current run evidence directory', async () => {
@@ -305,20 +303,20 @@ describe('TaskRunner', () => {
       .resolves.toContain('.aiw/tasks/refund-123/runs/run-1/change-scope.json');
   });
 
-  it('explains the target revision when a re-run writes an old handoff path', async () => {
+  it('rejects direct writes outside the current handoff staging path', async () => {
     const fixture = await createRunnerFixture({
-      changeSnapshots: [[], ['.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
-      writeTaskFacts: [{ path: '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml', content: 'schemaVersion: aiw.handoff/v1\n' }],
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/handoffs/clarify/legacy.yaml']],
+      writeTaskFacts: [{ path: '.aiw/tasks/refund-123/handoffs/clarify/legacy.yaml', content: 'schemaVersion: aiw.handoff/v1\n' }],
     });
     const task = await fixture.taskStore.load('refund-123');
-    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', revision: 1 };
+    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', hasResult: true };
     await fixture.taskStore.update(task);
 
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: false, includes: [] });
 
     expect(result).toMatchObject({
       status: 'failed',
-      error: { code: 'TASK_FACT_WRITE_VIOLATION', message: expect.stringContaining('本次运行只允许写入 handoffs/clarify/r2.yaml') },
+      error: { code: 'TASK_FACT_WRITE_VIOLATION', message: expect.stringContaining('handoffs/clarify.yaml') },
     });
   });
 
@@ -332,7 +330,7 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('succeeded');
     const evidence = JSON.parse(await readFile(join(fixture.taskStore.taskDirectory('refund-123'), 'runs', 'run-1', 'change-evidence.json'), 'utf8')) as Record<string, unknown>;
-    expect(evidence).toMatchObject({ baseline: { changedPaths: [], outputs: expect.arrayContaining([{ path: 'artifacts/clarify/r1/brief.md' }, { path: handoffPath('clarify', 1) }]) }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/clarify/r1/brief.md' }], artifacts: expect.arrayContaining([{ path: 'artifacts/clarify/r1/brief.md', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }, { path: handoffPath('clarify', 1), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]), diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(evidence).toMatchObject({ baseline: { changedPaths: [], outputs: expect.arrayContaining([{ path: 'artifacts/clarify/brief.md' }, { path: handoffPath('clarify') }]) }, changedFiles: [{ path: '.aiw/tasks/refund-123/artifacts/clarify/brief.md' }], artifacts: expect.arrayContaining([{ path: 'artifacts/clarify/brief.md', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }, { path: handoffPath('clarify'), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]), diff: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
     expect((await fixture.taskStore.load('refund-123')).events.at(-1)).toMatchObject({ type: 'succeed', runId: 'run-1', evidencePath: 'runs/run-1/change-evidence.json' });
   });
 
@@ -387,7 +385,7 @@ describe('TaskRunner', () => {
 
   it('allows a cancelled node to be run again with a new current result', async () => {
     const fixture = await createRunnerFixture({
-      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify.yaml']],
       writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
     });
     const cancelled = await fixture.taskStore.load('refund-123');
@@ -445,7 +443,7 @@ items:
 
   it('rejects a malformed structured handoff and preserves failure evidence', async () => {
     const fixture = await createRunnerFixture({
-      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify/r1.yaml']],
+      changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md', '.aiw/tasks/refund-123/handoffs/clarify.yaml']],
       writeArtifact: '# 需求澄清\n\n## 结论\n\n退款申请需要管理员审批。\n',
       writeHandoff: 'schemaVersion: aiw.handoff/v1\n',
     });
@@ -459,17 +457,17 @@ items:
 
   it('allows an implementation handoff to cite its injected work-unit context only', () => {
     const task = createSevenPhaseTask();
-    task.nodes.implement!.contextPath = 'artifacts/work-units/r2/implement-performance.md';
+    task.nodes.implement!.contextPath = 'artifacts/work-units/implement-performance.md';
 
     const evidencePaths = handoffEvidencePaths(task, 'implement', {
       files: [
-        { role: 'artifact', path: 'artifacts/work-units/r2/implement-performance.md', sha256: 'a'.repeat(64), evidenceEligible: true },
+        { role: 'artifact', path: 'artifacts/work-units/implement-performance.md', sha256: 'a'.repeat(64), evidenceEligible: true },
         { role: 'additional', path: 'src/temporary-reference.ts', sha256: 'b'.repeat(64), evidenceEligible: false },
       ],
     });
 
-    expect(evidencePaths).toContain('artifacts/work-units/r2/implement-performance.md');
-    expect(evidencePaths).not.toContain('artifacts/work-units/r2/other-unit.md');
+    expect(evidencePaths).toContain('artifacts/work-units/implement-performance.md');
+    expect(evidencePaths).not.toContain('artifacts/work-units/other-unit.md');
     expect(evidencePaths).not.toContain('src/temporary-reference.ts');
   });
 
@@ -485,20 +483,20 @@ items:
     };
     const evidencePaths = handoffEvidencePaths(task, 'solution', {
       files: [
-        { role: 'handoff', path: handoffPath('clarify', 1), sha256: 'a'.repeat(64), evidenceEligible: true },
+        { role: 'handoff', path: handoffPath('clarify'), sha256: 'a'.repeat(64), evidenceEligible: true },
         { role: 'task', path: 'task.yaml', sha256: 'b'.repeat(64), evidenceEligible: true },
-        { role: 'artifact', path: 'artifacts/clarify/r0/decision-register.yaml', sha256: 'c'.repeat(64), evidenceEligible: true },
-        { role: 'artifact', path: 'decisions/DEC-API-01/r1.yaml', sha256: 'd'.repeat(64), evidenceEligible: true },
+        { role: 'artifact', path: 'artifacts/clarify/decision-register.yaml', sha256: 'c'.repeat(64), evidenceEligible: true },
+        { role: 'artifact', path: 'decisions/DEC-API-01.yaml', sha256: 'd'.repeat(64), evidenceEligible: true },
         { role: 'additional', path: 'src/temporary-reference.ts', sha256: 'e'.repeat(64), evidenceEligible: false },
       ],
     });
 
     expect(evidencePaths).toEqual(expect.arrayContaining([
-      handoffPath('clarify', 1),
+      handoffPath('clarify'),
       'task.yaml',
-      'artifacts/clarify/r0/decision-register.yaml',
-      'decisions/DEC-API-01/r1.yaml',
-      'artifacts/solution/r1/solution.md',
+      'artifacts/clarify/decision-register.yaml',
+      'decisions/DEC-API-01.yaml',
+      'artifacts/solution/solution.md',
       'sources/requirements/r1/snapshot.md',
     ]));
     expect(evidencePaths).not.toContain('src/temporary-reference.ts');
@@ -506,7 +504,6 @@ items:
 taskId: ${task.id}
 nodeId: solution
 phase: solution
-revision: 1
 summary: 已根据任务事实形成可追溯技术方案。
 facts:
   - id: FACT-REFUND-01
@@ -521,7 +518,7 @@ decisions:
   - id: DEC-API-01
     statement: 采用已确认的接口边界继续技术方案。
     evidence:
-      - path: decisions/DEC-API-01/r1.yaml
+      - path: decisions/DEC-API-01.yaml
 acceptance: []
 changes: []
 verification: []
@@ -530,15 +527,14 @@ openRisks: []
       taskId: task.id,
       nodeId: 'solution',
       phase: 'solution',
-      revision: 1,
       evidencePaths,
-      decisionFactPaths: ['decisions/DEC-API-01/r1.yaml'],
+      decisionFactPaths: ['decisions/DEC-API-01.yaml'],
     })).not.toThrow();
   });
 
   it('rejects a valid-looking formal artifact when the current staging output is missing', async () => {
     const fixture = await createRunnerFixture({ changeSnapshots: [[], ['.aiw/tasks/refund-123/artifacts/brief.md']] });
-    const staleArtifacts = join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'clarify', 'r1');
+    const staleArtifacts = join(fixture.taskStore.taskDirectory('refund-123'), 'artifacts', 'clarify');
     await mkdir(staleArtifacts, { recursive: true });
     await writeFile(join(staleArtifacts, 'brief.md'), validBrief('这是上一次运行遗留的产物。'), 'utf8');
     await writeFile(join(staleArtifacts, 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n后续可以按验收清单继续推进。\n', 'utf8');
@@ -710,11 +706,11 @@ async function writeHandoff(taskStore: TaskStore, taskId: string, content?: stri
   const task = await taskStore.load(taskId);
   const node = task.nodes.clarify;
   if (node === undefined) throw new Error('clarify node missing');
-  const path = handoffPath('clarify', node.revision + 1);
+  const path = handoffPath('clarify');
   const stagingPath = join('runs', runId, 'staging', path);
-  await mkdir(join(taskStore.taskDirectory(task.id), 'runs', runId, 'staging', 'handoffs', 'clarify'), { recursive: true });
+  await mkdir(join(taskStore.taskDirectory(task.id), 'runs', runId, 'staging', 'handoffs'), { recursive: true });
   const brief = nextArtifactPath('clarify', node, 'artifacts/brief.md');
-  await writeFile(join(taskStore.taskDirectory(task.id), stagingPath), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nrevision: ${node.revision + 1}\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: ${brief}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
+  await writeFile(join(taskStore.taskDirectory(task.id), stagingPath), content ?? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: clarify\nphase: clarify\nsummary: 已完成需求澄清并形成可追溯交接。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 已完成退款申请需求的基础澄清。\n    evidence:\n      - path: ${brief}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`, 'utf8');
 }
 
 function mapLegacyArtifactPath(path: string, taskId: string, node: NonNullable<ReturnType<typeof createSevenPhaseTask>['nodes']['clarify']>): string {

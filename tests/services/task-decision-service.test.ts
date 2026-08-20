@@ -15,13 +15,13 @@ afterEach(async () => {
 });
 
 describe('TaskDecisionService', () => {
-  it('records a selected AI option as an immutable decision fact', async () => {
+  it('records a selected AI option as the current decision fact', async () => {
     const { store, service } = await fixture();
 
     const task = await service.choose({ taskId: 'refund-123', decisionId: 'DEC-API-01', optionId: 'wait-api', actor: 'tech-lead', status: 'waiting_external', owner: 'backend', unblockCondition: '接口契约与联调样例已确认' });
 
-    expect(task.decisions).toEqual([expect.objectContaining({ id: 'DEC-API-01', revision: 1, optionId: 'wait-api', status: 'waiting_external', owner: 'backend' })]);
-    await expect(readFile(join(store.taskDirectory(task.id), 'decisions', 'DEC-API-01', 'r1.yaml'), 'utf8'))
+    expect(task.decisions).toEqual([expect.objectContaining({ id: 'DEC-API-01', optionId: 'wait-api', status: 'waiting_external', owner: 'backend' })]);
+    await expect(readFile(join(store.taskDirectory(task.id), 'decisions', 'DEC-API-01.yaml'), 'utf8'))
       .resolves.toContain('status: waiting_external');
   });
 
@@ -31,8 +31,8 @@ describe('TaskDecisionService', () => {
 
     const task = await service.resolve({ taskId: 'refund-123', decisionId: 'DEC-API-01', actor: 'backend-lead', impact: 'execution-only', note: '测试环境已经恢复，原计划和验收方式不变。' });
 
-    expect(task.decisions).toEqual([expect.objectContaining({ id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api', resolutionImpact: 'execution-only' })]);
-    await expect(readFile(join(store.taskDirectory(task.id), 'decisions', 'DEC-API-01', 'r2.yaml'), 'utf8'))
+    expect(task.decisions).toEqual([expect.objectContaining({ id: 'DEC-API-01', status: 'resolved', optionId: 'wait-api', resolutionImpact: 'execution-only' })]);
+    await expect(readFile(join(store.taskDirectory(task.id), 'decisions', 'DEC-API-01.yaml'), 'utf8'))
       .resolves.toContain('status: resolved');
   });
 
@@ -46,7 +46,7 @@ describe('TaskDecisionService', () => {
     waiting.nodes.implement!.status = 'blocked';
     waiting.nodes.implement!.blockedByDecisionIds = ['DEC-API-01'];
     waiting.nodes.implement!.decisionRefs = ['DEC-API-01'];
-    waiting.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml'];
+    waiting.approvalRefs = ['approvals/clarify.yaml', 'approvals/plan.yaml'];
     await store.update(waiting);
 
     const task = await service.resolve({
@@ -61,16 +61,15 @@ describe('TaskDecisionService', () => {
 
     expect(task.decisions).toEqual([expect.objectContaining({
       id: 'DEC-API-01',
-      revision: 2,
       status: 'resolved',
       resolutionImpact: 'replan',
-      inputFactPath: 'external-inputs/DEC-API-01/r2.yaml',
+      inputFactPath: 'external-inputs/DEC-API-01.yaml',
     })]);
     expect(task.nodes.solution?.status).toBe('invalidated');
     expect(task.nodes.plan?.status).toBe('invalidated');
     expect(task.nodes.implement?.status).toBe('invalidated');
-    expect(task.approvalRefs).toEqual(['approvals/clarify/r1.yaml']);
-    await expect(readFile(join(store.taskDirectory(task.id), 'external-inputs', 'DEC-API-01', 'r2.yaml'), 'utf8'))
+    expect(task.approvalRefs).toEqual(['approvals/clarify.yaml']);
+    await expect(readFile(join(store.taskDirectory(task.id), 'external-inputs', 'DEC-API-01.yaml'), 'utf8'))
       .resolves.toContain('正式接口已定义 columnKeys');
   });
 
@@ -99,7 +98,7 @@ async function fixture(): Promise<{ store: TaskStore; service: TaskDecisionServi
   directories.push(directory);
   const store = new TaskStore(directory);
   const task = createSevenPhaseTask();
-  task.nodes.clarify!.revision = 1;
+  task.nodes.clarify!.hasResult = true;
   await store.create(task);
   const registerPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/decision-register.yaml');
   await mkdir(join(store.taskDirectory(task.id), registerPath, '..'), { recursive: true });

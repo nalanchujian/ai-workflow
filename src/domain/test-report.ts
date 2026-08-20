@@ -18,7 +18,7 @@ export function hasTestPlanEvidence(content: string): boolean {
 
 /**
  * A passing AC is only credible when it points to a platform-owned test
- * record from this delivery revision, and that record says the command
+ * record from this delivery result, and that record says the command
  * actually exited 0. The Markdown is checked only for the declared test ID
  * and command; it is not a second authority for execution outcomes.
  */

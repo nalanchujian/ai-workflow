@@ -77,7 +77,7 @@ export function validateClarificationImpactArtifacts(input: {
 
 export async function readClarificationImpactArtifacts(task: Task, taskStore: TaskStore): Promise<ClarificationImpactArtifacts> {
   const clarify = task.nodes.clarify;
-  if (clarify === undefined || clarify.revision === 0) {
+  if (clarify?.hasResult !== true) {
     throw new TaskImpactError('需求澄清尚未生成事实、决策和验收产物');
   }
   const directory = taskStore.taskDirectory(task.id);
@@ -136,7 +136,7 @@ export async function validatePlanImpact(task: Task, taskStore: TaskStore, break
 
 export async function materializeImpactGraph(task: Task, taskStore: TaskStore): Promise<{ path: string; content: string; sha256: string }> {
   const plan = task.nodes.plan;
-  if (plan === undefined || plan.revision === 0) throw new TaskImpactError('计划尚未生成，无法创建影响图');
+  if (plan?.hasResult !== true) throw new TaskImpactError('计划尚未生成，无法创建影响图');
   const [clarify, breakdown] = await Promise.all([
     readClarificationImpactArtifacts(task, taskStore),
     readWorkBreakdown(task, taskStore),
@@ -144,7 +144,7 @@ export async function materializeImpactGraph(task: Task, taskStore: TaskStore): 
   await validatePlanImpact(task, taskStore, breakdown);
   const deliveriesByUnit = new Map(
     Object.entries(task.nodes)
-      .filter(([, node]) => node.phase === 'implement' && node.generatedFromPlanRevision === plan.revision && node.workUnitId !== undefined && node.status !== 'superseded')
+      .filter(([, node]) => node.phase === 'implement' && node.generatedFromPlan === true && node.workUnitId !== undefined && node.status !== 'superseded')
       .map(([nodeId, node]) => [node.workUnitId!, nodeId]),
   );
   const coverageByAcceptance = new Map(breakdown.acceptanceCoverage.map((item) => [item.acceptanceId, item]));
@@ -157,8 +157,6 @@ export async function materializeImpactGraph(task: Task, taskStore: TaskStore): 
   const graph = ImpactGraphSchema.parse({
     schemaVersion: 'aiw.impact-graph/v1',
     taskId: task.id,
-    clarifyRevision: task.nodes.clarify!.revision,
-    planRevision: plan.revision,
     facts: clarify.facts.items.map((fact) => {
       const decisionIds = unique(decisionsByFact.get(fact.id) ?? []);
       const acceptanceRefs = unique([
@@ -206,7 +204,7 @@ export async function materializeImpactGraph(task: Task, taskStore: TaskStore): 
   });
   const content = stringify(graph);
   return {
-    path: `impact-graphs/plan-r${plan.revision}.yaml`,
+    path: 'impact-graphs/plan.yaml',
     content,
     sha256: createHash('sha256').update(content).digest('hex'),
   };
@@ -220,8 +218,8 @@ export async function readCurrentImpactGraph(task: Task, taskStore: TaskStore): 
     const sha256 = createHash('sha256').update(content).digest('hex');
     if (sha256 !== reference.sha256) throw new Error('影响图内容哈希与 task.yaml 不一致');
     const graph = ImpactGraphSchema.parse(parse(content));
-    if (graph.taskId !== task.id || graph.clarifyRevision !== reference.clarifyRevision || graph.planRevision !== reference.planRevision) {
-      throw new Error('影响图身份或 revision 与 task.yaml 不一致');
+    if (graph.taskId !== task.id) {
+      throw new Error('影响图身份与当前任务不一致');
     }
     return graph;
   } catch (error) {

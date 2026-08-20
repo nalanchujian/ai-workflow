@@ -22,7 +22,6 @@ export const RunHistorySchema = z.object({
   context: z.object({
     manifestPath: z.string().min(1),
     nodeId: z.string().min(1),
-    nodeRevision: z.number().int().nonnegative(),
     fileCount: z.number().int().nonnegative(),
     roles: z.array(z.string().min(1)),
     estimatedTokens: z.number().int().nonnegative(),

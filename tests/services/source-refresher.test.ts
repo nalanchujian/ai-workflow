@@ -17,7 +17,7 @@ describe('SourceRefresher', () => {
     await Promise.all(directories.splice(0).map(removeTempDirectory));
   });
 
-  it('creates a new revision and restarts the downstream flow when Lark content changes', async () => {
+  it('refreshes the current source and restarts the downstream flow when Lark content changes', async () => {
     const projectRoot = await createTempDirectory('aiw-source-refresh-');
     directories.push(projectRoot);
     const connector = mutableLarkConnector('# Refund v1');
@@ -31,13 +31,13 @@ describe('SourceRefresher', () => {
     task.nodes.solution.status = 'completed';
     task.nodes.plan.status = 'completed';
     task.decisions = [{
-      id: 'DEC-API-01', revision: 1, status: 'resolved', optionId: 'mock-only', actor: 'tech-lead',
-      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r1.yaml',
+      id: 'DEC-API-01', status: 'resolved', optionId: 'mock-only', actor: 'tech-lead',
+      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01.yaml',
     }];
-    task.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml'];
+    task.approvalRefs = ['approvals/clarify.yaml', 'approvals/plan.yaml'];
     await store.create(task);
-    await store.createFact(task.id, 'decisions/DEC-API-01/r1.yaml', '历史决策证据\n');
-    await store.createFact(task.id, 'approvals/clarify/r1.yaml', '历史审批证据\n');
+    await store.createFact(task.id, 'decisions/DEC-API-01.yaml', '当前决策证据\n');
+    await store.createFact(task.id, 'approvals/clarify.yaml', '当前审批证据\n');
     connector.content = '# Refund v2';
     const refresher = new SourceRefresher({ intake, taskStore: store });
 
@@ -48,9 +48,9 @@ describe('SourceRefresher', () => {
     expect(result.task.nodes.solution.status).toBe('pending');
     expect(result.task.decisions).toEqual([]);
     expect(result.task.approvalRefs).toEqual([]);
-    await expect(readFile(join(store.taskDirectory(task.id), 'decisions', 'DEC-API-01', 'r1.yaml'), 'utf8')).resolves.toBe('历史决策证据\n');
-    await expect(readFile(join(store.taskDirectory(task.id), 'approvals', 'clarify', 'r1.yaml'), 'utf8')).resolves.toBe('历史审批证据\n');
-    await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'intake', 'r2.yaml'), 'utf8')).resolves.toContain('revision: 2');
+    await expect(readFile(join(store.taskDirectory(task.id), 'decisions', 'DEC-API-01.yaml'), 'utf8')).resolves.toBe('当前决策证据\n');
+    await expect(readFile(join(store.taskDirectory(task.id), 'approvals', 'clarify.yaml'), 'utf8')).resolves.toBe('当前审批证据\n');
+    await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'intake.yaml'), 'utf8')).resolves.toContain('已固化更新后的需求来源快照');
   });
 
   it('keeps the task unchanged when the refreshed content hash is unchanged', async () => {

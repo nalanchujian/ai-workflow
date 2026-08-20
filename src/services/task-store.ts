@@ -105,6 +105,23 @@ export class TaskStore {
     await rename(temporaryPath, absolutePath);
   }
 
+  /**
+   * Replaces the current value of a declared task fact atomically. Node
+   * results deliberately have one current path; historical diagnostics live
+   * under runs/, rather than producing r<n> copies of artifacts.
+   */
+  async replaceFact(taskId: string, path: string, content: string): Promise<void> {
+    const directory = this.taskDirectory(taskId);
+    const absolutePath = resolve(directory, path);
+    if (this.relativeTaskPath(taskId, absolutePath) !== path) {
+      throw new TaskStoreError('任务事实路径无效');
+    }
+    await mkdir(dirname(absolutePath), { recursive: true });
+    const temporaryPath = `${absolutePath}.tmp`;
+    await writeFile(temporaryPath, content, 'utf8');
+    await rename(temporaryPath, absolutePath);
+  }
+
   /** Removes only declared task facts; callers must never pass business-repository paths. */
   async removeFacts(taskId: string, paths: string[]): Promise<void> {
     for (const path of [...new Set(paths)]) {

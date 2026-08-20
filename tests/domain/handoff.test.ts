@@ -4,17 +4,17 @@ import { artifactPath, handoffPath, outputPathsForNextRun, validateHandoff, vali
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 
 describe('Handoff', () => {
-  it('uses a node revision as the immutable handoff path', () => {
-    expect(handoffPath('implement-orders', 2)).toBe('handoffs/implement-orders/r2.yaml');
+  it('uses one current handoff path for a node', () => {
+    expect(handoffPath('implement-orders')).toBe('handoffs/implement-orders.yaml');
   });
 
-  it('writes each declared artifact into a new immutable revision directory', () => {
+  it('writes each declared artifact to one current path', () => {
     const task = createSevenPhaseTask();
-    const clarify = { ...task.nodes.clarify!, revision: 1 };
+    const clarify = { ...task.nodes.clarify!, hasResult: true };
 
-    expect(artifactPath('clarify', 1, 'artifacts/brief.md')).toBe('artifacts/clarify/r1/brief.md');
-    expect(outputPathsForNextRun('clarify', clarify)).toContain('artifacts/clarify/r2/brief.md');
-    expect(outputPathsForNextRun('clarify', clarify)).toContain('handoffs/clarify/r2.yaml');
+    expect(artifactPath('clarify', 'artifacts/brief.md')).toBe('artifacts/clarify/brief.md');
+    expect(outputPathsForNextRun('clarify', clarify)).toContain('artifacts/clarify/brief.md');
+    expect(outputPathsForNextRun('clarify', clarify)).toContain('handoffs/clarify.yaml');
   });
 
   it('accepts a structured handoff that identifies its node and evidence', () => {
@@ -22,7 +22,6 @@ describe('Handoff', () => {
 taskId: task-123
 nodeId: clarify
 phase: clarify
-revision: 1
 summary: 已整理需求目标、范围和验收标准。
 facts:
   - id: FACT-REFUND-01
@@ -35,7 +34,7 @@ changes: []
 verification: []
 openRisks: []
 `, {
-      taskId: 'task-123', nodeId: 'clarify', phase: 'clarify', revision: 1, evidencePaths: ['artifacts/brief.md'], decisionFactPaths: [],
+      taskId: 'task-123', nodeId: 'clarify', phase: 'clarify', evidencePaths: ['artifacts/brief.md'], decisionFactPaths: [],
     })).not.toThrow();
   });
 
@@ -44,7 +43,6 @@ openRisks: []
 taskId: task-123
 nodeId: clarify
 phase: clarify
-revision: 1
 summary: 已整理需求目标、范围和验收标准。
 facts:
   - id: FACT-REFUND-01
@@ -57,7 +55,7 @@ changes: []
 verification: []
 openRisks: []
 `, {
-      taskId: 'task-123', nodeId: 'clarify', phase: 'clarify', revision: 1, evidencePaths: ['artifacts/brief.md'], decisionFactPaths: [],
+      taskId: 'task-123', nodeId: 'clarify', phase: 'clarify', evidencePaths: ['artifacts/brief.md'], decisionFactPaths: [],
     })).toThrow('交接包引用了不允许的证据');
   });
 
@@ -66,18 +64,17 @@ openRisks: []
 taskId: task-123
 nodeId: solution
 phase: solution
-revision: 1
 summary: 已根据已确认的退款接口结论形成技术方案。
 facts:
   - id: FACT-REFUND-01
     statement: 用户可以提交退款申请并查看处理结果。
     evidence:
-      - path: artifacts/clarify/r1/fact-register.yaml
+      - path: artifacts/clarify/fact-register.yaml
 decisions:
   - id: DEC-REFUND-API-01
     statement: 采用当前已确认的退款接口继续实施。
     evidence:
-      - path: decisions/DEC-REFUND-API-01/r1.yaml
+      - path: decisions/DEC-REFUND-API-01.yaml
 acceptance: []
 changes: []
 verification: []
@@ -86,9 +83,8 @@ openRisks: []
       taskId: 'task-123',
       nodeId: 'solution',
       phase: 'solution',
-      revision: 1,
-      evidencePaths: ['artifacts/clarify/r1/fact-register.yaml', 'decisions/DEC-REFUND-API-01/r1.yaml'],
-      decisionFactPaths: ['decisions/DEC-REFUND-API-01/r1.yaml'],
+      evidencePaths: ['artifacts/clarify/fact-register.yaml', 'decisions/DEC-REFUND-API-01.yaml'],
+      decisionFactPaths: ['decisions/DEC-REFUND-API-01.yaml'],
     })).not.toThrow();
   });
 
@@ -97,18 +93,17 @@ openRisks: []
 taskId: task-123
 nodeId: solution
 phase: solution
-revision: 1
 summary: 已根据已确认的退款接口结论形成技术方案。
 facts:
   - id: FACT-REFUND-01
     statement: 用户可以提交退款申请并查看处理结果。
     evidence:
-      - path: artifacts/clarify/r1/fact-register.yaml
+      - path: artifacts/clarify/fact-register.yaml
 decisions:
   - id: DEC-REFUND-API-01
     statement: 采用当前已确认的退款接口继续实施。
     evidence:
-      - path: artifacts/solution/r1/solution.md
+      - path: artifacts/solution/solution.md
 acceptance: []
 changes: []
 verification: []
@@ -117,9 +112,8 @@ openRisks: []
       taskId: 'task-123',
       nodeId: 'solution',
       phase: 'solution',
-      revision: 1,
-      evidencePaths: ['artifacts/clarify/r1/fact-register.yaml', 'artifacts/solution/r1/solution.md', 'decisions/DEC-REFUND-API-01/r1.yaml'],
-      decisionFactPaths: ['decisions/DEC-REFUND-API-01/r1.yaml'],
+      evidencePaths: ['artifacts/clarify/fact-register.yaml', 'artifacts/solution/solution.md', 'decisions/DEC-REFUND-API-01.yaml'],
+      decisionFactPaths: ['decisions/DEC-REFUND-API-01.yaml'],
     })).toThrow('必须引用当前决策事实');
   });
 
@@ -128,13 +122,12 @@ openRisks: []
 taskId: task-123
 nodeId: solution
 phase: solution
-revision: 1
 summary: 已根据正式事实登记形成技术方案。
 facts:
   - id: FACT-UNKNOWN-01
     statement: 这是一项没有登记的事实，不应成为下游依据。
     evidence:
-      - path: artifacts/clarify/r1/fact-register.yaml
+      - path: artifacts/clarify/fact-register.yaml
 decisions: []
 acceptance: []
 changes: []
@@ -144,8 +137,7 @@ openRisks: []
       taskId: 'task-123',
       nodeId: 'solution',
       phase: 'solution',
-      revision: 1,
-      evidencePaths: ['artifacts/clarify/r1/fact-register.yaml'],
+      evidencePaths: ['artifacts/clarify/fact-register.yaml'],
       decisionFactPaths: [],
     });
 

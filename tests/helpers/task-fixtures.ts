@@ -71,7 +71,7 @@ function node(
     phase,
     dependsOn,
     status,
-    revision: 0,
+    hasResult: status === 'completed',
     outputs,
     requiresApproval,
     acceptanceRefs: [],

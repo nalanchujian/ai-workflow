@@ -42,7 +42,6 @@ export class RunHistoryService {
       context: {
         manifestPath: join(sharedDirectory, 'context-manifest.json'),
         nodeId: manifest.nodeId,
-        nodeRevision: manifest.nodeRevision,
         fileCount: manifest.files.length,
         roles: [...new Set(manifest.files.map((file) => file.role))].sort(),
         estimatedTokens: manifest.budget.estimatedTokens,

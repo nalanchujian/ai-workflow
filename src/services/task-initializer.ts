@@ -77,13 +77,12 @@ export class TaskInitializer {
         decisions: [],
         events: [],
       };
-      const intakeHandoffPath = handoffPath('intake', task.nodes.intake.revision);
+      const intakeHandoffPath = handoffPath('intake');
       const intakeHandoff = stringify({
         schemaVersion: 'aiw.handoff/v1',
         taskId: task.id,
         nodeId: 'intake',
         phase: 'intake',
-        revision: task.nodes.intake.revision,
         summary: '已固化需求来源快照与提取边界。',
         facts: [{
           id: 'FACT-SOURCE-REQUIREMENTS',
@@ -100,7 +99,6 @@ export class TaskInitializer {
         taskId: task.id,
         nodeId: 'intake',
         phase: 'intake',
-        revision: task.nodes.intake.revision,
         evidencePaths: [sourceReference.snapshotPath, sourceReference.metaPath],
         decisionFactPaths: [],
       });
@@ -235,7 +233,7 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
     { id: 'implement', title: '交付业务单元', outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'], requiresApproval: true },
   ];
   const nodes: Record<string, TaskNode> = {
-    intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', revision: 1, outputs: ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'], verificationCommands: [], acceptanceRefs: [], decisionRefs: [] },
+    intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', hasResult: true, outputs: ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'], verificationCommands: [], acceptanceRefs: [], decisionRefs: [] },
   };
   let dependency = 'intake';
   for (const definition of stageDefinitions) {
@@ -246,7 +244,7 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
       skill: lockSkill(skills[definition.id]),
       requiresApproval: definition.requiresApproval,
       status: definition.id === 'clarify' ? 'ready' : 'pending',
-      revision: 0,
+      hasResult: false,
       outputs: definition.outputs,
       verificationCommands: [],
       acceptanceRefs: [],

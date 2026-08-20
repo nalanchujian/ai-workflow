@@ -21,7 +21,7 @@ describe('DeliveryTestExecutor', () => {
     const store = new TaskStore(root);
     const task = createSevenPhaseTask();
     task.repository = root;
-    task.nodes.implement = { ...task.nodes.implement!, generatedFromPlanRevision: 1, workUnitId: 'refund', acceptanceRefs: ['AC-01'], verificationCommands: ['pnpm test -- refund'] };
+    task.nodes.implement = { ...task.nodes.implement!, generatedFromPlan: true, workUnitId: 'refund', acceptanceRefs: ['AC-01'], verificationCommands: ['pnpm test -- refund'] };
     await store.create(task);
 
     const results = await new DeliveryTestExecutor({
@@ -48,7 +48,7 @@ describe('DeliveryTestExecutor', () => {
     const store = new TaskStore(root);
     const task = createSevenPhaseTask();
     task.repository = root;
-    task.nodes.implement = { ...task.nodes.implement!, generatedFromPlanRevision: 1, workUnitId: 'refund', acceptanceRefs: ['AC-01'], verificationCommands: ['pnpm test && rm -rf tmp'] };
+    task.nodes.implement = { ...task.nodes.implement!, generatedFromPlan: true, workUnitId: 'refund', acceptanceRefs: ['AC-01'], verificationCommands: ['pnpm test && rm -rf tmp'] };
     await store.create(task);
     let called = false;
 

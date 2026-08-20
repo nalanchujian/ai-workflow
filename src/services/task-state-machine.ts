@@ -37,7 +37,8 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
       break;
     case 'succeed':
       assertStatus(node, ['running'], '只能完成运行中的节点');
-      node.revision += 1;
+      // A node has one current result. Re-runs replace it in place.
+      node.hasResult = true;
       node.status = node.requiresApproval ? 'awaiting_approval' : 'completed';
       addEvent(next, 'succeed', nodeId, { runId: event.runId, outputs: event.outputs, evidencePath: event.evidencePath });
       if (node.status === 'completed') {
@@ -121,7 +122,7 @@ export function invalidateNodesAndDependents(task: Task, nodeIds: string[], reas
     addEvent(next, 'invalidate', id, { reason });
   }
 
-  next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
+  next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((id) => path === `approvals/${id}.yaml`));
   // The graph is a projection of the currently approved clarification and
   // plan. Once either upstream artifact is invalidated, it must not remain a
   // seemingly valid pointer in task.yaml while a replan is pending.
@@ -153,7 +154,7 @@ export function restartDependentsForSourceChange(task: Task, upstreamNodeId: str
   next.decisions = [];
   next.impactGraph = undefined;
   resetWorkflowPath(next, '需求来源已更新，需重新选择工作方式');
-  next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((nodeId) => path.startsWith(`approvals/${nodeId}/`)));
+  next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((nodeId) => path === `approvals/${nodeId}.yaml`));
   if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
 }
@@ -171,10 +172,7 @@ export function selectWorkflowPath(task: Task, selection: WorkflowPathSelection)
   if (!['awaiting_approval', 'completed'].includes(clarify.status)) {
     throw new TaskTransitionError('只能在需求澄清完成后选择工作方式');
   }
-  if (selection.clarifyRevision !== clarify.revision) {
-    throw new TaskTransitionError('工作方式必须绑定当前需求澄清版本');
-  }
-  if (plan.revision > 0 || solution.revision > 0) {
+  if (plan.hasResult || solution.hasResult) {
     throw new TaskTransitionError('方案或计划已生成，不能再切换工作方式；请重新执行需求澄清。');
   }
 
@@ -240,13 +238,13 @@ function resetForOverwrite(task: Task, nodeId: string): void {
   // `implement` is the internal workflow anchor. Plans always materialize
   // named delivery units from this locked skill; the anchor itself is never
   // a user-facing delivery unit.
-  const generatedImplementationIds = affected.filter((id) => id !== nodeId && id !== 'implement' && task.nodes[id]?.phase === 'implement' && task.nodes[id]?.generatedFromPlanRevision !== undefined);
+  const generatedImplementationIds = affected.filter((id) => id !== nodeId && id !== 'implement' && task.nodes[id]?.phase === 'implement' && task.nodes[id]?.generatedFromPlan === true);
 
   for (const id of generatedImplementationIds) {
     const generated = task.nodes[id];
     if (generated === undefined || generated.status === 'superseded') continue;
     generated.status = 'superseded';
-    addEvent(task, 'supersede', id, { reason: `重新执行 ${nodeId}，已保留旧实施单元作为历史 revision` });
+    addEvent(task, 'supersede', id, { reason: `重新执行 ${nodeId}，当前实施单元已失效` });
   }
 
   const implementation = task.nodes.implement;
@@ -271,7 +269,7 @@ function resetForOverwrite(task: Task, nodeId: string): void {
   }
   if (affectedSet.has('clarify') || affectedSet.has('plan')) task.impactGraph = undefined;
   if (affectsDelivery(task, affected)) task.deliveryStatus = 'not_assessed';
-  task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path.startsWith(`approvals/${id}/`)));
+  task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path === `approvals/${id}.yaml`));
 }
 
 /** Return the graph to the sole standard topology before a fresh clarification. */
@@ -294,7 +292,7 @@ function restoreStandardTopology(task: Task): void {
   }
   if (plan !== undefined) {
     plan.dependsOn = ['solution'];
-    if (plan.revision === 0 && solution?.status !== 'completed') plan.status = 'pending';
+    if (!plan.hasResult && solution?.status !== 'completed') plan.status = 'pending';
   }
 }
 
@@ -317,7 +315,7 @@ function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {
 function affectsDelivery(task: Task, nodeIds: string[]): boolean {
   return nodeIds.some((nodeId) => {
     const node = task.nodes[nodeId];
-    return nodeId === 'plan' || (node?.phase === 'implement' && node.generatedFromPlanRevision !== undefined);
+    return nodeId === 'plan' || (node?.phase === 'implement' && node.generatedFromPlan === true);
   });
 }
 

@@ -97,11 +97,11 @@ export class ImplementationWorkPlannerError extends Error {
 
 export async function readWorkBreakdown(task: Task, taskStore: TaskStore): Promise<WorkBreakdown> {
   const plan = task.nodes.plan;
-  const path = plan === undefined || plan.revision === 0
+  const path = plan?.hasResult !== true
     ? undefined
     : completedArtifactPath('plan', plan, 'artifacts/work-breakdown.yaml');
   if (path === undefined) {
-    throw new ImplementationWorkPlannerError('实施工作单元声明缺失：计划尚未生成当前 revision');
+    throw new ImplementationWorkPlannerError('实施工作单元声明缺失：计划尚未生成当前结果');
   }
   try {
     const content = await readFile(join(taskStore.taskDirectory(task.id), path), 'utf8');
@@ -122,19 +122,18 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
   }
   const breakdown = await readWorkBreakdown(task, taskStore);
   await validateAcceptanceCoverage(task, taskStore, breakdown);
-  const planRevision = plan.revision;
   const next = TaskSchema.parse(task);
   const generatedNodeIds = Object.entries(next.nodes)
-    .filter(([nodeId, node]) => nodeId !== 'implement' && node.generatedFromPlanRevision !== undefined)
+    .filter(([nodeId, node]) => nodeId !== 'implement' && node.generatedFromPlan === true)
     .map(([nodeId]) => nodeId);
   for (const nodeId of generatedNodeIds) {
     next.nodes[nodeId]!.status = 'superseded';
-    next.events.push({ type: 'supersede', nodeId, at: new Date().toISOString(), reason: `已由计划 r${planRevision} 重新生成` });
+    next.events.push({ type: 'supersede', nodeId, at: new Date().toISOString(), reason: '已由当前计划重新生成' });
   }
   next.nodes.implement = { ...implementation, status: 'superseded', dependsOn: ['plan'], blockedByDecisionIds: undefined, acceptanceRefs: [] };
-  next.events.push({ type: 'supersede', nodeId: 'implement', at: new Date().toISOString(), reason: `计划 r${planRevision} 已生成 ${breakdown.units.length} 个交付单元` });
+  next.events.push({ type: 'supersede', nodeId: 'implement', at: new Date().toISOString(), reason: `当前计划已生成 ${breakdown.units.length} 个交付单元` });
 
-  const nodeIds = new Map(breakdown.units.map((unit) => [unit.id, nextNodeId(next, `delivery-${unit.id}`, planRevision)]));
+  const nodeIds = new Map(breakdown.units.map((unit) => [unit.id, nextNodeId(next, `delivery-${unit.id}`)]));
   const facts: Array<{ path: string; content: string }> = [];
   const taskDirectory = taskStore.taskDirectory(task.id);
   const planPath = completedArtifactPath('plan', plan, 'artifacts/implementation-plan.md');
@@ -142,7 +141,7 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
   const planHash = createHash('sha256').update(await readFile(join(taskDirectory, planPath))).digest('hex');
   const breakdownHash = createHash('sha256').update(await readFile(join(taskDirectory, breakdownPath))).digest('hex');
   const clarify = next.nodes.clarify;
-  if (clarify === undefined || clarify.revision === 0) {
+  if (clarify?.hasResult !== true) {
     throw new ImplementationWorkPlannerError('需求澄清事实尚未生成，无法构建交付单元上下文');
   }
   const [factContent, decisionContent] = await Promise.all([
@@ -155,7 +154,7 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
   const testProfiles = new ProjectTestProfiles();
   for (const unit of breakdown.units) {
     const nodeId = nodeIds.get(unit.id)!;
-    const contextPath = `artifacts/work-units/r${planRevision}/${nodeId}.md`;
+    const contextPath = `artifacts/work-units/${nodeId}.md`;
     const dependencies = ['plan', ...unit.dependsOn.map((dependency) => nodeIds.get(dependency)!)];
     const blockedByDecisionIds = unit.blockedBy.filter((decisionId) => {
       const resolution = next.decisions.find((decision) => decision.id === decisionId);
@@ -172,10 +171,10 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       skill: implementation.skill,
       requiresApproval: true,
       status: blockedByDecisionIds.length > 0 ? 'blocked' : dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
-      revision: 0,
+      hasResult: false,
       outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
       contextPath,
-      generatedFromPlanRevision: planRevision,
+      generatedFromPlan: true,
       workUnitId: unit.id,
       verificationCommands,
       acceptanceRefs: unit.acceptanceRefs,
@@ -183,8 +182,8 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       ...(blockedByDecisionIds.length === 0 ? {} : { blockedByDecisionIds }),
     };
     next.nodes[nodeId] = node;
-    facts.push({ path: contextPath, content: renderUnitContext(unit, verificationCommands, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash, factsById, decisionsById, next) });
-    next.events.push({ type: 'materialize_implementation', nodeId, at: new Date().toISOString(), note: `计划 r${planRevision}；工作单元：${unit.id}` });
+    facts.push({ path: contextPath, content: renderUnitContext(unit, verificationCommands, task.id, planPath, breakdownPath, planHash, breakdownHash, factsById, decisionsById, next) });
+    next.events.push({ type: 'materialize_implementation', nodeId, at: new Date().toISOString(), note: `当前计划；工作单元：${unit.id}` });
   }
   return { task: TaskSchema.parse(deriveTaskStatus(next)), facts };
 }
@@ -342,11 +341,11 @@ async function validateAcceptanceCoverage(task: Task, taskStore: TaskStore, brea
 
 async function readAcceptanceCatalog(task: Task, taskStore: TaskStore): Promise<AcceptanceCatalog> {
   const clarify = task.nodes.clarify;
-  const path = clarify === undefined || clarify.revision === 0
+  const path = clarify?.hasResult !== true
     ? undefined
     : completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml');
   if (path === undefined) {
-    throw new ImplementationWorkPlannerError('验收清单缺失：需求澄清尚未生成当前 revision');
+    throw new ImplementationWorkPlannerError('验收清单缺失：需求澄清尚未生成当前结果');
   }
   try {
     const content = await readFile(join(taskStore.taskDirectory(task.id), path), 'utf8');
@@ -368,15 +367,14 @@ async function readAcceptanceCatalog(task: Task, taskStore: TaskStore): Promise<
   }
 }
 
-function nextNodeId(task: Task, base: string, planRevision: number): string {
-  return task.nodes[base] === undefined ? base : `${base}-r${planRevision}`;
+function nextNodeId(_task: Task, base: string): string {
+  return base;
 }
 
 function renderUnitContext(
   unit: WorkBreakdown['units'][number],
   verificationCommands: string[],
   taskId: string,
-  planRevision: number,
   planPath: string,
   breakdownPath: string,
   planHash: string,
@@ -390,7 +388,7 @@ function renderUnitContext(
     '',
     '## 来源',
     `- 任务：${taskId}`,
-    `- 实施计划：${planPath}（r${planRevision}，sha256:${planHash}）`,
+    `- 实施计划：${planPath}（sha256:${planHash}）`,
     `- 工作单元声明：${breakdownPath}（sha256:${breakdownHash}）`,
     '',
     '## 目标',

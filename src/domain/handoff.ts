@@ -18,7 +18,6 @@ export const HandoffSchema = z.object({
   taskId: z.string().min(1),
   nodeId: z.string().min(1),
   phase: PhaseSchema,
-  revision: z.number().int().positive(),
   summary: z.string().min(12),
   facts: z.array(z.object({
     id: FactIdSchema,
@@ -52,47 +51,43 @@ export const HandoffSchema = z.object({
 
 export type Handoff = z.infer<typeof HandoffSchema>;
 
-export function handoffPath(nodeId: string, revision: number): string {
-  return `handoffs/${nodeId}/r${revision}.yaml`;
+/** The handoff is the current summary for one node and is replaced on re-run. */
+export function handoffPath(nodeId: string): string {
+  return `handoffs/${nodeId}.yaml`;
 }
 
-/**
- * A declared node output is a logical artifact name.  Every successful
- * revision receives its own physical path so a later re-run never overwrites
- * evidence that was previously reviewed or approved.
- */
-export function artifactPath(nodeId: string, revision: number, declaredPath: string): string {
+/** A declared node output has one current physical path and is overwritten on re-run. */
+export function artifactPath(nodeId: string, declaredPath: string): string {
   if (!declaredPath.startsWith('artifacts/')) {
     throw new Error(`节点产物必须位于 artifacts/：${declaredPath}`);
   }
-  return `artifacts/${nodeId}/r${revision}/${declaredPath.slice('artifacts/'.length)}`;
+  return `artifacts/${nodeId}/${declaredPath.slice('artifacts/'.length)}`;
 }
 
 export function completedArtifactPath(nodeId: string, node: TaskNode, declaredPath: string): string {
-  return artifactPath(nodeId, node.revision, declaredPath);
+  return artifactPath(nodeId, declaredPath);
 }
 
 export function nextArtifactPath(nodeId: string, node: TaskNode, declaredPath: string): string {
-  return artifactPath(nodeId, node.revision + 1, declaredPath);
+  return artifactPath(nodeId, declaredPath);
 }
 
-export function declaredOutputPath(nodeId: string, node: TaskNode, revision: number, path: string): string | undefined {
-  return node.outputs.find((declaredPath) => artifactPath(nodeId, revision, declaredPath) === path);
+export function declaredOutputPath(nodeId: string, node: TaskNode, path: string): string | undefined {
+  return node.outputs.find((declaredPath) => artifactPath(nodeId, declaredPath) === path);
 }
 
 export function outputPathsForNextRun(nodeId: string, node: TaskNode): string[] {
-  return [...node.outputs.map((path) => nextArtifactPath(nodeId, node, path)), handoffPath(nodeId, node.revision + 1)];
+  return [...node.outputs.map((path) => nextArtifactPath(nodeId, node, path)), handoffPath(nodeId)];
 }
 
 export function outputPathsForCompletedRun(nodeId: string, node: TaskNode): string[] {
-  return [...node.outputs.map((path) => completedArtifactPath(nodeId, node, path)), handoffPath(nodeId, node.revision)];
+  return [...node.outputs.map((path) => completedArtifactPath(nodeId, node, path)), handoffPath(nodeId)];
 }
 
 export function validateHandoff(content: string, expected: {
   taskId: string;
   nodeId: string;
   phase: Phase;
-  revision: number;
   evidencePaths: string[];
   /** Current immutable decision facts recorded in task.yaml. */
   decisionFactPaths: string[];
@@ -111,8 +106,8 @@ export function validateHandoff(content: string, expected: {
       itemLabel: '交接内容',
     }), { cause: error });
   }
-  if (handoff.taskId !== expected.taskId || handoff.nodeId !== expected.nodeId || handoff.phase !== expected.phase || handoff.revision !== expected.revision) {
-    throw new Error('交接包与当前节点身份或 revision 不一致');
+  if (handoff.taskId !== expected.taskId || handoff.nodeId !== expected.nodeId || handoff.phase !== expected.phase) {
+    throw new Error('交接包与当前节点身份不一致');
   }
   const permitted = new Set(expected.evidencePaths);
   for (const evidence of allEvidence(handoff)) {
@@ -133,7 +128,7 @@ export function validateHandoff(content: string, expected: {
 function validateDecisionReferences(handoff: Handoff, decisionFactPaths: string[]): void {
   const currentFacts = new Map<string, string>();
   for (const path of decisionFactPaths) {
-    const match = /^decisions\/(DEC-[A-Z0-9-]+)\/r\d+\.yaml$/.exec(path);
+    const match = /^decisions\/(DEC-[A-Z0-9-]+)\.yaml$/.exec(path);
     if (match !== null) currentFacts.set(match[1], path);
   }
   for (const decision of handoff.decisions) {

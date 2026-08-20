@@ -13,7 +13,6 @@ const WorkflowPathReasonSchema = z.object({
 export const WorkflowPathAssessmentSchema = z.object({
   schemaVersion: z.literal('aiw.workflow-path-assessment/v1'),
   taskId: z.string().min(1),
-  clarifyRevision: z.number().int().positive(),
   policyVersion: z.literal(WORKFLOW_PATH_POLICY_VERSION),
   recommendedPath: WorkflowPathIdSchema,
   signals: z.object({

@@ -41,15 +41,14 @@ export class SourceRefresher {
     const reference = await this.deps.intake.writeSnapshot({ snapshot, taskDirectory: this.deps.taskStore.taskDirectory(task.id) });
     const next = restartDependentsForSourceChange(task, 'intake', `source ${input.sourceId} changed`);
     next.sources[input.sourceId] = reference;
-    next.nodes.intake.revision = reference.revision;
+    next.nodes.intake.hasResult = true;
     next.nodes.intake.outputs = [reference.snapshotPath, reference.metaPath];
-    const intakeHandoffPath = handoffPath('intake', next.nodes.intake.revision);
+    const intakeHandoffPath = handoffPath('intake');
     const intakeHandoff = stringify({
       schemaVersion: 'aiw.handoff/v1',
       taskId: next.id,
       nodeId: 'intake',
       phase: 'intake',
-      revision: next.nodes.intake.revision,
       summary: '已固化更新后的需求来源快照与提取边界。',
       facts: [{
         id: `FACT-SOURCE-${input.sourceId.toUpperCase().replaceAll(/[^A-Z0-9]+/g, '-')}`,
@@ -66,7 +65,6 @@ export class SourceRefresher {
       taskId: next.id,
       nodeId: 'intake',
       phase: 'intake',
-      revision: next.nodes.intake.revision,
       evidencePaths: [reference.snapshotPath, reference.metaPath],
       decisionFactPaths: [],
     });

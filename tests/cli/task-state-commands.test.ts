@@ -89,7 +89,7 @@ describe('TaskStateCommands', () => {
     const invalidated = await store.load('refund-123');
     expect(invalidated.nodes.plan?.status).toBe('invalidated');
     expect(invalidated.nodes.implement?.status).toBe('invalidated');
-    expect(invalidated.approvalRefs).not.toContain('approvals/plan/r1.yaml');
+    expect(invalidated.approvalRefs).not.toContain('approvals/plan.yaml');
   });
 
   it('rejects a downstream completion bundle when its approval hashes do not match the completed run', async () => {
@@ -97,10 +97,9 @@ describe('TaskStateCommands', () => {
     const task = await store.load('refund-123');
     const plan = task.nodes.plan!;
     plan.status = 'completed';
-    task.approvalRefs = ['approvals/plan/r1.yaml'];
-    await store.createFact(task.id, 'approvals/plan/r1.yaml', [
+    task.approvalRefs = ['approvals/plan.yaml'];
+    await store.createFact(task.id, 'approvals/plan.yaml', [
       'nodeId: plan',
-      'nodeRevision: 1',
       'artifactHashes:',
       ...outputPathsForCompletedRun('plan', plan).map((path) => `  ${path}: sha256:${'f'.repeat(64)}`),
       'decision: approved',
@@ -131,8 +130,8 @@ describe('TaskStateCommands', () => {
     expect(reviewed.nodes.clarify.status).toBe('completed');
     expect(reviewed.nodes.solution.status).toBe('ready');
     expect(reviewed.decisions).toEqual([expect.objectContaining({ id: 'DEC-API-01', optionId: 'wait-api', status: 'waiting_external', owner: 'backend', actor: 'tech-lead' })]);
-    await expect(readFile(join(directory, 'decisions', 'DEC-API-01', 'r1.yaml'), 'utf8')).resolves.toContain('optionId: wait-api');
-    await expect(readFile(join(directory, 'approvals', 'clarify', 'r1.yaml'), 'utf8')).resolves.toContain('decision: approved');
+    await expect(readFile(join(directory, 'decisions', 'DEC-API-01.yaml'), 'utf8')).resolves.toContain('optionId: wait-api');
+    await expect(readFile(join(directory, 'approvals', 'clarify.yaml'), 'utf8')).resolves.toContain('decision: approved');
   });
 
   it('records a human-written clarify conclusion outside the proposed options', async () => {
@@ -165,10 +164,10 @@ describe('TaskStateCommands', () => {
 
     const reviewed = await commands.reviewClarify('refund-123', [], { workflowPath: 'quick', note: '小范围修复按快速修改推进' });
 
-    expect(reviewed.workflowPath).toMatchObject({ id: 'quick', clarifyRevision: 1, selectedBy: 'tech-lead' });
+    expect(reviewed.workflowPath).toMatchObject({ id: 'quick', selectedBy: 'tech-lead' });
     expect(reviewed.nodes.solution).toMatchObject({ status: 'superseded', dependsOn: ['clarify'] });
     expect(reviewed.nodes.plan).toMatchObject({ status: 'ready', dependsOn: ['clarify'] });
-    await expect(readFile(join(directory, 'workflow-assessments', 'clarify-r1.yaml'), 'utf8')).resolves.toContain('recommendedPath: quick');
+    await expect(readFile(join(directory, 'workflow-assessments', 'clarify.yaml'), 'utf8')).resolves.toContain('recommendedPath: quick');
   });
 
   it('does not allow a decision-bearing clarification to select quick', async () => {
@@ -185,7 +184,7 @@ describe('TaskStateCommands', () => {
       .rejects.toThrow('不满足快速修改条件');
   });
 
-  it('allows a quick task to upgrade to standard before its first plan revision', async () => {
+  it('allows a quick task to upgrade to standard before a plan exists', async () => {
     const { store } = await createApprovalTask('clarify');
     await refreshCompletionHashes(store, 'clarify');
     const commands = new TaskStateCommands({
@@ -259,7 +258,7 @@ describe('TaskStateCommands', () => {
     });
 
     expect(task).toMatchObject({ status: 'completed', deliveryStatus: 'risk_accepted' });
-    await expect(readFile(join(directory, 'risk-acceptances', 'delivery-main', 'r1.yaml'), 'utf8'))
+    await expect(readFile(join(directory, 'risk-acceptances', 'delivery-main.yaml'), 'utf8'))
       .resolves.toContain('owner: product-owner');
   });
 
@@ -316,18 +315,18 @@ describe('TaskStateCommands', () => {
     expect(updated.nodes.implement).toMatchObject({ status: 'superseded' });
     expect(updated.nodes['delivery-page']).toMatchObject({
       title: '实现页面筛选',
-      contextPath: 'artifacts/work-units/r1/delivery-page.md',
+      contextPath: 'artifacts/work-units/delivery-page.md',
       status: 'ready',
     });
     expect(updated.nodes['delivery-export']).toMatchObject({
       title: '实现导出文件名',
-      contextPath: 'artifacts/work-units/r1/delivery-export.md',
+      contextPath: 'artifacts/work-units/delivery-export.md',
       status: 'ready',
     });
-    expect(updated.impactGraph).toMatchObject({ path: 'impact-graphs/plan-r1.yaml', clarifyRevision: 1, planRevision: 1 });
-    await expect(readFile(join(directory, 'artifacts', 'work-units', 'r1', 'delivery-export.md'), 'utf8'))
+    expect(updated.impactGraph).toMatchObject({ path: 'impact-graphs/plan.yaml' });
+    await expect(readFile(join(directory, 'artifacts', 'work-units', 'delivery-export.md'), 'utf8'))
       .resolves.toContain('实现导出文件名');
-    await expect(readFile(join(directory, 'impact-graphs', 'plan-r1.yaml'), 'utf8'))
+    await expect(readFile(join(directory, 'impact-graphs', 'plan.yaml'), 'utf8'))
       .resolves.toContain('delivery-export');
   });
 
@@ -359,7 +358,7 @@ describe('TaskStateCommands', () => {
     await expect(commands.approve('refund-123', 'plan', { note: '计划确认' }))
       .rejects.toThrow('未声明覆盖方式：AC-02');
     expect((await store.load('refund-123')).nodes.plan.status).toBe('awaiting_approval');
-    await expect(readFile(join(directory, 'approvals', 'plan', 'r1.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(directory, 'approvals', 'plan.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('guides a waiting approval through review, commit, and approval in task status', async () => {
@@ -441,7 +440,7 @@ describe('TaskStateCommands', () => {
 
     await command.parseAsync(['node', 'task', 'status', 'refund-123']);
 
-    expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/plan/r0/implementation-plan.md');
+    expect(output).toContain('1. 查看待审批产物：.aiw/tasks/refund-123/artifacts/plan/implementation-plan.md');
     expect(output).toContain('2. aiw task approve refund-123 plan --note "<审批说明>"');
     expect(output).not.toContain('git add .aiw');
     expect(output).not.toContain('若尚未提交');
@@ -619,7 +618,7 @@ describe('TaskStateCommands', () => {
   it('lets a user choose quick or standard only when the assessment is eligible', async () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'awaiting_approval';
-    task.nodes.clarify.revision = 1;
+    task.nodes.clarify.hasResult = true;
     const answers = ['1', '1'];
     let receivedOptions: unknown;
     let output = '';
@@ -629,7 +628,7 @@ describe('TaskStateCommands', () => {
         async listDecisions() { return []; },
         async assessWorkflowPath() {
           return {
-            schemaVersion: 'aiw.workflow-path-assessment/v1', taskId: task.id, clarifyRevision: 1, policyVersion: 'quick-standard/v1', recommendedPath: 'quick',
+            schemaVersion: 'aiw.workflow-path-assessment/v1', taskId: task.id, policyVersion: 'quick-standard/v1', recommendedPath: 'quick',
             signals: { sourceCount: 1, sourceCharacters: 320, acceptanceCount: 1, decisionCount: 0, confirmedFactCount: 2, nonConfirmedFactCount: 0 },
             quick: { eligible: true, reasons: [] }, evaluatedAt: '2026-08-19T00:00:00.000Z',
           };
@@ -685,7 +684,7 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
     contentSha256: 'a'.repeat(64),
   };
   if (nodeId === 'plan') {
-    task.nodes.clarify = { ...task.nodes.clarify, status: 'completed', revision: 1 };
+    task.nodes.clarify = { ...task.nodes.clarify, status: 'completed', hasResult: true };
     task.nodes.solution.status = 'completed';
   }
   if (nodeId === 'delivery-main') {
@@ -696,14 +695,14 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
       title: '完成退款功能',
       status: 'awaiting_approval',
       dependsOn: ['plan'],
-      generatedFromPlanRevision: 1,
+      generatedFromPlan: true,
       workUnitId: 'main',
       acceptanceRefs: ['AC-01'],
       decisionRefs: [],
     };
   }
   task.nodes[nodeId]!.status = 'awaiting_approval';
-  task.nodes[nodeId]!.revision = 1;
+  task.nodes[nodeId]!.hasResult = true;
   await store.create(task);
   const taskDirectory = store.taskDirectory(task.id);
   await mkdir(join(taskDirectory, 'sources', 'requirements', 'r1'), { recursive: true });
@@ -751,8 +750,8 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
   for (const output of outputs) {
     await mkdir(join(taskDirectory, output, '..'), { recursive: true });
     const firstArtifact = outputs.find((path) => path.startsWith('artifacts/'))!;
-    const content = output === handoffPath(nodeId, node.revision)
-      ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
+    const content = output === handoffPath(nodeId)
+      ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
       : nodeId === 'delivery-main' && output.endsWith('/acceptance-intent.yaml')
         ? `schemaVersion: aiw.acceptance-intent/v1\nitems:\n  - id: AC-01\n    evidence:\n      - artifacts/delivery.md\n    testPlanRefs: [TEST-REFUND-01]\n`
       : nodeId === 'delivery-main' && output.endsWith('/acceptance-results.yaml')
@@ -799,7 +798,8 @@ async function refreshCompletionHashes(store: TaskStore, nodeId: string): Promis
 }
 
 async function writeDecisionRegister(directory: string): Promise<void> {
-  await writeFile(join(directory, 'artifacts', 'clarify', 'r1', 'decision-register.yaml'), `schemaVersion: aiw.decision-register/v1
+  await mkdir(join(directory, 'artifacts', 'clarify'), { recursive: true });
+  await writeFile(join(directory, 'artifacts', 'clarify', 'decision-register.yaml'), `schemaVersion: aiw.decision-register/v1
 items:
   - id: DEC-API-01
     title: 详情趋势数据来源

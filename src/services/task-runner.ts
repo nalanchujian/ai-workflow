@@ -167,7 +167,6 @@ export class TaskRunner {
         id: task.id,
         nodeId: input.nodeId,
         phase: node.phase,
-        nodeRevision: node.revision,
         ...(task.workflowPath === undefined ? {} : { workflowPath: task.workflowPath.id }),
         projectRoot: this.deps.taskStore.projectDirectory(),
         testPlan: isDeliveryUnit(node) ? deliveryTestPlan(node) : [],
@@ -279,11 +278,8 @@ export class TaskRunner {
         protectedTaskFacts.contents,
         agentTaskFacts.violations,
       );
-      const expectedHandoff = request.artifacts.find((path) => path.startsWith(`handoffs/${nodeId}/`) && path.endsWith('.yaml'));
-      const staleHandoffs = agentTaskFacts.violations.filter((path) => path.startsWith(`.aiw/tasks/${task.id}/handoffs/${nodeId}/`));
-      const message = staleHandoffs.length === 0
-        ? `检测到不允许写入的任务事实：${agentTaskFacts.violations.join(', ')}。AIW 已自动还原这些历史或受保护事实。`
-        : `检测到写入旧交接包：${staleHandoffs.join(', ')}。本次运行只允许写入 ${expectedHandoff ?? '当前 revision 的交接包'}；AIW 已自动还原旧文件。`;
+      const expectedHandoff = request.artifacts.find((path) => path === handoffPath(nodeId));
+      const message = `检测到不允许写入的任务事实：${agentTaskFacts.violations.join(', ')}。本次运行只允许通过暂存区发布当前节点产物（${expectedHandoff ?? '当前节点交接包'}）；AIW 已自动还原这些改动。`;
       await this.persistChangeEvidence(task, {
         ...(await this.recordChangeEvidence(task, request, scope, result, baseline, agentTaskFacts, undefined, restoredTaskFactPaths)),
         failure: failureEvidence('task-facts', 'TASK_FACT_WRITE_VIOLATION', message),
@@ -413,7 +409,7 @@ export class TaskRunner {
    * is about to deliver. */
   private async assertDeliveryUnitImpact(task: Task, nodeId: string): Promise<void> {
     const node = task.nodes[nodeId];
-    if (node?.phase !== 'implement' || node.generatedFromPlanRevision === undefined || node.workUnitId === undefined) return;
+    if (node?.phase !== 'implement' || node.generatedFromPlan !== true || node.workUnitId === undefined) return;
     try {
       const graph = await readCurrentImpactGraph(task, this.deps.taskStore);
       const unit = graph?.units.find((item) => item.id === node.workUnitId);
@@ -646,7 +642,7 @@ async function snapshotAiWorkflowFactsWithContents(projectRoot: string): Promise
 /**
  * Task facts are auditable inputs, not disposable agent scratch files. The
  * write scope detects violations; this companion restore step ensures a
- * detected write cannot silently corrupt an approved revision before users
+ * detected write cannot silently corrupt an approved current result before users
  * inspect or commit the failure evidence.
  */
 async function restoreTaskFactViolations(projectRoot: string, baseline: TaskFactContents, violations: string[]): Promise<string[]> {
@@ -772,7 +768,7 @@ async function promoteStagedOutputs(
     if (content === undefined) {
       throw new TaskRunnerError('ARTIFACT_MISSING', `节点暂存产物缺失：${entry.finalPath}`);
     }
-    await taskStore.createFact(taskId, entry.finalPath, content.toString('utf8'));
+    await taskStore.replaceFact(taskId, entry.finalPath, content.toString('utf8'));
   }
 }
 
@@ -791,13 +787,12 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
   if (node === undefined) {
     throw new TaskRunnerError('ARTIFACT_MISSING', `未知节点：${nodeId}`);
   }
-  if (path === handoffPath(nodeId, node.revision + 1)) {
+  if (path === handoffPath(nodeId)) {
     try {
       validateHandoff(content, {
         taskId: task.id,
         nodeId,
         phase: node.phase,
-        revision: node.revision + 1,
         evidencePaths,
         decisionFactPaths: registeredDecisionFactPaths(task),
       });
@@ -806,9 +801,9 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       throw new TaskRunnerError('ARTIFACT_INVALID', error instanceof Error ? error.message : '交接包无效');
     }
   }
-  const declaredPath = declaredOutputPath(nodeId, node, node.revision + 1, path);
+  const declaredPath = declaredOutputPath(nodeId, node, path);
   if (declaredPath === undefined) {
-    throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物路径与当前 revision 不一致：${path}`);
+    throw new TaskRunnerError('ARTIFACT_INVALID', `节点产物路径与当前节点不一致：${path}`);
   }
   if (declaredPath === 'artifacts/work-breakdown.yaml') {
     try {
@@ -929,7 +924,7 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
 async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: string, contents: Map<string, string>): Promise<void> {
   const node = task.nodes[nodeId];
   if (node === undefined) return;
-  const handoffContent = contents.get(handoffPath(nodeId, node.revision + 1));
+  const handoffContent = contents.get(handoffPath(nodeId));
   let clarifyFacts: import('../domain/fact-register.js').FactRegister | undefined;
   if (node.phase === 'clarify') {
     const catalogContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance.yaml'));
@@ -950,7 +945,7 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
   if (handoffContent !== undefined) {
     try {
       const facts = clarifyFacts ?? (await readClarificationImpactArtifacts(task, taskStore)).facts;
-      // The first validation pass already checked node identity, revision and
+      // The first validation pass already checked node identity and
       // evidence allowlists. This second pass runs after all sibling outputs
       // exist so it can bind Handoff Fact IDs to the formal register.
       const handoff = HandoffSchema.parse(parse(handoffContent));
@@ -1008,7 +1003,7 @@ async function assertTestEvidenceIntegrity(task: Task, taskStore: TaskStore, tes
 }
 
 function isDeliveryUnit(node: Task['nodes'][string]): boolean {
-  return node.phase === 'implement' && node.generatedFromPlanRevision !== undefined;
+  return node.phase === 'implement' && node.generatedFromPlan === true;
 }
 
 /**

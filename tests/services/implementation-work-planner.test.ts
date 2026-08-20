@@ -13,13 +13,13 @@ const directories: string[] = [];
 describe('ImplementationWorkPlanner', () => {
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('replaces obsolete generated subtasks when an updated plan creates a new work graph', async () => {
+  it('overwrites the current delivery graph when the plan is run again', async () => {
     const projectRoot = await createTempDirectory('aiw-work-planner-');
     directories.push(projectRoot);
     const store = new TaskStore(projectRoot);
     const task = createSevenPhaseTask();
     task.nodes.plan.status = 'completed';
-    task.nodes.plan.revision = 1;
+    task.nodes.plan.hasResult = true;
     await store.create(task);
     await writePlanFacts(store, task.id, 'first');
 
@@ -29,18 +29,18 @@ describe('ImplementationWorkPlanner', () => {
 
     const revised = await store.load(task.id);
     revised.nodes.plan.status = 'completed';
-    revised.nodes.plan.revision = 2;
+    revised.nodes.plan.hasResult = true;
     await store.update(revised);
     await writePlanFacts(store, task.id, 'second');
 
     const second = await materializeImplementationWork(await store.load(task.id), store);
 
-    expect(second.task.nodes['delivery-page'].status).toBe('superseded');
-    expect(second.task.nodes['delivery-export'].status).toBe('superseded');
-    expect(second.task.nodes['delivery-export-r2']).toMatchObject({
-      contextPath: 'artifacts/work-units/r2/delivery-export-r2.md',
+    expect(second.task.nodes['delivery-page'].status).toBe('ready');
+    expect(second.task.nodes['delivery-export'].status).toBe('ready');
+    expect(second.task.nodes['delivery-export']).toMatchObject({
+      contextPath: 'artifacts/work-units/delivery-export.md',
     });
-    expect(second.task.nodes['delivery-export-r2']?.dependsOn).toEqual(['plan']);
+    expect(second.task.nodes['delivery-export']?.dependsOn).toEqual(['plan']);
   });
 
   it('keeps a work unit visible but blocked when its decision is waiting for an external condition', async () => {
@@ -49,10 +49,10 @@ describe('ImplementationWorkPlanner', () => {
     const store = new TaskStore(projectRoot);
     const task = createSevenPhaseTask();
     task.nodes.plan.status = 'completed';
-    task.nodes.plan.revision = 1;
+    task.nodes.plan.hasResult = true;
     task.decisions = [{
-      id: 'DEC-API-01', revision: 1, status: 'waiting_external', optionId: 'wait-api', actor: 'tech-lead',
-      at: '2026-08-14T00:00:00.000Z', owner: 'backend', unblockCondition: '接口契约与联调样例已确认', factPath: 'decisions/DEC-API-01/r1.yaml',
+      id: 'DEC-API-01', status: 'waiting_external', optionId: 'wait-api', actor: 'tech-lead',
+      at: '2026-08-14T00:00:00.000Z', owner: 'backend', unblockCondition: '接口契约与联调样例已确认', factPath: 'decisions/DEC-API-01.yaml',
     }];
     await store.create(task);
     await writePlanFacts(store, task.id, 'first', true);
@@ -69,7 +69,7 @@ describe('ImplementationWorkPlanner', () => {
     const store = new TaskStore(projectRoot);
     const task = createSevenPhaseTask();
     task.nodes.plan.status = 'completed';
-    task.nodes.plan.revision = 1;
+    task.nodes.plan.hasResult = true;
     await store.create(task);
     await writeFile(join(projectRoot, '.aiw', 'config.yaml'), `schemaVersion: aiw.config/v1
 sourceSharing:
@@ -187,10 +187,10 @@ testing:
     const store = new TaskStore(projectRoot);
     const task = createSevenPhaseTask();
     task.nodes.plan.status = 'awaiting_approval';
-    task.nodes.plan.revision = 1;
+    task.nodes.plan.hasResult = true;
     task.workflowPath = {
-      id: 'quick', assessmentPath: 'workflow-assessments/clarify-r1.yaml', assessmentSha256: 'f'.repeat(64),
-      clarifyRevision: 1, policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
+      id: 'quick', assessmentPath: 'workflow-assessments/clarify.yaml', assessmentSha256: 'f'.repeat(64),
+      policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
     };
     await store.create(task);
     await writePlanFacts(store, task.id, 'first');
@@ -203,8 +203,8 @@ testing:
 async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first' | 'second', blockExport = false): Promise<void> {
   const directory = store.taskDirectory(taskId);
   const task = await store.load(taskId);
-  if (task.nodes.clarify!.revision === 0) {
-    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', revision: 1 };
+  if (!task.nodes.clarify!.hasResult) {
+    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', hasResult: true };
     await store.update(task);
   }
   const exportCoverage = task.decisions.find((decision) => decision.id === 'DEC-API-01')?.status;

@@ -66,25 +66,23 @@ describe('CodexAdapter', () => {
     expect(context).toContain('- .aiw/tasks/refund-123/runs/run-1/staging/artifacts/brief.md（发布后成为 artifacts/brief.md）');
   });
 
-  it('requires the agent to generate a versioned structured handoff', async () => {
+  it('requires the agent to generate the current structured handoff', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.aiw-runtime', 'run-handoff');
     const adapter = new CodexAdapter({
       processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
     });
     const request = runRequest({ projectRoot, runDirectory });
-    request.task.nodeRevision = 5;
-    request.artifacts.push('handoffs/clarify/r3.yaml');
+    request.artifacts.push('handoffs/clarify.yaml');
     request.outputContract = outputContractFor(request.runId, request.artifacts);
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
-    expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify/r3.yaml');
-    expect(context).toContain('唯一**交接包先写入：.aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify/r3.yaml，经 AIW 校验后发布为 handoffs/clarify/r3.yaml（输出 revision：3）');
-    expect(context).toContain('completed-revision="5" output-revision="3"');
+    expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify.yaml');
+    expect(context).toContain('本次运行的唯一交接包先写入：.aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify.yaml，经 AIW 校验后覆盖当前结果 handoffs/clarify.yaml。');
     expect(context).toContain('phase: clarify');
-    expect(context).toContain('revision: 3');
+    expect(context).not.toContain('revision:');
     expect(context).toContain('id: FACT-METRICS-01');
     expect(context).toContain('id: DEC-METRICS-01');
     expect(context).toContain('Handoff 中的事实只能复用正式事实登记已存在的 `FACT-*` ID');
@@ -176,16 +174,16 @@ describe('CodexAdapter', () => {
     const request = runRequest({ projectRoot, runDirectory });
     request.task = {
       ...request.task,
-      nodeId: 'delivery-list-custom-metrics-r2',
+      nodeId: 'delivery-list-custom-metrics',
       phase: 'implement',
       testPlan: [{ id: 'TEST-LIST-01', command: 'node scripts/list.test.mjs' }],
     };
     request.artifacts = [
-      'artifacts/delivery-list-custom-metrics-r2/r1/delivery.md',
-      'artifacts/delivery-list-custom-metrics-r2/r1/acceptance-intent.yaml',
-      'artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml',
-      'artifacts/delivery-list-custom-metrics-r2/r1/acceptance-results.yaml',
-      'handoffs/delivery-list-custom-metrics-r2/r1.yaml',
+      'artifacts/delivery-list-custom-metrics/delivery.md',
+      'artifacts/delivery-list-custom-metrics/acceptance-intent.yaml',
+      'artifacts/delivery-list-custom-metrics/test-results.yaml',
+      'artifacts/delivery-list-custom-metrics/acceptance-results.yaml',
+      'handoffs/delivery-list-custom-metrics.yaml',
     ];
     request.outputContract = outputContractFor(request.runId, request.artifacts);
     request.context.skill = {
@@ -197,14 +195,14 @@ describe('CodexAdapter', () => {
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     const receipt = context.slice(context.lastIndexOf('<aiw-output-receipt>'));
-    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics-r2/r1/delivery.md');
-    expect(receipt).toContain('发布正式路径：.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/delivery.md');
-    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics-r2/r1/acceptance-intent.yaml');
-    expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml（仅 AIW 写入）');
-    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/handoffs/delivery-list-custom-metrics-r2/r1.yaml');
+    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics/delivery.md');
+    expect(receipt).toContain('发布正式路径：.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics/delivery.md');
+    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics/acceptance-intent.yaml');
+    expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics/test-results.yaml（仅 AIW 写入）');
+    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/handoffs/delivery-list-custom-metrics.yaml');
     expect(receipt).toContain('忽略低优先级技能中的旧路径示例');
     expect(receipt).not.toContain('artifacts/delivery.md');
-    expect(context).not.toContain('- .aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml');
+    expect(context).not.toContain('- .aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics/test-results.yaml');
   });
 
   it('requires task artifacts to use Simplified Chinese by default', async () => {
@@ -260,7 +258,7 @@ function runRequest(input: { projectRoot: string; runDirectory: string }): RunRe
   return {
     schemaVersion: 'aiw.run/v2',
     runId: 'run-1',
-    task: { id: 'refund-123', nodeId: 'clarify', phase: 'clarify', nodeRevision: 0, projectRoot: input.projectRoot, testPlan: [], testProfiles: [] },
+    task: { id: 'refund-123', nodeId: 'clarify', phase: 'clarify', projectRoot: input.projectRoot, testPlan: [], testProfiles: [] },
     instruction: '澄清退款需求。',
     contextManifestPath: '.aiw/tasks/refund-123/runs/run-1/context-manifest.json',
     runDirectory: input.runDirectory,

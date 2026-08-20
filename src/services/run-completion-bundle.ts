@@ -65,7 +65,7 @@ export async function loadRunCompletionBundle(task: Task, taskStore: TaskStore, 
     }
   }
   if (node.requiresApproval && node.status === 'completed') {
-    await assertApprovalMatchesCompletion(taskStore, task, nodeId, node.revision, event.outputs);
+    await assertApprovalMatchesCompletion(taskStore, task, nodeId, event.outputs);
   }
   return { runId: event.runId, paths };
 }
@@ -109,10 +109,9 @@ async function assertApprovalMatchesCompletion(
   taskStore: TaskStore,
   task: Task,
   nodeId: string,
-  revision: number,
   outputs: Array<{ path: string; sha256: string }>,
 ): Promise<void> {
-  const path = `approvals/${nodeId}/r${revision}.yaml`;
+  const path = `approvals/${nodeId}.yaml`;
   if (!task.approvalRefs.includes(path)) {
     throw new RunCompletionBundleError(`节点 ${nodeId} 的审批记录未被当前任务引用：${path}`);
   }
@@ -122,8 +121,8 @@ async function assertApprovalMatchesCompletion(
   } catch {
     throw new RunCompletionBundleError(`节点 ${nodeId} 缺少与当前完成产物对应的审批记录：${path}`);
   }
-  if (approval.nodeId !== nodeId || approval.nodeRevision !== revision) {
-    throw new RunCompletionBundleError(`节点 ${nodeId} 的审批记录与当前节点 revision 不一致：${path}`);
+  if (approval.nodeId !== nodeId) {
+    throw new RunCompletionBundleError(`节点 ${nodeId} 的审批记录与当前节点不一致：${path}`);
   }
   for (const output of outputs) {
     if (approval.artifactHashes[output.path] !== `sha256:${output.sha256}`) {

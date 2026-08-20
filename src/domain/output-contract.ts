@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * The platform, rather than a skill, owns every physical task-artifact path.
  * Codex writes only to a per-run staging location; AIW validates and promotes
- * those files into the immutable task revision after the process exits.
+ * those files into the current task result after the process exits.
  */
 export const OutputContractVersion = 'aiw.task-output/v1' as const;
 /** The current CLI major and artifact protocol understood by this runtime. */

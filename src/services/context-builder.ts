@@ -67,7 +67,6 @@ export class ContextBuilder {
       schemaVersion: 'aiw.context/v1',
       taskId: input.task.id,
       nodeId: input.nodeId,
-      nodeRevision: node.revision,
       skillProfile: input.task.skillProfile,
       files: contextFiles,
       skill: node.skill,
@@ -129,7 +128,7 @@ export class ContextBuilder {
     }));
     if (phase === 'solution' || phase === 'plan') {
       const clarify = task.nodes.clarify;
-      if (clarify !== undefined && clarify.revision > 0) {
+      if (clarify?.hasResult === true) {
         const [factRegister, acceptanceCatalog] = await Promise.all([
           this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/fact-register.yaml')),
           this.optionalTaskFact(taskDirectory, completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml')),
@@ -238,7 +237,7 @@ function handoffInputs(task: Task, nodeId: string): ContextFileInput[] {
       if (upstream === undefined) {
         throw new ContextBuilderError('CONTEXT_INVALID', `节点依赖不存在：${dependency}`);
       }
-      return { role: 'handoff' as const, path: handoffPath(dependency, upstream.revision) };
+      return { role: 'handoff' as const, path: handoffPath(dependency) };
     });
 }
 

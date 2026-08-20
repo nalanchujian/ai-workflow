@@ -68,7 +68,7 @@ export class TaskStateCommands {
   async acceptanceDetails(taskId: string): Promise<Map<string, AcceptanceDetail>> {
     const task = await this.deps.taskStore.load(taskId);
     const clarify = task.nodes.clarify;
-    if (clarify === undefined || clarify.revision === 0) {
+    if (clarify?.hasResult !== true) {
       throw new Error('需求澄清尚未生成验收清单');
     }
     const content = await readFile(join(this.deps.taskStore.taskDirectory(task.id), completedArtifactPath('clarify', clarify, 'artifacts/acceptance.yaml')), 'utf8');
@@ -105,7 +105,7 @@ export class TaskStateCommands {
     return new WorkflowPathService(this.deps.taskStore).assess(await this.deps.taskStore.load(taskId));
   }
 
-  /** A fast-path task may always be made stricter before any plan revision exists. */
+  /** A fast-path task may always be made stricter before a current plan exists. */
   async switchToStandardPath(taskId: string, options: { actor?: string } = {}): Promise<Task> {
     const task = await this.deps.taskStore.load(taskId);
     if (task.nodes.clarify?.status !== 'completed' || task.workflowPath?.id !== 'quick') {
@@ -185,7 +185,6 @@ export class TaskStateCommands {
       id: workflowPath,
       assessmentPath: assessmentFact.path,
       assessmentSha256: assessmentFact.sha256,
-      clarifyRevision: assessment.clarifyRevision,
       policyVersion: assessment.policyVersion,
       selectedAt: new Date().toISOString(),
       selectedBy: actor,
@@ -240,20 +239,19 @@ export class TaskStateCommands {
       await validatePlanImpact(task, this.deps.taskStore);
     }
     const artifactHashes = await outputHashes(task, this.deps.taskStore, nodeId);
-    const approvalPath = `approvals/${nodeId}/r${node.revision}.yaml`;
+    const approvalPath = `approvals/${nodeId}.yaml`;
     const approval = ApprovalFactSchema.parse({
       nodeId,
-      nodeRevision: node.revision,
       artifactHashes,
       decision,
       actor,
       at: new Date().toISOString(),
       ...(note === undefined ? {} : { note }),
     });
-    await this.deps.taskStore.createFact(taskId, approvalPath, stringify(approval));
+    await this.deps.taskStore.replaceFact(taskId, approvalPath, stringify(approval));
     if (options.riskAcceptance !== undefined) {
-      const riskPath = `risk-acceptances/${nodeId}/r${node.revision}.yaml`;
-      await this.deps.taskStore.createFact(taskId, riskPath, stringify({ schemaVersion: 'aiw.risk-acceptance/v1', nodeId, nodeRevision: node.revision, actor, ...options.riskAcceptance, at: new Date().toISOString() }));
+      const riskPath = `risk-acceptances/${nodeId}.yaml`;
+      await this.deps.taskStore.replaceFact(taskId, riskPath, stringify({ schemaVersion: 'aiw.risk-acceptance/v1', nodeId, actor, ...options.riskAcceptance, at: new Date().toISOString() }));
     }
     let next = transitionNode(task, nodeId, { type: 'approve', actor, ...(note === undefined ? {} : { note }) });
     const generatedFacts: Array<{ path: string; content: string }> = [];
@@ -265,19 +263,17 @@ export class TaskStateCommands {
       next.impactGraph = {
         path: graph.path,
         sha256: graph.sha256,
-        clarifyRevision: next.nodes.clarify!.revision,
-        planRevision: next.nodes.plan!.revision,
       };
-      next.events.push({ type: 'materialize_impact_graph', at: new Date().toISOString(), note: `计划 r${next.nodes.plan!.revision} 已生成来源—事实—决策—验收—交付单元影响图` });
+      next.events.push({ type: 'materialize_impact_graph', at: new Date().toISOString(), note: '当前计划已生成来源—事实—决策—验收—交付单元影响图' });
       generatedFacts.push({ path: graph.path, content: graph.content });
     }
     if (deliveryUnit) {
       next.deliveryStatus = await readDeliveryStatus(next, this.deps.taskStore);
       if (options.riskAcceptance !== undefined) next.events.push({ type: 'close_with_risk', nodeId, at: new Date().toISOString(), actor, note: options.riskAcceptance.reason });
     }
-    next.approvalRefs.push(approvalPath);
+    next.approvalRefs = [...new Set([...next.approvalRefs, approvalPath])];
     for (const fact of generatedFacts) {
-      await this.deps.taskStore.createFact(taskId, fact.path, fact.content);
+      await this.deps.taskStore.replaceFact(taskId, fact.path, fact.content);
     }
     await this.deps.taskStore.update(next);
     return next;
@@ -286,7 +282,7 @@ export class TaskStateCommands {
   private async assertDecisionRegisterCommitted(taskId: string): Promise<void> {
     const task = await this.deps.taskStore.load(taskId);
     const clarify = task.nodes.clarify;
-    if (clarify === undefined || clarify.revision === 0) {
+    if (clarify?.hasResult !== true) {
       throw new Error('需求澄清尚未生成决策登记');
     }
     await this.deps.taskFactGuard.assertCommitted({
@@ -320,7 +316,7 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     const currentTask = await deps.commands.status(taskId);
     const clarifyStatus = currentTask.nodes.clarify?.status;
     if (clarifyStatus === 'completed') {
-      if (currentTask.workflowPath?.id === 'quick' && currentTask.nodes.plan?.revision === 0 && currentTask.nodes.solution?.revision === 0) {
+      if (currentTask.workflowPath?.id === 'quick' && !currentTask.nodes.plan?.hasResult && !currentTask.nodes.solution?.hasResult) {
         const prompter = deps.reviewPrompter ?? createReviewPrompter(deps.stdout);
         deps.stdout.write('当前工作方式：快速修改\n如发现需要独立技术方案或多个交付单元，可在开始计划前切换为标准需求。\n1. 保持快速修改\n2. 切换为标准需求\n');
         const choice = await askNumber(prompter, '请输入选择（1-2）：', 2);
@@ -458,7 +454,7 @@ function invalidatedNextSteps(task: Task): string[] {
 }
 
 function nodeSections(task: Task): Array<NonNullable<HumanOutput['sections']>[number]> {
-  const units = Object.entries(task.nodes).filter(([, node]) => node.phase === 'implement' && node.generatedFromPlanRevision !== undefined && node.status !== 'superseded');
+  const units = Object.entries(task.nodes).filter(([, node]) => node.phase === 'implement' && node.generatedFromPlan === true && node.status !== 'superseded');
   const ordinary = Object.entries(task.nodes).filter(([nodeId]) => nodeId !== 'implement');
   return [
     { title: '节点', lines: ordinary.map(([nodeId, node]) => `${nodeId}（${node.title}）：${nodeId === 'solution' && task.workflowPath?.id === 'quick' ? '快速修改不单独生成方案' : nodeStatusLabel(node.status)}`) },
@@ -496,7 +492,6 @@ async function workflowPathAssessmentForReview(
   return {
     schemaVersion: 'aiw.workflow-path-assessment/v1',
     taskId: task.id,
-    clarifyRevision: Math.max(task.nodes.clarify?.revision ?? 0, 1),
     policyVersion: 'quick-standard/v1',
     recommendedPath: 'standard',
     signals: { sourceCount: 0, sourceCharacters: 0, acceptanceCount: 0, decisionCount: 0, confirmedFactCount: 0, nonConfirmedFactCount: 0 },
@@ -692,7 +687,7 @@ async function outputHashes(task: Task, taskStore: TaskStore, nodeId: string): P
 }
 
 function isDeliveryUnit(node: TaskNode): boolean {
-  return node.phase === 'implement' && node.generatedFromPlanRevision !== undefined;
+  return node.phase === 'implement' && node.generatedFromPlan === true;
 }
 
 async function assertDeliveryUnitPassed(task: Task, taskStore: TaskStore, nodeId: string, node: TaskNode): Promise<void> {
@@ -711,7 +706,7 @@ async function readDeliveryStatus(task: Task, taskStore: TaskStore): Promise<Tas
   for (const [nodeId, node] of units) {
     const results = await readDeliveryUnitResults(task, taskStore, nodeId, node);
     if (results.items.every((item) => item.status === 'passed')) continue;
-    if (!await hasRiskAcceptance(task, taskStore, nodeId, node.revision)) return 'not_ready';
+    if (!await hasRiskAcceptance(task, taskStore, nodeId)) return 'not_ready';
     acceptedRisk = true;
   }
   return acceptedRisk ? 'risk_accepted' : 'ready';
@@ -745,9 +740,9 @@ async function readDeliveryUnitResults(task: Task, taskStore: TaskStore, nodeId:
   }
 }
 
-async function hasRiskAcceptance(task: Task, taskStore: TaskStore, nodeId: string, revision: number): Promise<boolean> {
+async function hasRiskAcceptance(task: Task, taskStore: TaskStore, nodeId: string): Promise<boolean> {
   try {
-    await readFile(join(taskStore.taskDirectory(task.id), `risk-acceptances/${nodeId}/r${revision}.yaml`), 'utf8');
+    await readFile(join(taskStore.taskDirectory(task.id), `risk-acceptances/${nodeId}.yaml`), 'utf8');
     return true;
   } catch {
     return false;

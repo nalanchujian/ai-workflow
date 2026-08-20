@@ -56,8 +56,8 @@ describe('task state machine', () => {
     task.nodes.implement.blockedByDecisionIds = ['DEC-API-01'];
     task.nodes.implement.decisionRefs = ['DEC-API-01'];
     task.decisions = [{
-      id: 'DEC-API-01', revision: 2, status: 'resolved', optionId: 'wait-api', actor: 'backend-lead',
-      at: '2026-08-14T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r2.yaml',
+      id: 'DEC-API-01', status: 'resolved', optionId: 'wait-api', actor: 'backend-lead',
+      at: '2026-08-14T00:00:00.000Z', factPath: 'decisions/DEC-API-01.yaml',
     }];
 
     const next = reconcileDecisionBlocks(task, 'DEC-API-01');
@@ -89,7 +89,7 @@ describe('task state machine', () => {
     });
 
     expect(next.nodes.clarify.status).toBe('awaiting_approval');
-    expect(next.nodes.clarify.revision).toBe(1);
+    expect(next.nodes.clarify.hasResult).toBe(true);
   });
 
   it('approves a node and unlocks its direct dependent', () => {
@@ -105,11 +105,11 @@ describe('task state machine', () => {
   it('routes an eligible task directly from clarify to plan for quick delivery', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'awaiting_approval';
-    task.nodes.clarify.revision = 1;
+    task.nodes.clarify.hasResult = true;
 
     const selected = selectWorkflowPath(task, {
-      id: 'quick', assessmentPath: 'workflow-assessments/clarify-r1.yaml', assessmentSha256: 'e'.repeat(64),
-      clarifyRevision: 1, policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
+      id: 'quick', assessmentPath: 'workflow-assessments/clarify.yaml', assessmentSha256: 'e'.repeat(64),
+      policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
     });
     const approved = transitionNode(selected, 'clarify', { type: 'approve', actor: 'tech-lead' });
 
@@ -120,10 +120,10 @@ describe('task state machine', () => {
   it('clears the quick selection and restores standard topology when a source changes', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
-    task.nodes.clarify.revision = 1;
+    task.nodes.clarify.hasResult = true;
     const quick = selectWorkflowPath(task, {
-      id: 'quick', assessmentPath: 'workflow-assessments/clarify-r1.yaml', assessmentSha256: 'e'.repeat(64),
-      clarifyRevision: 1, policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
+      id: 'quick', assessmentPath: 'workflow-assessments/clarify.yaml', assessmentSha256: 'e'.repeat(64),
+      policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
     });
 
     const restarted = restartDependentsForSourceChange(quick, 'intake', '需求来源已更新');
@@ -134,7 +134,7 @@ describe('task state machine', () => {
     expect(restarted.nodes.plan).toMatchObject({ status: 'pending', dependsOn: ['solution'] });
   });
 
-  it('allows a failed node to be started again without creating a human revision', () => {
+  it('allows a failed node to be started again without adding an operation version', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
     task.nodes.solution.status = 'failed';
@@ -163,9 +163,9 @@ describe('task state machine', () => {
     task.nodes.solution.status = 'completed';
     task.nodes.plan.status = 'completed';
     task.nodes.implement.status = 'completed';
-    task.approvalRefs = ['approvals/clarify/r1.yaml', 'approvals/plan/r1.yaml', 'approvals/implement/r1.yaml'];
+    task.approvalRefs = ['approvals/clarify.yaml', 'approvals/plan.yaml', 'approvals/implement.yaml'];
     task.decisions = [{
-      id: 'DEC-API-01', revision: 1, status: 'resolved', optionId: 'mock', actor: 'tester', at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01/r1.yaml',
+      id: 'DEC-API-01', status: 'resolved', optionId: 'mock', actor: 'tester', at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01.yaml',
     }];
 
     const next = transitionNode(task, 'clarify', { type: 'start', runId: 'replace-clarify-run' });
@@ -189,7 +189,7 @@ describe('task state machine', () => {
       title: '导出能力',
       status: 'ready',
       dependsOn: ['plan'],
-      generatedFromPlanRevision: 1,
+      generatedFromPlan: true,
       workUnitId: 'export',
       acceptanceRefs: ['AC-01'],
       decisionRefs: [],
@@ -206,7 +206,7 @@ describe('task state machine', () => {
     const task = createSevenPhaseTask();
     task.nodes.clarify.status = 'completed';
     task.nodes.solution.status = 'completed';
-    task.nodes.solution.revision = 1;
+    task.nodes.solution.hasResult = true;
 
     const next = transitionNode(task, 'solution', { type: 'start', runId: 'solution-run-2' });
 

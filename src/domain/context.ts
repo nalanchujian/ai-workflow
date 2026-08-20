@@ -45,7 +45,6 @@ export const ContextManifestSchema = z.object({
   schemaVersion: z.literal('aiw.context/v1'),
   taskId: z.string().min(1),
   nodeId: z.string().min(1),
-  nodeRevision: z.number().int().nonnegative(),
   skillProfile: WorkflowProfileLockSchema,
   files: z.array(ContextFileSchema).min(1),
   skill: SkillLockSchema,
