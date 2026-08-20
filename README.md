@@ -72,7 +72,9 @@ aiw task status <task-id>
 
 **当前已实现该链路的基础闭环。** `aiw` 已组合技能安装、任务初始化、来源快照、决策门禁、业务单元交付、单元验收、交付状态汇总、`task run` 和 Codex Adapter；顶层 CLI 在开发者本机创建实际 Git、网络、文档连接器（当前含 Lark MCP）和 Codex 适配器，测试通过确定性替身覆盖主干与单元交付流程。
 
-MVP 已实现“快速修改 / 标准需求”的澄清后建议与选择；剩余目标是把“大需求可控”做完整：超大来源的章节/领域分片，以及上下文超预算时的自动拆分建议。事实可信度、来源证据和“来源—事实—决策—AC—单元”影响图已在澄清与计划链路中落盘并校验；来源未分片时仍保守地重新澄清/规划。这些能力的目标、验收与实施状态分别以[需求与验收规范](docs/02-需求定义/MVP需求与验收规范.md)和[MVP版本实施计划](docs/04-实施规划/MVP版本实施计划.md)为准。
+MVP 已实现“快速修改 / 标准需求”的澄清后建议与选择；剩余目标是把“大需求可控”做完整：自动生成超大来源的章节/领域索引，以及上下文超预算时给出可直接落地的拆分建议。当前用户可以用 `--section` 显式选择连接器支持的章节，但 AIW 尚不会自动生成领域索引或自动改写任务图。事实可信度、来源证据和“来源—事实—决策—AC—单元”影响图已在澄清与计划链路中落盘并校验；来源未分片时仍保守地重新澄清/规划。这些能力的目标、验收与实施状态分别以[需求与验收规范](docs/02-需求定义/MVP需求与验收规范.md)和[MVP版本实施计划](docs/04-实施规划/MVP版本实施计划.md)为准。
+
+当前 Codex 直接在业务仓库工作区执行，而不是在独立 Git worktree 中执行。AIW 要求运行前工作区干净，并在运行后记录基线、Diff、补丁、文件哈希和 Git 历史变化；失败运行产生的业务改动会保留给用户检查、提交或清理。这是当前实现边界，独立执行区与通过后原子合入尚未实现。
 
 真实使用前仍需准备 Git、兼容的 Node.js、与需求来源匹配的文档连接器（如使用受控在线文档）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、已安装的内置方法与文档连接器配置；需要验证某份在线文档时，显式传入 `--source <文档地址>`。CLI 只接收通用来源地址，内部再按地址路由到对应连接器；当前内置连接器支持 Lark 文档。
 
@@ -82,7 +84,7 @@ MVP 已实现“快速修改 / 标准需求”的澄清后建议与选择；剩�
 pnpm install --frozen-lockfile
 pnpm exec tsx src/cli.ts --help
 pnpm exec tsx src/cli.ts doctor --project .
-pnpm exec tsx src/cli.ts run prune --older-than 30d
+pnpm exec tsx src/cli.ts history prune --older-than 30d
 pnpm exec tsx src/cli.ts skills install <git-url>
 ```
 
@@ -108,7 +110,7 @@ npm uninstall -g @nalanchujian/ai-workflow
 
 升级时应删除旧配置中的 `methodSources`；当前版本仅支持团队技能包提供的 `bundled:*` 方法，旧任务需使用新版技能包重新创建。
 
-从安装到完成首个任务的完整操作，见 [用户使用手册](https://github.com/nalanchujian/ai-workflow/blob/codex/agent-skill-orchestrator/docs/07-%E5%8F%91%E5%B8%83%E8%BF%90%E8%90%A5/%E7%94%A8%E6%88%B7%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md)。
+从安装到完成首个任务的完整操作，见[用户使用手册](docs/07-发布运营/用户使用手册.md)。
 
 ### 开发环境的全局链接
 
@@ -178,18 +180,19 @@ pnpm run unlink:global
 
 ### 06 测试验证
 
-- [MVP验收记录](docs/06-测试验证/验收记录.md)：AC-1 至 AC-28 的自动化测试证据与执行命令。
+- [MVP验收记录](docs/06-测试验证/验收记录.md)：AC-01 至 AC-07 的自动化测试证据与执行命令。
 
 ### 07 发布运营
 
 - [用户使用手册](docs/07-发布运营/用户使用手册.md)：安装、个人配置、任务创建、交付单元推进、变更处理和常见问题。
 - [公开 npm 发布实施计划](docs/04-实施规划/公开npm发布实施计划.md)：发布准备与人工发布顺序。
 
-## 计划中的目录
+## 仓库结构
 
 ```text
 src/        # aiw CLI、任务编排和 Codex 适配器
-skills/     # 示例声明式技能
 docs/       # 设计与实施文档
 tests/      # 单元和端到端测试
 ```
+
+阶段技能、工作流模板和内置方法来源位于独立的 `ai-workflow-skills` 仓库，不在本仓库复制维护。

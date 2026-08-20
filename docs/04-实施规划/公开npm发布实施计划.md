@@ -4,7 +4,7 @@
 
 ## 目标
 
-将 `aiw` 打包为可从 npm 公共 Registry 安装的 CLI：包名为 `@nalanchujian/ai-workflow`，全局命令保持为 `aiw`。本计划只准备和验证发布物，不执行不可逆的 `npm publish`。
+维护可从 npm 公共 Registry 安装的 `aiw` CLI：包名为 `@nalanchujian/ai-workflow`，全局命令保持为 `aiw`。发布只能由发布者在本机显式触发，AIW 的日常任务流程和 CI 不会自动发布。
 
 ## 发布边界
 
@@ -12,7 +12,7 @@
 - 发布物仅包含 `dist/` 与 `README.md`（npm 仍会附带必要的 `package.json` 与许可证类文件）。
 - 不发布 `src/`、`tests/`、`docs/`、`.aiw/`、`.superpowers/`、本机配置或运行数据。
 - 发布前必须依次通过 lint、类型检查、全量测试、构建和包内容预检。
-- 发布者手动登录 npm 并运行发布命令；自动化脚本不得保存令牌或主动发布。
+- 发布者手动登录 npm 并显式运行发布命令；发布脚本可以调用 `npm publish`，但不得保存令牌或在其他命令中隐式触发。
 
 ## 任务 1：声明公开包元数据与发布门禁
 
@@ -55,19 +55,20 @@
 - 开发指南说明版本递增、`npm login`、`pnpm pack:check`、`npm publish --access public --registry=https://registry.npmjs.org` 的人工发布顺序。
 - 明确 npm 令牌、`~/.aiw/config.yaml`、文档连接器/Codex 凭据不得写入仓库或包中。
 
-## 验证与提交
+## 当前发布流程
 
 ```bash
 pnpm lint && pnpm typecheck && pnpm test && pnpm pack:check
-git add package.json README.md docs/04-实施规划/公开npm发布实施计划.md docs/05-开发实现/开发指南.md tests/package-distribution.test.ts
-git commit -m "chore: prepare public npm distribution"
+git status --short
 ```
 
-发布者完成 npm 账号登录后，另行执行：
+确认业务代码和文档已经提交、工作区干净后，发布者登录 npm 并执行补丁版本发布：
 
 ```bash
 npm login --registry=https://registry.npmjs.org
-pnpm publish:public
+pnpm release:patch
 ```
 
-`publish:public` 先执行发布前工作树断言，再调用 npm 发布；发布成功后仅提交本次版本变更后的 `package.json`。它不会保存 npm 凭据，也不会替发布者登录。
+`release:patch` 先检查工作区干净，再递增 `package.json` 补丁版本并调用 `publish:public`。发布过程通过 `prepublishOnly` 再次执行 lint、类型检查、测试和构建；发布成功后自动创建仅包含 `package.json` 的 `chore: release v<version>` 提交，不创建 Git tag，也不自动 push。npm 发布失败时不会生成发布提交。
+
+需要 minor 或 major 版本时，由发布者显式运行对应版本递增，再执行 `pnpm publish:public`。npm 上已经发布的包版本不可覆盖。

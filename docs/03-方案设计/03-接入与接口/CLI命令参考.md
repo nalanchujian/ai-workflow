@@ -3,16 +3,19 @@
 ## 日常使用
 
 ```bash
-aiw init
+aiw init [--connector-server <name>]
 aiw doctor [--project <path>] [--source <地址>]
 aiw task init --project <path> --source <地址或文件> [--section <标题>] [--force-new]
 aiw task status <task-id> [--project <path>]
-aiw task run <task-id> <node-id> [--project <path>] [--dry-run]
+aiw task run <task-id> <node-id> [--project <path>] [--dry-run] [--include <path>]
 aiw task review <task-id> [--project <path>] [--confirm]
 aiw task approve <task-id> <node-id> [--project <path>] [--note <说明>]
+aiw history show <task-id> <run-id> [--project <path>]
 ```
 
 `--project` 不传时使用当前目录。所有任务事实写入 `<project>/.aiw/`。
+
+所有命令都可使用顶层 `--json` 输出单个 JSON 文档，例如 `aiw --json task status <task-id>`；默认输出面向用户的中文摘要和下一步。
 
 同一任务一次只允许一个会改变任务事实的命令执行，包括 `task run`、`task source refresh`、`task review`、`task approve`、`task decision resolve`、工作方式切换和风险关闭。若另一个命令正在处理该任务，AIW 会提示“当前任务正在被其他命令修改”；等待当前命令结束后原样重试即可。不同任务互不影响。
 
@@ -21,6 +24,8 @@ aiw task approve <task-id> <node-id> [--project <path>] [--note <说明>]
 ### `aiw init`
 
 创建或补全 `~/.aiw/config.yaml`，自动安装默认技能包并尝试发现已配置的文档 MCP。它不创建业务任务，也不写入业务仓库。
+
+若发现多个兼容的 Codex MCP Server，使用 `--connector-server <name>` 明确选择；没有连接器时仍可使用本地文件和公开 URL。
 
 默认工作流为 `standard-web-feature@12.0.1`，来源为 `ai-workflow-skills@v12.0.1`。
 
@@ -58,7 +63,9 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 
 运行前 AIW 校验来源和上游产物哈希、Git 提交状态、业务工作树基线和上下文预算；`plan` 还会校验所选项目测试能力的健康状态。运行后保存 Prompt 清单、Diff、补丁、结果和产物哈希。
 
-重跑校验成功后会覆盖当前节点产物、交接和审批事实，并使当前节点和下游结果失效；每次运行的日志和证据独立留在运行目录。
+`--dry-run` 只生成上下文、请求摘要和共享 Context Manifest，不启动 Codex。`--include <path>` 可重复传入，只允许注入业务仓库内的相对文件；这些额外文件不自动成为可用于审批的任务证据。
+
+重跑校验成功后会覆盖当前节点产物、交接和审批事实，并使下游结果失效；每次运行的日志和证据独立留在运行目录。当前 Codex 直接修改业务工作区；失败时业务改动可能保留，需先按命令输出检查和处理，工作区恢复干净后才能再次运行。
 
 ### `aiw task status <task-id>`
 
@@ -98,6 +105,23 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 
 升级本机默认技能包并切换同名默认模板版本。它只影响新任务；旧任务继续使用创建时锁定版本。当前交付单元模型需要 `ai-workflow-skills@v12.0.1` 及以上版本。
 
-### `aiw runtime`
+其他技能维护命令：
 
-查看运行记录；`aiw runtime prune --older-than <天数> --apply` 可清理已过保留期的本机运行目录。未加 `--apply` 只列出候选目录。
+```bash
+aiw skills install <git-url> [--ref <tag-or-commit>]
+aiw skills list
+aiw skills profiles list
+```
+
+`install` 用于安装额外团队技能来源；`list` 和 `profiles list` 分别查看本机已安装技能与工作流模板。普通使用者完成 `aiw init` 后不需要手动执行这些命令。
+
+### `aiw history`
+
+查看和清理本机运行记录：
+
+```bash
+aiw history show <task-id> <run-id> [--project <path>]
+aiw history prune [--older-than 30d] [--apply]
+```
+
+`show` 展示状态、摘要、共享证据路径和上下文预算；`prune` 未加 `--apply` 时只列出候选目录，加上后才删除超过保留期且路径结构合法的 `~/.aiw/runtime/<task-id>/<run-id>/`。

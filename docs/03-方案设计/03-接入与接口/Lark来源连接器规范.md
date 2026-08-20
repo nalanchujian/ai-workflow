@@ -166,8 +166,8 @@ Lark URL
 
 | 连接器验证重点 | 对应产品验收 |
 |---|---|
-| 从本机 profile 解析 `lark-openapi`，能够直接读取 docx，或先将 Wiki 节点解析为 docx 后读取正文，并生成 `lark-mcp/v1` 元数据与 Markdown 快照。 | AC-15 |
-| MCP 未配置、无权限、超时、返回无效结构或正文超限时，不产生不完整任务事实，也不泄露凭据。 | AC-16 |
-| 刷新后正文哈希未变化时，不创建 revision、不改变节点状态。 | AC-17 |
-| 刷新后正文哈希变化时，保留旧快照，创建新 revision，并使已开始的下游节点失效。 | AC-18 |
-| 后续节点运行时，Context Manifest 记录来源快照路径、revision 和 SHA-256；不记录 MCP 配置、令牌或原始响应。 | AC-23 |
+| 从本机 profile 解析 `lark-openapi`，能够直接读取 docx，或先将 Wiki 节点解析为 docx 后读取正文，并生成 `lark-mcp/v1` 元数据与 Markdown 快照。 | AC-01 |
+| MCP 未配置、无权限、超时、返回无效结构或正文超限时，不产生不完整任务事实，也不泄露凭据。 | AC-01 |
+| 刷新后正文哈希未变化时，不创建 revision、不改变节点状态。 | AC-05 |
+| 刷新后正文哈希变化时，保留旧快照，创建新 revision，并使已开始的下游节点失效。 | AC-05 |
+| 后续节点运行时，Context Manifest 记录来源快照路径、revision 和 SHA-256；不记录 MCP 配置、令牌或原始响应。 | AC-06 |

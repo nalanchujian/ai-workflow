@@ -1,4 +1,4 @@
-# Codex适配器规范（v1）
+# Codex 适配器规范
 
 ## 目的
 
@@ -31,7 +31,7 @@ Codex Adapter 将 Runner 的通用运行请求转换为一次 Codex CLI 调用�
 }
 ```
 
-Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。执行模式还必须要求业务工作树干净，记录 Git 提交/分支和空工作树基线，以及当前节点的任务事实写入边界；Adapter 返回后采集全部 Git 变更路径、原始 diff 哈希、未跟踪文件补丁及变更文件哈希。业务代码和测试可按当前节点目标修改，不通过计划中的文件路径白名单阻断；但写入其他 `.aiw/` 任务事实、修改 Git 历史或切换分支必须保留证据、将节点标记失败，不能进入下一节点。检测到未授权 `.aiw/` 写入时，Runner 先将该文件恢复为交给 Codex 前的内容，再记录违规路径和恢复记录，避免当前任务事实被污染。每次成功事件关联 `change-evidence.json`，使实现说明、验证报告可追溯到实际变更。它还必须从本机 Registry 与显式配置的方法来源重新读取节点锁定的 `SKILL.md`，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
+Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提交的上下文审批条件和 token 预算。执行模式还必须要求业务工作树干净，记录 Git 提交/分支和空工作树基线，以及当前节点的任务事实写入边界；Adapter 返回后由 Runner 采集全部 Git 变更路径、原始 diff 哈希、未跟踪文件补丁及变更文件哈希。当前 Codex 直接在 `projectRoot` 工作区执行，不使用独立 Git worktree。业务代码和测试可按当前节点目标修改，不通过计划中的文件路径白名单阻断；但写入其他 `.aiw/` 任务事实、修改 Git 历史或切换分支必须保留证据、将节点标记失败，不能进入下一节点。检测到未授权 `.aiw/` 写入时，Runner 先将该文件恢复为交给 Codex 前的内容，再记录违规路径和恢复记录，避免当前任务事实被污染；业务代码改动不会自动还原。每次成功事件关联 `change-evidence.json`，使实现说明、验证报告可追溯到实际变更。它还必须从本机 Registry 重新读取节点锁定的 `SKILL.md` 和内置方法，逐项校验 Git revision、技能 SHA-256、方法来源 revision 和 SHA-256；不匹配时拒绝运行，不能使用本机最新版本替代。随后 Runner 将锁定技能、方法正文和 Manifest 对应的文件内容作为**仅在进程内传递的运行上下文**交给 Adapter；这些正文不写入 `request.json`。`projectRoot` 必须存在；`contextManifestPath` 必须位于共享任务目录内；`runDirectory` 必须位于本机 `~/.aiw/runtime/` 内；`mode` 仅能是 `dry-run` 或 `execute`。
 
 ## 输出：RunResult
 
@@ -43,20 +43,19 @@ Runner 在调用 Adapter 前负责验证所有路径、技能版本、Git 已提
   "startedAt": "2026-08-11T12:00:00Z",
   "finishedAt": "2026-08-11T12:02:00Z",
   "process": {"exitCode": 0, "signal": null},
-  "artifacts": [{"path": "artifacts/plan/implementation-plan.md", "sha256": "<hex>"}],
-  "error": null
+  "artifacts": [{"path": "artifacts/plan/implementation-plan.md", "sha256": "<hex>"}]
 }
 ```
 
-`status` 为 `succeeded`、`failed`、`cancelled` 或 `unavailable`。只有 Codex 进程正常退出、声明的产物存在且均位于允许的任务目录内时，才能返回 `succeeded`。`process` 仅记录退出码和信号；`artifacts` 记录路径及 SHA-256。非零退出码返回 `failed`；找不到或无法启动 Codex 返回 `unavailable`；收到取消信号返回 `cancelled`；达到执行超时时间返回 `failed`，错误码为 `CODEX_TIMEOUT`。
+`status` 为 `succeeded`、`failed`、`cancelled` 或 `unavailable`。Adapter 的 `succeeded` 只表示 Codex 进程正常退出；随后 Runner 还必须校验暂存产物、任务事实写入边界、Git 历史和测试证据，最终返回给 CLI 的成功结果才会包含已发布产物及其 SHA-256。非零退出码返回 `failed`；找不到或无法启动 Codex 返回 `unavailable`；收到取消信号返回 `cancelled`；达到执行超时时间返回 `failed`，错误码为 `CODEX_TIMEOUT`。
 
 ## 执行步骤
 
 1. `validate(request)`：验证 schema、路径边界、文件哈希和运行模式。
 2. `prepare(request)`：在本机 `runDirectory` 生成只读的 `context.md`，其中包含技能、用户任务和 manifest 列出的文件，并保留路径边界。
 3. `execute(request)`：以 `projectRoot` 为工作目录启动 Codex CLI；默认最长运行 15 分钟，超时后先终止子进程，必要时强制终止；将 stdout、stderr 和退出信息写入本机运行目录。
-4. `collect(request)`：采集全部 Git 变更路径、未跟踪文件补丁和变更文件哈希；校验 Git 历史、分支以及 `.aiw/` 任务事实写入边界，随后校验预期产物并返回去敏 `RunResult`。
-5. `cleanup(request)`：仅删除 Adapter 创建的本机临时文件；不得删除任务产物、来源快照或业务代码。
+4. Runner 收尾：采集全部 Git 变更路径、未跟踪文件补丁和变更文件哈希；校验 Git 历史、分支以及 `.aiw/` 任务事实写入边界，执行交付单元已批准测试，校验暂存产物并原子覆盖当前正式结果。
+5. 运行目录按本机保留策略继续存在；只有用户显式执行 `aiw history prune ... --apply` 才会安全删除超过保留期的本机运行目录。任务产物、来源快照和业务代码不由该清理命令删除。
 
 Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业务仓库 `.aiw/tasks/<id>/runs/<run-id>/`；完整请求、`context.md`、标准输出、标准错误和最后消息不得进入共享任务目录。
 
@@ -74,7 +73,7 @@ Handoff 是摘要而不是新的事实来源：其中 `facts[].id` 必须复用�
 
 除非用户任务明确要求其他语言，Adapter 要求所有 Markdown 任务产物使用简体中文；代码标识、命令、路径、API 名称和必须保留的原文保持原始语言。上游方法论可以是英文，但不能改变该产物语言约束。
 
-`dry-run` 只执行第 1、2 步，生成本机 `context.md`、`request.json` 和共享 Context Manifest，绝不启动 Codex。默认 CLI 仅展示预演结果摘要；完整调用参数只保留在本机 `request.json`。
+`dry-run` 只执行第 1、2 步，生成本机 `context.md`、去敏 `request.json` 和共享 Context Manifest，绝不启动 Codex。默认 CLI 仅展示预演结果摘要；技能正文、方法正文、来源正文和完整提示词只存在于本机 `context.md`。
 
 ## Codex CLI 调用（MVP）
 
@@ -88,7 +87,7 @@ Adapter 将 `AIW_CODEX_BIN` 解析为可执行文件；变量未设置时使用 
   -
 ```
 
-`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`--approve-for-me` 仅适用于用户显式运行的 `aiw task run`；当前 Codex CLI 会在该模式下使用 `workspace-write`，且不允许再显式传入 `--sandbox workspace-write`。Adapter 不得替换为绕过 sandbox 的参数。Adapter 必须将实际二进制路径、参数和运行模式写入本机 `request.json`；共享任务目录只记录去敏摘要。
+`context.md` 通过 stdin 传递，因为末尾 `-` 指示 Codex 从 stdin 读取初始指令。`--approve-for-me` 仅适用于用户显式运行的 `aiw task run`；当前 Codex CLI 会在该模式下使用 `workspace-write`，且不允许再显式传入 `--sandbox workspace-write`。Adapter 不得替换为绕过 sandbox 的参数。本机 `request.json` 保存去敏后的任务、运行模式、输出契约及上下文引用，不保存正文或完整提示词；共享任务目录只记录进一步去敏的运行结果和清单。
 
 ## 失败与恢复
 
