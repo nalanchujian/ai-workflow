@@ -33,9 +33,12 @@ function guidanceFor(message: string, args: string[]): string[] {
   if (message.includes('上下文超过预算')) {
     return ['精简上游交接包，或将实施计划拆为更小的工作单元后重试当前节点。'];
   }
-  if (message === '当前任务已有节点正在运行') {
+  if (message === '当前任务已有节点正在运行' || message.includes('当前任务正在被其他命令修改')) {
     const taskId = taskIdFrom(args);
-    return taskId === undefined ? [] : [`aiw task status ${taskId}`, '不要重复启动；等待当前节点结束，或在确认进程异常后按状态提示处理。'];
+    return [
+      ...(taskId === undefined ? [] : [`aiw task status ${taskId}`]),
+      '不要同时执行运行、审批、决策或来源刷新；等待当前操作结束后再重试。',
+    ];
   }
   if (message.includes('只能运行已就绪且已锁定技能的节点')) {
     const taskId = taskIdFrom(args);

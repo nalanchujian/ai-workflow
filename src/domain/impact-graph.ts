@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { FactKindSchema } from './fact-register.js';
+import { VerificationPlanItemSchema } from './acceptance-evidence.js';
 
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
@@ -37,7 +38,7 @@ const ImpactUnitSchema = z.object({
   factRefs: z.array(z.string().regex(/^FACT-[A-Z0-9-]+$/)).min(1),
   decisionIds: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/)),
   dependsOn: z.array(z.string().min(1)),
-  verificationCommands: z.array(z.string().min(1)).min(1),
+  verificationPlan: z.array(VerificationPlanItemSchema).min(1),
 }).strict();
 
 /** A deterministic current view of source → fact → decision → AC → unit. */

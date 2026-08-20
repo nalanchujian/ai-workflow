@@ -80,9 +80,18 @@ export class TaskStore {
     }
   }
 
-  async update(task: Task): Promise<void> {
+  async update(task: Task): Promise<Task> {
     const parsed = TaskSchema.parse(task);
-    await this.writeTask(parsed);
+    const current = await this.load(parsed.id);
+    if (current.stateVersion !== parsed.stateVersion) {
+      throw new TaskStoreError(`任务状态已变化：期望版本 ${parsed.stateVersion}，当前版本 ${current.stateVersion}；请重新读取任务后再操作`);
+    }
+    const next = TaskSchema.parse({ ...parsed, stateVersion: current.stateVersion + 1 });
+    await this.writeTask(next);
+    // Existing command services keep the task object for later writes in the
+    // same locked transaction. Advance that caller-visible version as well.
+    task.stateVersion = next.stateVersion;
+    return next;
   }
 
   async createFact(taskId: string, path: string, content: string): Promise<void> {

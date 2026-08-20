@@ -74,6 +74,16 @@ async function createImpactTask(options: { invalidUnitFacts?: boolean; materiali
     factPath: 'decisions/DEC-API-01.yaml',
   }];
   await store.create(task);
+  await writeFile(join(directory, '.aiw', 'config.yaml'), `schemaVersion: aiw.config/v1
+testing:
+  profiles:
+    - id: vitest
+      title: 项目测试
+      command: pnpm exec vitest run
+      healthCheck: pnpm exec vitest --version
+      targetMode: append
+      evidenceTypes: [unit, component, contract]
+`, 'utf8');
   const taskDirectory = store.taskDirectory(task.id);
   const clarifyPath = (name: string) => completedArtifactPath('clarify', task.nodes.clarify!, `artifacts/${name}`);
   const planPath = (name: string) => completedArtifactPath('plan', task.nodes.plan!, `artifacts/${name}`);
@@ -97,16 +107,18 @@ items:
       - sourceId: requirements
         path: sources/requirements/r1/snapshot.md
 `);
-  await writeFile(join(taskDirectory, clarifyPath('acceptance.yaml')), `schemaVersion: aiw.acceptance-catalog/v1
+  await writeFile(join(taskDirectory, clarifyPath('acceptance.yaml')), `schemaVersion: aiw.acceptance-catalog/v2
 items:
   - id: AC-01
     title: 主列表导出字段一致性
     description: 导出字段与服务端正式契约和当前页面选择保持一致。
     factRefs: [FACT-API-01]
+    evidenceType: contract
   - id: AC-02
     title: 主列表字段配置
     description: 用户可以配置页面可见字段并在刷新后保持当前选择。
     factRefs: [FACT-PAGE-01]
+    evidenceType: component
 `);
   await writeFile(join(taskDirectory, clarifyPath('decision-register.yaml')), `schemaVersion: aiw.decision-register/v1
 items:
@@ -140,7 +152,7 @@ units:
     decisionRefs: [DEC-API-01]
     blockedBy: [DEC-API-01]
     steps: [组装导出字段参数, 校验导出结果]
-    verification: [{ profile: vitest, targets: [export] }]
+    verification: [{ profile: vitest, targets: [export], evidenceType: contract, acceptanceRefs: [AC-01] }]
   - id: page
     title: 主列表字段配置
     goal: 支持用户配置并保留主列表可见字段。
@@ -148,7 +160,7 @@ units:
     factRefs: [FACT-PAGE-01]
     decisionRefs: []
     steps: [实现字段配置, 保存当前选择]
-    verification: [{ profile: vitest, targets: [metrics] }]
+    verification: [{ profile: vitest, targets: [metrics], evidenceType: component, acceptanceRefs: [AC-02] }]
 acceptanceCoverage:
   - acceptanceId: AC-01
     disposition: waiting_external

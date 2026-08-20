@@ -5,10 +5,10 @@ import { AcceptanceResultsSchema, deliveryStatusFromAcceptanceResults } from '..
 describe('AcceptanceResultsSchema', () => {
   it('derives ready only when every acceptance item passed', () => {
     const results = AcceptanceResultsSchema.parse({
-      schemaVersion: 'aiw.acceptance-results/v1',
+      schemaVersion: 'aiw.acceptance-results/v2',
       items: [
-        { id: 'AC-01', status: 'passed', evidence: ['artifacts/test-report.md'], testResultRefs: ['TEST-REFUND-01'] },
-        { id: 'AC-02', status: 'passed', evidence: ['artifacts/test-report.md'], testResultRefs: ['TEST-REFUND-02'] },
+        { id: 'AC-01', status: 'passed', evidenceType: 'unit', evidence: ['artifacts/test-report.md'], testResultRefs: ['TEST-REFUND-01'] },
+        { id: 'AC-02', status: 'passed', evidenceType: 'unit', evidence: ['artifacts/test-report.md'], testResultRefs: ['TEST-REFUND-02'] },
       ],
     });
 
@@ -17,10 +17,10 @@ describe('AcceptanceResultsSchema', () => {
 
   it('derives not_ready when any acceptance item remains blocked or failed', () => {
     const results = AcceptanceResultsSchema.parse({
-      schemaVersion: 'aiw.acceptance-results/v1',
+      schemaVersion: 'aiw.acceptance-results/v2',
       items: [
-        { id: 'AC-01', status: 'passed', evidence: ['artifacts/test-report.md'], testResultRefs: ['TEST-REFUND-01'] },
-        { id: 'AC-02', status: 'blocked', evidence: ['artifacts/test-report.md'], testResultRefs: [] },
+        { id: 'AC-01', status: 'passed', evidenceType: 'unit', evidence: ['artifacts/test-report.md'], testResultRefs: ['TEST-REFUND-01'] },
+        { id: 'AC-02', status: 'blocked', evidenceType: 'browser', evidence: ['artifacts/test-report.md'], testResultRefs: [] },
       ],
     });
 
@@ -29,15 +29,15 @@ describe('AcceptanceResultsSchema', () => {
 
   it('rejects deferred or waived acceptance outcomes because scope and risk use separate facts', () => {
     expect(() => AcceptanceResultsSchema.parse({
-      schemaVersion: 'aiw.acceptance-results/v1',
-      items: [{ id: 'AC-01', status: 'waived', evidence: ['artifacts/delivery.md'], testResultRefs: [] }],
+      schemaVersion: 'aiw.acceptance-results/v2',
+      items: [{ id: 'AC-01', status: 'waived', evidenceType: 'unit', evidence: ['artifacts/delivery.md'], testResultRefs: [] }],
     })).toThrow();
   });
 
   it('rejects a passed acceptance item without a real test record reference', () => {
     expect(() => AcceptanceResultsSchema.parse({
-      schemaVersion: 'aiw.acceptance-results/v1',
-      items: [{ id: 'AC-01', status: 'passed', evidence: ['artifacts/delivery.md'], testResultRefs: [] }],
+      schemaVersion: 'aiw.acceptance-results/v2',
+      items: [{ id: 'AC-01', status: 'passed', evidenceType: 'unit', evidence: ['artifacts/delivery.md'], testResultRefs: [] }],
     })).toThrow('通过的验收项必须引用至少一条实际通过的测试记录');
   });
 });

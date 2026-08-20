@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import type { DeliveryStatus } from './task.js';
 import { TestResultIdSchema } from './test-results.js';
+import { AcceptanceEvidenceTypeSchema } from './acceptance-evidence.js';
 
 // Acceptance is a statement about the current delivery. It can pass, fail, or
 // be blocked. Moving scope is a source change; accepting an unmet result is a
@@ -9,10 +10,11 @@ import { TestResultIdSchema } from './test-results.js';
 export const AcceptanceResultStatusSchema = z.enum(['passed', 'failed', 'blocked']);
 
 export const AcceptanceResultsSchema = z.object({
-  schemaVersion: z.literal('aiw.acceptance-results/v1'),
+  schemaVersion: z.literal('aiw.acceptance-results/v2'),
   items: z.array(z.object({
     id: z.string().min(1),
     status: AcceptanceResultStatusSchema,
+    evidenceType: AcceptanceEvidenceTypeSchema,
     evidence: z.array(z.string().min(1)).min(1),
     testResultRefs: z.array(TestResultIdSchema),
   }).strict()).min(1),

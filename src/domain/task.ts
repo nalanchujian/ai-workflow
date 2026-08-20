@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { VerificationPlanItemSchema } from './acceptance-evidence.js';
+
 import { ImpactGraphReferenceSchema } from './impact-graph.js';
 
 const sha256Pattern = /^[a-f0-9]{64}$/;
@@ -137,7 +139,7 @@ export const TaskNodeSchema = z.object({
   /** Generated delivery units belong to the current plan. */
   generatedFromPlan: z.boolean().optional(),
   workUnitId: z.string().regex(/^[a-z][a-z0-9-]{0,40}$/, '工作单元 ID 格式无效').optional(),
-  verificationCommands: z.array(z.string().min(1)).default([]),
+  verificationPlan: z.array(VerificationPlanItemSchema).default([]),
   acceptanceRefs: z.array(z.string().regex(/^AC-\d{2,}$/, '验收项 ID 格式无效')).default([]),
   decisionRefs: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   blockedByDecisionIds: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).optional(),
@@ -175,6 +177,8 @@ export const TaskEventSchema = z.object({
 
 const TaskBaseSchema = z.object({
   schemaVersion: z.literal('aiw.task/v2'),
+  /** Monotonic compare-and-swap version for the current task state. */
+  stateVersion: z.number().int().nonnegative().default(0),
   id: z.string().regex(taskIdPattern),
   title: z.string().min(1),
   repository: z.string().min(1),
@@ -208,8 +212,16 @@ export const TaskSchema = TaskBaseSchema.superRefine((task, context) => {
     if (node.phase === 'implement' && node.generatedFromPlan === true && node.workUnitId === undefined) {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'workUnitId'], message: '交付单元必须声明工作单元 ID' });
     }
-    if (node.phase === 'implement' && node.generatedFromPlan === true && node.verificationCommands.length === 0) {
-      context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'verificationCommands'], message: '交付单元必须声明至少一条由 AIW 执行的验证命令' });
+    if (node.phase === 'implement' && node.generatedFromPlan === true && node.verificationPlan.length === 0) {
+      context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'verificationPlan'], message: '交付单元必须声明至少一条由 AIW 执行的验证计划' });
+    }
+    if (node.phase === 'implement' && node.generatedFromPlan === true) {
+      const covered = new Set(node.verificationPlan.flatMap((item) => item.acceptanceRefs));
+      const missing = node.acceptanceRefs.filter((id) => !covered.has(id));
+      const unknown = [...covered].filter((id) => !node.acceptanceRefs.includes(id));
+      if (missing.length > 0 || unknown.length > 0) {
+        context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'verificationPlan'], message: '验证计划必须且只能覆盖当前交付单元的验收项' });
+      }
     }
     if (node.blockedByDecisionIds?.some((id) => !node.decisionRefs.includes(id))) {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'decisionRefs'], message: 'blockedByDecisionIds 中的决策必须同时出现在 decisionRefs' });

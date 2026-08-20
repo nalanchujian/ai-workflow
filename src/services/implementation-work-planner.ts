@@ -11,82 +11,12 @@ import { FactRegisterSchema } from '../domain/fact-register.js';
 import { completedArtifactPath } from '../domain/handoff.js';
 import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
+import { WorkBreakdownSchema, type WorkBreakdown } from '../domain/work-breakdown.js';
 import { TaskStore } from './task-store.js';
 import { deriveTaskStatus } from './task-state-machine.js';
-import { ProjectTestProfiles, VerificationProfileRefSchema } from './project-test-profiles.js';
+import { ProjectTestProfiles, type ResolvedVerification } from './project-test-profiles.js';
 
-const unitIdPattern = /^[a-z][a-z0-9-]{0,40}$/;
-
-const WorkUnitSchema = z.object({
-  id: z.string().regex(unitIdPattern, '工作单元 ID 格式无效'),
-  title: z.string().min(1),
-  goal: z.string().min(1),
-  acceptanceRefs: z.array(z.string().min(1)).min(1),
-  factRefs: z.array(z.string().regex(/^FACT-[A-Z0-9-]+$/, '事实引用格式无效')).min(1),
-  decisionRefs: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
-  steps: z.array(z.string().min(1)).min(1),
-  verification: z.array(VerificationProfileRefSchema).min(1),
-  blockedBy: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
-  dependsOn: z.array(z.string().regex(unitIdPattern, '依赖工作单元 ID 格式无效')).default([]),
-}).strict();
-
-const AcceptanceCoverageSchema = z.object({
-  acceptanceId: z.string().regex(/^AC-\d{2,}$/, '验收项 ID 格式无效'),
-  disposition: z.enum(['implement', 'waiting_external']),
-  workUnitIds: z.array(z.string().regex(unitIdPattern, '工作单元 ID 格式无效')).default([]),
-  decisionId: z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效').optional(),
-}).strict();
-
-export const WorkBreakdownSchema = z.object({
-  schemaVersion: z.literal('aiw.work-breakdown/v2'),
-  units: z.array(WorkUnitSchema).min(1),
-  acceptanceCoverage: z.array(AcceptanceCoverageSchema).min(1),
-}).strict().superRefine((breakdown, context) => {
-  const ids = new Set(breakdown.units.map((unit) => unit.id));
-  if (ids.size !== breakdown.units.length) {
-    context.addIssue({ code: 'custom', path: ['units'], message: '工作单元 ID 必须唯一' });
-  }
-  for (const [index, unit] of breakdown.units.entries()) {
-    for (const dependency of unit.dependsOn) {
-      if (!ids.has(dependency) || dependency === unit.id) {
-        context.addIssue({ code: 'custom', path: ['units', index, 'dependsOn'], message: '工作单元依赖必须指向其他已声明单元' });
-      }
-    }
-    if (new Set(unit.factRefs).size !== unit.factRefs.length) {
-      context.addIssue({ code: 'custom', path: ['units', index, 'factRefs'], message: '工作单元引用的事实 ID 必须唯一' });
-    }
-    if (new Set(unit.decisionRefs).size !== unit.decisionRefs.length) {
-      context.addIssue({ code: 'custom', path: ['units', index, 'decisionRefs'], message: '工作单元引用的决策 ID 必须唯一' });
-    }
-    if (unit.blockedBy.some((id) => !unit.decisionRefs.includes(id))) {
-      context.addIssue({ code: 'custom', path: ['units', index, 'decisionRefs'], message: 'blockedBy 中的决策必须同时出现在 decisionRefs' });
-    }
-    if (new Set(unit.verification.map((item) => `${item.profile}:${item.targets.join(',')}`)).size !== unit.verification.length) {
-      context.addIssue({ code: 'custom', path: ['units', index, 'verification'], message: '工作单元测试能力引用不能重复' });
-    }
-  }
-  if (hasCycle(breakdown.units.map((unit) => ({ id: unit.id, dependsOn: unit.dependsOn })))) {
-    context.addIssue({ code: 'custom', path: ['units'], message: '工作单元依赖存在环' });
-  }
-  const coverageIds = new Set(breakdown.acceptanceCoverage.map((item) => item.acceptanceId));
-  if (coverageIds.size !== breakdown.acceptanceCoverage.length) {
-    context.addIssue({ code: 'custom', path: ['acceptanceCoverage'], message: '验收覆盖声明不能重复同一验收项' });
-  }
-  for (const [index, coverage] of breakdown.acceptanceCoverage.entries()) {
-    const unitIds = new Set(coverage.workUnitIds);
-    if (unitIds.size !== coverage.workUnitIds.length || coverage.workUnitIds.some((id) => !ids.has(id))) {
-      context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index, 'workUnitIds'], message: '验收覆盖必须引用已声明且唯一的工作单元' });
-    }
-    if (['implement', 'waiting_external'].includes(coverage.disposition) && coverage.workUnitIds.length !== 1) {
-      context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index, 'workUnitIds'], message: '每个本期或外部等待验收项必须且只能关联一个交付单元；跨单元验收请新增集成交付单元' });
-    }
-    if (coverage.disposition === 'waiting_external' && coverage.decisionId === undefined) {
-      context.addIssue({ code: 'custom', path: ['acceptanceCoverage', index], message: '等待外部条件验收项必须关联决策和一个交付单元' });
-    }
-  }
-});
-
-export type WorkBreakdown = z.infer<typeof WorkBreakdownSchema>;
+export { WorkBreakdownSchema, type WorkBreakdown } from '../domain/work-breakdown.js';
 
 export class ImplementationWorkPlannerError extends Error {
   constructor(message: string) {
@@ -163,7 +93,8 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
     // task.repository is task metadata and may be relative (for example `.`).
     // The TaskStore owns the resolved business-repository directory, so test
     // profile discovery must use it rather than the CLI process directory.
-    const verificationCommands = await testProfiles.resolve(taskStore.projectDirectory(), unit.verification);
+    const resolvedVerification = await testProfiles.resolve(taskStore.projectDirectory(), unit.verification);
+    const verificationPlan = buildVerificationPlan(unit.id, resolvedVerification);
     const node: TaskNode = {
       title: unit.title,
       phase: 'implement',
@@ -176,13 +107,13 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       contextPath,
       generatedFromPlan: true,
       workUnitId: unit.id,
-      verificationCommands,
+      verificationPlan,
       acceptanceRefs: unit.acceptanceRefs,
       decisionRefs: unit.decisionRefs,
       ...(blockedByDecisionIds.length === 0 ? {} : { blockedByDecisionIds }),
     };
     next.nodes[nodeId] = node;
-    facts.push({ path: contextPath, content: renderUnitContext(unit, verificationCommands, task.id, planPath, breakdownPath, planHash, breakdownHash, factsById, decisionsById, next) });
+    facts.push({ path: contextPath, content: renderUnitContext(unit, verificationPlan, task.id, planPath, breakdownPath, planHash, breakdownHash, factsById, decisionsById, next) });
     next.events.push({ type: 'materialize_implementation', nodeId, at: new Date().toISOString(), note: `当前计划；工作单元：${unit.id}` });
   }
   return { task: TaskSchema.parse(deriveTaskStatus(next)), facts };
@@ -197,6 +128,13 @@ export function validateWorkBreakdown(content: string): void {
     }
     throw new ImplementationWorkPlannerError('实施工作单元声明不是有效 YAML');
   }
+}
+
+export function buildVerificationPlan(unitId: string, resolved: ResolvedVerification[]): TaskNode['verificationPlan'] {
+  return resolved.map((item, index) => ({
+    id: `TEST-${unitId.toUpperCase()}-${String(index + 1).padStart(2, '0')}`,
+    ...item,
+  }));
 }
 
 function formatWorkBreakdownIssues(error: z.ZodError): string {
@@ -305,6 +243,7 @@ export async function validateWorkflowPathPlan(task: Task, taskStore: TaskStore,
 async function validateAcceptanceCoverage(task: Task, taskStore: TaskStore, breakdown: WorkBreakdown): Promise<void> {
   const catalog = await readAcceptanceCatalog(task, taskStore);
   const catalogIds = new Set(catalog.items.map((item) => item.id));
+  const catalogById = new Map(catalog.items.map((item) => [item.id, item]));
   const coverageByAcceptance = new Map(breakdown.acceptanceCoverage.map((coverage) => [coverage.acceptanceId, coverage]));
   const missing = catalog.items.filter((item) => !coverageByAcceptance.has(item.id)).map((item) => item.id);
   const unknown = breakdown.acceptanceCoverage.filter((coverage) => !catalogIds.has(coverage.acceptanceId)).map((coverage) => coverage.acceptanceId);
@@ -333,6 +272,15 @@ async function validateAcceptanceCoverage(task: Task, taskStore: TaskStore, brea
       if (coverage === undefined ||
         (!['implement', 'waiting_external'].includes(coverage.disposition) || !coverage.workUnitIds.includes(unit.id))) {
         errors.push(`工作单元 ${unit.id} 引用的 ${acceptanceId} 未与该单元形成一致覆盖声明`);
+      }
+      const bindings = unit.verification.filter((item) => item.acceptanceRefs.includes(acceptanceId));
+      if (bindings.length === 0) {
+        errors.push(`工作单元 ${unit.id} 未为 ${acceptanceId} 声明测试能力、目标和证据类型`);
+      }
+      const expectedEvidenceType = catalogById.get(acceptanceId)?.evidenceType;
+      const mismatched = bindings.filter((item) => item.evidenceType !== expectedEvidenceType);
+      if (mismatched.length > 0) {
+        errors.push(`${acceptanceId} 要求 ${expectedEvidenceType} 证据，计划不得改为 ${[...new Set(mismatched.map((item) => item.evidenceType))].join('、')}`);
       }
     }
   }
@@ -373,7 +321,7 @@ function nextNodeId(_task: Task, base: string): string {
 
 function renderUnitContext(
   unit: WorkBreakdown['units'][number],
-  verificationCommands: string[],
+  verificationPlan: TaskNode['verificationPlan'],
   taskId: string,
   planPath: string,
   breakdownPath: string,
@@ -418,27 +366,11 @@ function renderUnitContext(
     ...unit.steps.map((step, index) => `${index + 1}. ${step}`),
     '',
     '## 工程验证与验收测试',
-    ...verificationCommands.map((command) => `- ${command}`),
+    ...verificationPlan.map((item) => `- ${item.id}：${item.evidenceType} 证据；${item.command}；覆盖 ${item.acceptanceRefs.join('、')}`),
     '',
     '## 交付要求',
     '- 在本单元内完成代码修改、工程验证和验收测试；不得等待全局验证节点。',
     '- 只为上述验收项生成验收结果；跨单元验收必须由计划声明的集成交付单元负责。',
     '',
   ].join('\n');
-}
-
-function hasCycle(units: Array<{ id: string; dependsOn: string[] }>): boolean {
-  const byId = new Map(units.map((unit) => [unit.id, unit]));
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const visit = (id: string): boolean => {
-    if (visiting.has(id)) return true;
-    if (visited.has(id)) return false;
-    visiting.add(id);
-    const cycle = byId.get(id)?.dependsOn.some(visit) ?? false;
-    visiting.delete(id);
-    visited.add(id);
-    return cycle;
-  };
-  return units.some((unit) => visit(unit.id));
 }

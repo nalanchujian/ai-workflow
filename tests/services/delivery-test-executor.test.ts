@@ -21,7 +21,7 @@ describe('DeliveryTestExecutor', () => {
     const store = new TaskStore(root);
     const task = createSevenPhaseTask();
     task.repository = root;
-    task.nodes.implement = { ...task.nodes.implement!, generatedFromPlan: true, workUnitId: 'refund', acceptanceRefs: ['AC-01'], verificationCommands: ['pnpm test -- refund'] };
+    task.nodes.implement = { ...task.nodes.implement!, generatedFromPlan: true, workUnitId: 'refund', acceptanceRefs: ['AC-01'], verificationPlan: [{ id: 'TEST-REFUND-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'pnpm test -- refund' }] };
     await store.create(task);
 
     const results = await new DeliveryTestExecutor({
@@ -34,8 +34,8 @@ describe('DeliveryTestExecutor', () => {
       },
     }).execute({ task, nodeId: 'implement', node: task.nodes.implement!, runId: 'run-1', taskStore: store, projectRoot: root });
 
-    expect(deliveryTestPlan(task.nodes.implement!)).toEqual([{ id: 'TEST-REFUND-01', command: 'pnpm test -- refund' }]);
-    expect(results.items[0]).toMatchObject({ id: 'TEST-REFUND-01', status: 'passed', exitCode: 0, evidencePath: 'runs/run-1/tests/TEST-REFUND-01.json' });
+    expect(deliveryTestPlan(task.nodes.implement!)).toEqual([{ id: 'TEST-REFUND-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'pnpm test -- refund' }]);
+    expect(results.items[0]).toMatchObject({ id: 'TEST-REFUND-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], status: 'passed', exitCode: 0, evidencePath: 'runs/run-1/tests/TEST-REFUND-01.json' });
     const evidence = await readFile(join(store.taskDirectory(task.id), results.items[0]!.evidencePath));
     expect(results.items[0]!.evidenceSha256).toBe(createHash('sha256').update(evidence).digest('hex'));
     const outputPath = nextArtifactPath('implement', task.nodes.implement!, 'artifacts/test-results.yaml');
@@ -48,7 +48,7 @@ describe('DeliveryTestExecutor', () => {
     const store = new TaskStore(root);
     const task = createSevenPhaseTask();
     task.repository = root;
-    task.nodes.implement = { ...task.nodes.implement!, generatedFromPlan: true, workUnitId: 'refund', acceptanceRefs: ['AC-01'], verificationCommands: ['pnpm test && rm -rf tmp'] };
+    task.nodes.implement = { ...task.nodes.implement!, generatedFromPlan: true, workUnitId: 'refund', acceptanceRefs: ['AC-01'], verificationPlan: [{ id: 'TEST-REFUND-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'pnpm test && rm -rf tmp' }] };
     await store.create(task);
     let called = false;
 

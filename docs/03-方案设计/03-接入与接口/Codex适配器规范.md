@@ -64,6 +64,12 @@ Runner（而非 Adapter）将 Context Manifest 和去敏 `RunResult` 写入业�
 
 Adapter 传递给 Codex 的任务产物地址必须来自本次 `outputContract`，不得仅传递逻辑名。正式产物路径和暂存路径均由 Runner 唯一生成；技能正文不拥有、也不得推断任何物理路径。技能内容之后必须追加“输出回执”，只列出本次运行的精确**暂存路径**、对应正式路径和写入者，以覆盖旧技能中可能存在的固定路径示例。Codex 只能写入回执中 `writer: codex` 的暂存文件；`test-results.yaml` 等 `writer: aiw` 文件由平台专属生成。Codex 退出后，Runner 先校验所有暂存产物、测试证据和 Handoff，再以原子方式发布并覆盖正式当前结果；校验失败时正式产物保持不变，暂存内容作为本次运行证据保留。`task.yaml`、审批、决策事实、运行证据和项目配置均只由 AIW 写入。Runner 在启动 Codex 后对整个 `.aiw/` 建立内容快照；任何越权写入均会自动还原、使节点失败并保留运行证据。
 
+结构化产物格式同样不能在 Adapter 或技能中手写。每类 Agent 产物由一个程序化协议描述符绑定：唯一 Zod Schema、经过该 Schema 校验的示例和必要语义规则。Adapter 只按节点选择协议，并从 Zod JSON Schema 生成紧凑字段树、从已校验对象生成 YAML 示例；字段、枚举或 Schema 版本变化只修改协议源，提示词随程序生成。物理路径仍由当前 `outputContract` 单独注入，协议示例不能成为路径指令。
+
+当前协议注册表覆盖正式事实登记、验收清单、待确认决策、工作单元声明、交付验收意图和结构化 Handoff。新增结构化产物时必须先新增 Zod Schema 和协议描述符，再由 Adapter 引用；禁止先在提示词或技能中增加独立字段说明。
+
+验收证据映射同样属于平台约束。`clarify` 请求要求每个 AC 声明证据类型；`plan` 请求只暴露项目已声明的测试能力及其 `evidenceTypes`，并要求固定 profile、targets、evidenceType 与 acceptanceRefs。交付请求只下发批准后的映射；Codex 不得在 `acceptance-intent.yaml` 中填写测试引用。Runner 执行测试后逐字段核对测试记录与批准映射，防止交付阶段将浏览器、组件、契约或集成验收替换成更弱的单元测试。
+
 Handoff 是摘要而不是新的事实来源：其中 `facts[].id` 必须复用正式事实登记中的 `FACT-*`，`decisions[].id` 必须是 AIW 已登记的 `DEC-*`，并引用对应的 `decisions/<DEC-id>.yaml`。Adapter 不得引导 Codex 将尚未确认的候选方案写成 Handoff 决策。
 
 除非用户任务明确要求其他语言，Adapter 要求所有 Markdown 任务产物使用简体中文；代码标识、命令、路径、API 名称和必须保留的原文保持原始语言。上游方法论可以是英文，但不能改变该产物语言约束。

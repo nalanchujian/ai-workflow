@@ -10,7 +10,7 @@ import { FactRegisterSchema, type FactRegister } from '../domain/fact-register.j
 import { ImpactGraphSchema, type ImpactGraph } from '../domain/impact-graph.js';
 import { completedArtifactPath } from '../domain/handoff.js';
 import { type Task } from '../domain/task.js';
-import { readWorkBreakdown, type WorkBreakdown } from './implementation-work-planner.js';
+import { buildVerificationPlan, readWorkBreakdown, type WorkBreakdown } from './implementation-work-planner.js';
 import { ProjectTestProfiles } from './project-test-profiles.js';
 import { TaskStore } from './task-store.js';
 
@@ -199,7 +199,7 @@ export async function materializeImpactGraph(task: Task, taskStore: TaskStore): 
       factRefs: unit.factRefs,
       decisionIds: unit.decisionRefs,
       dependsOn: unit.dependsOn,
-      verificationCommands: await new ProjectTestProfiles().resolve(taskStore.projectDirectory(), unit.verification),
+      verificationPlan: buildVerificationPlan(unit.id, await new ProjectTestProfiles().resolve(taskStore.projectDirectory(), unit.verification)),
     }))),
   });
   const content = stringify(graph);

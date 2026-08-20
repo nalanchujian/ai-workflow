@@ -36,4 +36,14 @@ describe('CLI error guidance', () => {
     expect(output).toContain('执行错误信息中给出的 task source refresh 命令，重新读取并固化需求来源。');
     expect(output).toContain('3. aiw task run refund-123 solution');
   });
+
+  it('explains that task mutations are serialized when the shared lock is busy', () => {
+    const output = renderCliError(
+      new Error('当前任务正在被其他命令修改，请等待当前操作结束后重试'),
+      ['task', 'source', 'refresh', 'refund-123', 'requirements'],
+    );
+
+    expect(output).toContain('当前任务正在被其他命令修改');
+    expect(output).toContain('不要同时执行运行、审批、决策或来源刷新');
+  });
 });

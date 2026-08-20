@@ -11,6 +11,7 @@ import { loadRunCompletionBundle } from '../../src/services/run-completion-bundl
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 import { completedArtifactPath, handoffPath, outputPathsForCompletedRun } from '../../src/domain/handoff.js';
+import { FileTaskRunLock } from '../../src/services/task-run-lock.js';
 
 const directories: string[] = [];
 
@@ -48,6 +49,25 @@ describe('TaskStateCommands', () => {
 
     await expect(commands.approve('refund-123', 'clarify', { note: '验收标准完整' }))
       .rejects.toThrow('需求澄清请使用 aiw task review refund-123');
+  });
+
+  it('refuses a state mutation while another command holds the shared task lock', async () => {
+    const { store } = await createApprovalTask('plan');
+    const before = await store.load('refund-123');
+    const runtimeRoot = await createTempDirectory('aiw-task-state-lock-');
+    directories.push(runtimeRoot);
+    const taskLock = new FileTaskRunLock(runtimeRoot);
+    const lease = await taskLock.acquire({ taskId: 'refund-123' });
+    const commands = new TaskStateCommands({
+      taskStore: store,
+      taskLock,
+      taskFactGuard: new TaskFactGuard({ repositoryStatus: { async uncommittedPaths() { return []; }, async authorName() { return 'tech-lead'; } } }),
+    });
+
+    await expect(commands.approve('refund-123', 'plan', { note: '批准实施计划' }))
+      .rejects.toThrow('当前任务正在被其他命令修改');
+    await lease?.release();
+    await expect(store.load('refund-123')).resolves.toMatchObject({ stateVersion: before.stateVersion, nodes: { plan: { status: 'awaiting_approval' } } });
   });
 
   it('rejects direct clarify approval before checking its run bundle', async () => {
@@ -221,7 +241,7 @@ describe('TaskStateCommands', () => {
     const evidencePath = 'runs/delivery-main-run-1/tests/TEST-REFUND-01.json';
     const evidence = JSON.stringify({ schemaVersion: 'aiw.test-execution-evidence/v1', runId: 'delivery-main-run-1', testId: 'TEST-REFUND-01', command: 'pnpm test', status: 'failed', exitCode: 1 }, null, 2) + '\n';
     await writeFile(join(directory, evidencePath), evidence, 'utf8');
-    await writeFile(join(directory, path), `schemaVersion: aiw.test-results/v1\nrunId: delivery-main-run-1\nitems:\n  - id: TEST-REFUND-01\n    command: pnpm test\n    status: failed\n    exitCode: 1\n    summary: 已执行退款功能测试，但存在失败用例。\n    evidencePath: ${evidencePath}\n    evidenceSha256: ${createHash('sha256').update(evidence).digest('hex')}\n`, 'utf8');
+    await writeFile(join(directory, path), `schemaVersion: aiw.test-results/v2\nrunId: delivery-main-run-1\nitems:\n  - id: TEST-REFUND-01\n    profile: vitest\n    evidenceType: unit\n    acceptanceRefs: [AC-01]\n    command: pnpm test\n    status: failed\n    exitCode: 1\n    summary: 已执行退款功能测试，但存在失败用例。\n    evidencePath: ${evidencePath}\n    evidenceSha256: ${createHash('sha256').update(evidence).digest('hex')}\n`, 'utf8');
     await refreshCompletionHashes(store, 'delivery-main');
     const commands = new TaskStateCommands({
       taskStore: store,
@@ -287,7 +307,7 @@ describe('TaskStateCommands', () => {
       '    factRefs: [FACT-REFUND-01]',
       '    decisionRefs: []',
       '    steps: [实现筛选状态]',
-      '    verification: [{ profile: vitest, targets: [links] }]',
+      '    verification: [{ profile: vitest, targets: [links], evidenceType: component, acceptanceRefs: [AC-01] }]',
       '  - id: export',
       '    title: 实现导出文件名',
       '    goal: 按筛选项生成导出名称',
@@ -295,7 +315,7 @@ describe('TaskStateCommands', () => {
       '    factRefs: [FACT-REFUND-01]',
       '    decisionRefs: []',
       '    steps: [实现文件名生成函数]',
-      '    verification: [{ profile: vitest, targets: [export] }]',
+      '    verification: [{ profile: vitest, targets: [export], evidenceType: unit, acceptanceRefs: [AC-02] }]',
       'acceptanceCoverage:',
       '  - acceptanceId: AC-01',
       '    disposition: implement',
@@ -343,7 +363,7 @@ describe('TaskStateCommands', () => {
       '    factRefs: [FACT-REFUND-01]',
       '    decisionRefs: []',
       '    steps: [实现筛选状态]',
-      '    verification: [{ profile: vitest, targets: [links] }]',
+      '    verification: [{ profile: vitest, targets: [links], evidenceType: component, acceptanceRefs: [AC-01] }]',
       'acceptanceCoverage:',
       '  - acceptanceId: AC-01',
       '    disposition: implement',
@@ -699,11 +719,22 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
       workUnitId: 'main',
       acceptanceRefs: ['AC-01'],
       decisionRefs: [],
+      verificationPlan: [{ id: 'TEST-REFUND-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'pnpm test' }],
     };
   }
   task.nodes[nodeId]!.status = 'awaiting_approval';
   task.nodes[nodeId]!.hasResult = true;
   await store.create(task);
+  await writeFile(join(directory, '.aiw', 'config.yaml'), `schemaVersion: aiw.config/v1
+testing:
+  profiles:
+    - id: vitest
+      title: 项目测试
+      command: pnpm exec vitest run
+      healthCheck: pnpm exec vitest --version
+      targetMode: append
+      evidenceTypes: [unit, component]
+`, 'utf8');
   const taskDirectory = store.taskDirectory(task.id);
   await mkdir(join(taskDirectory, 'sources', 'requirements', 'r1'), { recursive: true });
   await writeFile(join(taskDirectory, 'sources', 'requirements', 'r1', 'snapshot.md'), '# 退款需求\n\n用户可以提交退款申请并查看处理结果。\n', 'utf8');
@@ -713,16 +744,18 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
     const acceptancePath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/acceptance.yaml');
     await mkdir(join(taskDirectory, acceptancePath, '..'), { recursive: true });
     await writeFile(join(taskDirectory, acceptancePath), [
-      'schemaVersion: aiw.acceptance-catalog/v1',
+      'schemaVersion: aiw.acceptance-catalog/v2',
       'items:',
       '  - id: AC-01',
       '    title: 页面筛选',
       '    description: 用户可以按筛选条件查看列表页面。',
       '    factRefs: [FACT-REFUND-01]',
+      '    evidenceType: component',
       '  - id: AC-02',
       '    title: 导出文件名',
       '    description: 用户可以按筛选条件获取符合规则的导出文件名。',
       '    factRefs: [FACT-REFUND-01]',
+      '    evidenceType: unit',
     ].join('\n') + '\n', 'utf8');
     const factPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/fact-register.yaml');
     const decisionPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/decision-register.yaml');
@@ -753,15 +786,15 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
     const content = output === handoffPath(nodeId)
       ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
       : nodeId === 'delivery-main' && output.endsWith('/acceptance-intent.yaml')
-        ? `schemaVersion: aiw.acceptance-intent/v1\nitems:\n  - id: AC-01\n    evidence:\n      - artifacts/delivery.md\n    testPlanRefs: [TEST-REFUND-01]\n`
+        ? `schemaVersion: aiw.acceptance-intent/v2\nitems:\n  - id: AC-01\n    evidence:\n      - artifacts/delivery.md\n`
       : nodeId === 'delivery-main' && output.endsWith('/acceptance-results.yaml')
-        ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/delivery.md\n    testResultRefs: ${options.acceptanceStatus === undefined || options.acceptanceStatus === 'passed' ? '[TEST-REFUND-01]' : '[]'}\n`
+        ? `schemaVersion: aiw.acceptance-results/v2\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidenceType: unit\n    evidence:\n      - artifacts/delivery.md\n    testResultRefs: ${options.acceptanceStatus === undefined || options.acceptanceStatus === 'passed' ? '[TEST-REFUND-01]' : '[]'}\n`
       : nodeId === 'delivery-main' && output.endsWith('/test-results.yaml')
-        ? `schemaVersion: aiw.test-results/v1\nrunId: ${runId}\nitems:\n  - id: TEST-REFUND-01\n    command: pnpm test\n    status: passed\n    exitCode: 0\n    summary: 已执行退款功能测试，目标用例均通过。\n    evidencePath: ${testEvidencePath}\n    evidenceSha256: ${testEvidenceSha256}\n`
+        ? `schemaVersion: aiw.test-results/v2\nrunId: ${runId}\nitems:\n  - id: TEST-REFUND-01\n    profile: vitest\n    evidenceType: unit\n    acceptanceRefs: [AC-01]\n    command: pnpm test\n    status: passed\n    exitCode: 0\n    summary: 已执行退款功能测试，目标用例均通过。\n    evidencePath: ${testEvidencePath}\n    evidenceSha256: ${testEvidenceSha256}\n`
       : nodeId === 'delivery-main' && output.endsWith('/delivery.md')
           ? '# 交付报告\n\n## 实际变更\n\n已完成。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试计划\n\nTEST-REFUND-01：`pnpm test`\n\n## 逐项验收\n\nAC-01 等待 AIW 测试执行结果确认。\n\n## 未完成事项与风险\n\n无。\n'
       : nodeId === 'clarify' && output.endsWith('/acceptance.yaml')
-            ? 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n'
+            ? 'schemaVersion: aiw.acceptance-catalog/v2\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n    evidenceType: unit\n'
             : nodeId === 'clarify' && output.endsWith('/fact-register.yaml')
               ? 'schemaVersion: aiw.fact-register/v1\nitems:\n  - id: FACT-REFUND-01\n    kind: confirmed\n    statement: 用户能够提交退款申请并查看退款处理结果。\n    confidence: high\n    evidence:\n      - sourceId: requirements\n        path: sources/requirements/r1/snapshot.md\n'
             : nodeId === 'clarify' && output.endsWith('/decision-register.yaml')

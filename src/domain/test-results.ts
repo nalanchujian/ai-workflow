@@ -1,17 +1,21 @@
 import { z } from 'zod';
 
+import { AcceptanceEvidenceTypeSchema, TestResultIdSchema } from './acceptance-evidence.js';
+export { TestResultIdSchema } from './acceptance-evidence.js';
+
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
 export const TestResultStatusSchema = z.enum(['passed', 'failed', 'blocked', 'skipped']);
 
-export const TestResultIdSchema = z.string().regex(/^TEST-[A-Z0-9-]+$/, '测试记录 ID 格式无效');
-
 export const TestResultsSchema = z.object({
-  schemaVersion: z.literal('aiw.test-results/v1'),
+  schemaVersion: z.literal('aiw.test-results/v2'),
   runId: z.string().min(1),
   items: z.array(z.object({
     id: TestResultIdSchema,
+    profile: z.string().min(1),
+    evidenceType: AcceptanceEvidenceTypeSchema,
+    acceptanceRefs: z.array(z.string().regex(/^AC-\d{2,}$/)).min(1),
     command: z.string().min(1),
     status: TestResultStatusSchema,
     exitCode: z.number().int().min(0).nullable(),

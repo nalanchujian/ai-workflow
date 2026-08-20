@@ -6,6 +6,8 @@ import { handoffPath, validateHandoff } from '../domain/handoff.js';
 import { restartDependentsForSourceChange } from './task-state-machine.js';
 import { SourceIntake } from './source-intake.js';
 import { TaskStore } from './task-store.js';
+import type { TaskRunLock } from './task-run-lock.js';
+import { withTaskMutationLock } from './task-mutation-lock.js';
 
 export class SourceRefreshError extends Error {
   constructor(message: string) {
@@ -21,9 +23,13 @@ export interface RefreshResult {
 }
 
 export class SourceRefresher {
-  constructor(private readonly deps: { intake: SourceIntake; taskStore: TaskStore }) {}
+  constructor(private readonly deps: { intake: SourceIntake; taskStore: TaskStore; taskLock?: TaskRunLock }) {}
 
   async refresh(input: { taskId: string; sourceId: string }): Promise<RefreshResult> {
+    return withTaskMutationLock(this.deps.taskLock, input.taskId, () => this.refreshLocked(input));
+  }
+
+  private async refreshLocked(input: { taskId: string; sourceId: string }): Promise<RefreshResult> {
     const task = await this.deps.taskStore.load(input.taskId);
     const current = task.sources[input.sourceId];
     if (current === undefined) {
@@ -71,8 +77,8 @@ export class SourceRefresher {
     const taskDirectory = this.deps.taskStore.taskDirectory(task.id);
     await mkdir(dirname(join(taskDirectory, intakeHandoffPath)), { recursive: true });
     await writeFile(join(taskDirectory, intakeHandoffPath), intakeHandoff, 'utf8');
-    await this.deps.taskStore.update(next);
-    return { changed: true, revision: reference.revision, task: next };
+    const updated = await this.deps.taskStore.update(next);
+    return { changed: true, revision: reference.revision, task: updated };
   }
 }
 

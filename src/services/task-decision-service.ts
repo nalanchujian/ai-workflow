@@ -134,8 +134,7 @@ export class TaskDecisionService {
       : resolution.status === 'resolved'
         ? reconcileDecisionBlocks(task, proposal.id)
         : deriveTaskStatus(task);
-    await this.deps.taskStore.update(next);
-    return next;
+    return this.deps.taskStore.update(next);
   }
 
   private async readRegister(task: Task): Promise<DecisionRegister> {

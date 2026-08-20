@@ -9,6 +9,7 @@ import { SourceRefresher } from '../../src/services/source-refresher.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
+import { FileTaskRunLock } from '../../src/services/task-run-lock.js';
 
 describe('SourceRefresher', () => {
   const directories: string[] = [];
@@ -88,6 +89,28 @@ describe('SourceRefresher', () => {
     const result = await new SourceRefresher({ intake, taskStore: store }).refresh({ sourceId: 'requirements', taskId: task.id });
 
     expect(result).toMatchObject({ changed: false, revision: 1 });
+  });
+
+  it('does not read or replace a source while another command holds the task lock', async () => {
+    const projectRoot = await createTempDirectory('aiw-source-refresh-');
+    const runtimeRoot = await createTempDirectory('aiw-source-refresh-runtime-');
+    directories.push(projectRoot, runtimeRoot);
+    const connector = mutableLarkConnector('# Refund v1');
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot });
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    const first = await intake.snapshot({ sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123' });
+    task.sources.requirements = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
+    await store.create(task);
+    const taskLock = new FileTaskRunLock(runtimeRoot);
+    const lease = await taskLock.acquire({ taskId: task.id });
+    connector.content = '# Refund v2';
+    const refresher = new SourceRefresher({ intake, taskStore: store, taskLock });
+
+    await expect(refresher.refresh({ sourceId: 'requirements', taskId: task.id }))
+      .rejects.toThrow('当前任务正在被其他命令修改');
+    await lease?.release();
+    await expect(store.load(task.id)).resolves.toMatchObject({ stateVersion: 0, sources: { requirements: { revision: 1 } } });
   });
 });
 

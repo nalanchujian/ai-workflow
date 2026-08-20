@@ -8,21 +8,18 @@ import { minimalChildEnvironment } from '../adapters/child-process-environment.j
 import { parseVerificationCommand } from '../domain/verification-command.js';
 import { type TestResults, TestResultsSchema } from '../domain/test-results.js';
 import type { Task, TaskNode } from '../domain/task.js';
+import type { VerificationPlanItem } from '../domain/acceptance-evidence.js';
 import { nextArtifactPath } from '../domain/handoff.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
 import { TaskStore } from './task-store.js';
 
 const DEFAULT_TEST_TIMEOUT_MS = 10 * 60 * 1_000;
 
-export type DeliveryTestPlanItem = { id: string; command: string };
+export type DeliveryTestPlanItem = VerificationPlanItem;
 
 /** Builds stable test IDs before Codex starts, so an AC can cite its real test. */
 export function deliveryTestPlan(node: TaskNode): DeliveryTestPlanItem[] {
-  const prefix = (node.workUnitId ?? 'delivery').toUpperCase();
-  return node.verificationCommands.map((command, index) => ({
-    id: `TEST-${prefix}-${String(index + 1).padStart(2, '0')}`,
-    command,
-  }));
+  return node.verificationPlan;
 }
 
 /**
@@ -74,6 +71,9 @@ export class DeliveryTestExecutor {
           schemaVersion: 'aiw.test-execution-evidence/v1',
           runId: input.runId,
           testId: item.id,
+          profile: item.profile,
+          evidenceType: item.evidenceType,
+          acceptanceRefs: item.acceptanceRefs,
           command: item.command,
           status,
           exitCode,
@@ -89,6 +89,9 @@ export class DeliveryTestExecutor {
           schemaVersion: 'aiw.test-execution-evidence/v1',
           runId: input.runId,
           testId: item.id,
+          profile: item.profile,
+          evidenceType: item.evidenceType,
+          acceptanceRefs: item.acceptanceRefs,
           command: item.command,
           status,
           exitCode,
@@ -99,6 +102,9 @@ export class DeliveryTestExecutor {
       await writeTaskFile(input.taskStore, input.task.id, evidencePath, evidenceContent);
       items.push({
         id: item.id,
+        profile: item.profile,
+        evidenceType: item.evidenceType,
+        acceptanceRefs: item.acceptanceRefs,
         command: item.command,
         status,
         exitCode,
@@ -107,7 +113,7 @@ export class DeliveryTestExecutor {
         evidenceSha256: createHash('sha256').update(evidenceContent).digest('hex'),
       });
     }
-    const results = TestResultsSchema.parse({ schemaVersion: 'aiw.test-results/v1', runId: input.runId, items });
+    const results = TestResultsSchema.parse({ schemaVersion: 'aiw.test-results/v2', runId: input.runId, items });
     const outputPath = input.outputPath ?? nextArtifactPath(input.nodeId, input.node, 'artifacts/test-results.yaml');
     await writeTaskFile(input.taskStore, input.task.id, outputPath, stringify(results));
     return results;

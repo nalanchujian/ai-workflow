@@ -4,17 +4,23 @@ import { evaluateDeliveryAcceptance } from '../../src/services/delivery-acceptan
 
 describe('DeliveryAcceptanceEvaluator', () => {
   const intent = {
-    schemaVersion: 'aiw.acceptance-intent/v1' as const,
-    items: [{ id: 'AC-01', evidence: ['artifacts/delivery.md'], testPlanRefs: ['TEST-UNIT-01'] }],
+    schemaVersion: 'aiw.acceptance-intent/v2' as const,
+    items: [{ id: 'AC-01', evidence: ['artifacts/delivery.md'] }],
   };
+  const verificationPlan = [{
+    id: 'TEST-UNIT-01', profile: 'vitest', evidenceType: 'unit' as const,
+    acceptanceRefs: ['AC-01'], command: 'pnpm exec vitest run unit.test.ts',
+  }];
 
   it('makes a passing AC only when its platform test record passed with exit code 0', () => {
     const results = evaluateDeliveryAcceptance({
       intent,
       acceptanceRefs: ['AC-01'],
+      verificationPlan,
       tests: {
-        schemaVersion: 'aiw.test-results/v1', runId: 'run-1', items: [{
+        schemaVersion: 'aiw.test-results/v2', runId: 'run-1', items: [{
           id: 'TEST-UNIT-01', command: 'pnpm exec vitest run unit.test.ts', status: 'passed', exitCode: 0,
+          profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'],
           summary: 'AIW 已执行，退出码 0；stdout 9 字节。', evidencePath: 'runs/run-1/tests/TEST-UNIT-01.json', evidenceSha256: 'a'.repeat(64),
         }],
       },
@@ -27,9 +33,11 @@ describe('DeliveryAcceptanceEvaluator', () => {
     const failed = evaluateDeliveryAcceptance({
       intent,
       acceptanceRefs: ['AC-01'],
+      verificationPlan,
       tests: {
-        schemaVersion: 'aiw.test-results/v1', runId: 'run-1', items: [{
+        schemaVersion: 'aiw.test-results/v2', runId: 'run-1', items: [{
           id: 'TEST-UNIT-01', command: 'pnpm exec vitest run unit.test.ts', status: 'failed', exitCode: 1,
+          profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'],
           summary: 'AIW 已执行，退出码 1；请查看运行证据。', evidencePath: 'runs/run-1/tests/TEST-UNIT-01.json', evidenceSha256: 'a'.repeat(64),
         }],
       },
@@ -37,9 +45,11 @@ describe('DeliveryAcceptanceEvaluator', () => {
     const blocked = evaluateDeliveryAcceptance({
       intent,
       acceptanceRefs: ['AC-01'],
+      verificationPlan,
       tests: {
-        schemaVersion: 'aiw.test-results/v1', runId: 'run-1', items: [{
+        schemaVersion: 'aiw.test-results/v2', runId: 'run-1', items: [{
           id: 'TEST-UNIT-01', command: 'pnpm exec vitest run unit.test.ts', status: 'blocked', exitCode: null,
+          profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'],
           summary: 'AIW 未执行该命令：测试环境不可用。', evidencePath: 'runs/run-1/tests/TEST-UNIT-01.json', evidenceSha256: 'a'.repeat(64),
         }],
       },
@@ -49,14 +59,16 @@ describe('DeliveryAcceptanceEvaluator', () => {
     expect(blocked.items[0]?.status).toBe('blocked');
   });
 
-  it('rejects an intent that claims an AC or test outside the approved unit plan', () => {
+  it('rejects a test result whose evidence type differs from the approved plan', () => {
     expect(() => evaluateDeliveryAcceptance({
-      intent: { ...intent, items: [{ ...intent.items[0]!, testPlanRefs: ['TEST-UNKNOWN-01'] }] },
+      intent,
       acceptanceRefs: ['AC-01'],
-      tests: { schemaVersion: 'aiw.test-results/v1', runId: 'run-1', items: [{
+      verificationPlan,
+      tests: { schemaVersion: 'aiw.test-results/v2', runId: 'run-1', items: [{
         id: 'TEST-UNIT-01', command: 'pnpm exec vitest run unit.test.ts', status: 'passed', exitCode: 0,
+        profile: 'vitest', evidenceType: 'browser', acceptanceRefs: ['AC-01'],
         summary: 'AIW 已执行，退出码 0；stdout 9 字节。', evidencePath: 'runs/run-1/tests/TEST-UNIT-01.json', evidenceSha256: 'a'.repeat(64),
       }] },
-    })).toThrow('本次计划外的测试');
+    })).toThrow('证据类型与已批准计划不一致');
   });
 });

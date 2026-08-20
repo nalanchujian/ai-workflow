@@ -25,6 +25,8 @@ import { type HumanOutput, writeCommandResult } from './output.js';
 import { type ProgressReporter } from './progress-reporter.js';
 import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js';
 import { WorkflowPathService } from '../services/workflow-path-service.js';
+import type { TaskRunLock } from '../services/task-run-lock.js';
+import { withTaskMutationLock } from '../services/task-mutation-lock.js';
 
 type ClarifyDecisionSelection = {
   decisionId: string;
@@ -43,7 +45,7 @@ type ClarifyReviewInput = {
 type AcceptanceDetail = { id: string; title: string; description: string };
 
 export class TaskStateCommands {
-  constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; cancellation?: TaskCancellationService; decisionService?: TaskDecisionService }) {}
+  constructor(private readonly deps: { taskStore: TaskStore; taskFactGuard: TaskFactGuard; taskLock?: TaskRunLock; cancellation?: TaskCancellationService; decisionService?: TaskDecisionService }) {}
 
   async status(taskId: string): Promise<Task> {
     return this.deps.taskStore.load(taskId);
@@ -107,6 +109,10 @@ export class TaskStateCommands {
 
   /** A fast-path task may always be made stricter before a current plan exists. */
   async switchToStandardPath(taskId: string, options: { actor?: string } = {}): Promise<Task> {
+    return withTaskMutationLock(this.deps.taskLock, taskId, () => this.switchToStandardPathLocked(taskId, options));
+  }
+
+  private async switchToStandardPathLocked(taskId: string, options: { actor?: string } = {}): Promise<Task> {
     const task = await this.deps.taskStore.load(taskId);
     if (task.nodes.clarify?.status !== 'completed' || task.workflowPath?.id !== 'quick') {
       throw new Error('只有已确认的快速修改任务可以切换为标准需求');
@@ -115,11 +121,14 @@ export class TaskStateCommands {
     await pathService.validateSelection(task);
     const actor = await this.deps.taskFactGuard.actor(options.actor);
     const next = selectWorkflowPath(task, { ...task.workflowPath, id: 'standard', selectedAt: new Date().toISOString(), selectedBy: actor });
-    await this.deps.taskStore.update(next);
-    return next;
+    return this.deps.taskStore.update(next);
   }
 
   async resolveDecision(taskId: string, decisionId: string, options: { impact: ExternalResolutionImpact; fact?: string; evidence?: string; note: string; actor?: string }): Promise<Task> {
+    return withTaskMutationLock(this.deps.taskLock, taskId, () => this.resolveDecisionLocked(taskId, decisionId, options));
+  }
+
+  private async resolveDecisionLocked(taskId: string, decisionId: string, options: { impact: ExternalResolutionImpact; fact?: string; evidence?: string; note: string; actor?: string }): Promise<Task> {
     if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
     await this.assertDecisionRegisterCommitted(taskId);
     return this.deps.decisionService.resolve({
@@ -137,10 +146,14 @@ export class TaskStateCommands {
     if (nodeId === 'clarify') {
       throw new Error(`需求澄清请使用 aiw task review ${taskId}`);
     }
-    return this.decide(taskId, nodeId, 'approved', options);
+    return withTaskMutationLock(this.deps.taskLock, taskId, () => this.decide(taskId, nodeId, 'approved', options));
   }
 
   async reviewClarify(taskId: string, selections: ClarifyDecisionSelection[], options: { actor?: string; note?: string; workflowPath?: WorkflowPathId }): Promise<Task> {
+    return withTaskMutationLock(this.deps.taskLock, taskId, () => this.reviewClarifyLocked(taskId, selections, options));
+  }
+
+  private async reviewClarifyLocked(taskId: string, selections: ClarifyDecisionSelection[], options: { actor?: string; note?: string; workflowPath?: WorkflowPathId }): Promise<Task> {
     if (this.deps.decisionService === undefined) throw new Error('当前环境不支持决策管理');
     const task = await this.deps.taskStore.load(taskId);
     const clarify = task.nodes.clarify;
@@ -197,7 +210,7 @@ export class TaskStateCommands {
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(options.expiresAt) || Number.isNaN(Date.parse(options.expiresAt))) {
       throw new Error('风险到期时间必须为 ISO 8601 时间');
     }
-    return this.decide(taskId, nodeId, 'approved', { actor: options.actor, note: options.reason, riskAcceptance: { owner: options.owner, reason: options.reason, expiresAt: options.expiresAt } });
+    return withTaskMutationLock(this.deps.taskLock, taskId, () => this.decide(taskId, nodeId, 'approved', { actor: options.actor, note: options.reason, riskAcceptance: { owner: options.owner, reason: options.reason, expiresAt: options.expiresAt } }));
   }
 
   async cancel(taskId: string, nodeId: string, options: { note: string }): Promise<{ taskId: string; nodeId: string; runId: string; status: 'requested' | 'signalled' }> {
@@ -275,8 +288,7 @@ export class TaskStateCommands {
     for (const fact of generatedFacts) {
       await this.deps.taskStore.replaceFact(taskId, fact.path, fact.content);
     }
-    await this.deps.taskStore.update(next);
-    return next;
+    return this.deps.taskStore.update(next);
   }
 
   private async assertDecisionRegisterCommitted(taskId: string): Promise<void> {

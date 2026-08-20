@@ -7,9 +7,10 @@ import { z } from 'zod';
 import { parseVerificationCommand } from '../domain/verification-command.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
 import { minimalChildEnvironment } from '../adapters/child-process-environment.js';
+import { AcceptanceEvidenceTypeSchema, type AcceptanceEvidenceType } from '../domain/acceptance-evidence.js';
+import type { VerificationProfileRef } from '../domain/verification-profile.js';
 
 const profileId = /^[a-z][a-z0-9-]{0,40}$/;
-const targetPath = /^[A-Za-z0-9_./:@+=,-]+$/;
 
 const ProjectTestProfileSchema = z.object({
   id: z.string().regex(profileId, '测试能力 ID 格式无效'),
@@ -17,6 +18,7 @@ const ProjectTestProfileSchema = z.object({
   command: z.string().min(1),
   healthCheck: z.string().min(1),
   targetMode: z.enum(['append', 'none']),
+  evidenceTypes: z.array(AcceptanceEvidenceTypeSchema).min(1),
 }).strict();
 
 const ProjectConfigTestingSchema = z.object({
@@ -26,13 +28,14 @@ const ProjectConfigTestingSchema = z.object({
   }).optional(),
 }).passthrough();
 
-export const VerificationProfileRefSchema = z.object({
-  profile: z.string().regex(profileId, '测试能力 ID 格式无效'),
-  targets: z.array(z.string().regex(targetPath, '测试目标只能使用仓库内的安全相对路径或标识')).default([]),
-}).strict();
-
 export type ProjectTestProfile = z.infer<typeof ProjectTestProfileSchema>;
-export type VerificationProfileRef = z.infer<typeof VerificationProfileRefSchema>;
+export { VerificationProfileRefSchema, type VerificationProfileRef } from '../domain/verification-profile.js';
+export type ResolvedVerification = {
+  profile: string;
+  evidenceType: AcceptanceEvidenceType;
+  acceptanceRefs: string[];
+  command: string;
+};
 
 export class ProjectTestProfileError extends Error {
   constructor(message: string) {
@@ -64,19 +67,25 @@ export class ProjectTestProfiles {
     return profiles;
   }
 
-  async resolve(projectRoot: string, refs: VerificationProfileRef[]): Promise<string[]> {
+  async resolve(projectRoot: string, refs: VerificationProfileRef[]): Promise<ResolvedVerification[]> {
     const profiles = new Map((await this.list(projectRoot)).map((profile) => [profile.id, profile]));
     const commands = refs.map((ref) => {
       const profile = profiles.get(ref.profile);
       if (profile === undefined) throw new ProjectTestProfileError(`项目未提供测试能力：${ref.profile}。请在 .aiw/config.yaml 的 testing.profiles 中配置，或选择 AIW 已发现的测试能力。`);
+      if (!profile.evidenceTypes.includes(ref.evidenceType)) {
+        throw new ProjectTestProfileError(`测试能力 ${profile.id} 不支持 ${ref.evidenceType} 证据；它只支持 ${profile.evidenceTypes.join('、')}`);
+      }
       if (profile.targetMode === 'none' && ref.targets.length > 0) {
         throw new ProjectTestProfileError(`测试能力 ${profile.id} 不接受 targets；请移除 targets。`);
       }
-      return profile.targetMode === 'append' && ref.targets.length > 0
+      const command = profile.targetMode === 'append' && ref.targets.length > 0
         ? `${profile.command} ${ref.targets.join(' ')}`
         : profile.command;
+      return { profile: profile.id, evidenceType: ref.evidenceType, acceptanceRefs: ref.acceptanceRefs, command };
     });
-    if (new Set(commands).size !== commands.length) throw new ProjectTestProfileError('同一工作单元不能重复声明相同测试命令');
+    if (new Set(commands.map((item) => `${item.command}:${item.evidenceType}:${item.acceptanceRefs.join(',')}`)).size !== commands.length) {
+      throw new ProjectTestProfileError('同一工作单元不能重复声明相同验收测试绑定');
+    }
     return commands;
   }
 
@@ -126,16 +135,17 @@ async function discoverProfiles(projectRoot: string): Promise<ProjectTestProfile
       dependencies: z.record(z.string(), z.string()).optional(),
     }).passthrough().parse(JSON.parse(await readFile(join(projectRoot, 'package.json'), 'utf8')));
     const dependencies = new Set([...Object.keys(packageJson.dependencies ?? {}), ...Object.keys(packageJson.devDependencies ?? {})]);
-    if (dependencies.has('vitest')) return [{ id: 'vitest', title: 'Vitest 单元测试', command: 'pnpm exec vitest run', healthCheck: 'pnpm exec vitest --version', targetMode: 'append' }];
-    if (dependencies.has('jest')) return [{ id: 'jest', title: 'Jest 单元测试', command: 'pnpm exec jest --runInBand', healthCheck: 'pnpm exec jest --version', targetMode: 'append' }];
-    if (dependencies.has('@playwright/test')) return [{ id: 'playwright', title: 'Playwright 测试', command: 'pnpm exec playwright test', healthCheck: 'pnpm exec playwright --version', targetMode: 'append' }];
-    return [];
+    const profiles: ProjectTestProfile[] = [];
+    if (dependencies.has('vitest')) profiles.push({ id: 'vitest', title: 'Vitest 测试', command: 'pnpm exec vitest run', healthCheck: 'pnpm exec vitest --version', targetMode: 'append', evidenceTypes: dependencies.has('@testing-library/react') ? ['unit', 'component'] : ['unit'] });
+    if (dependencies.has('jest')) profiles.push({ id: 'jest', title: 'Jest 测试', command: 'pnpm exec jest --runInBand', healthCheck: 'pnpm exec jest --version', targetMode: 'append', evidenceTypes: dependencies.has('@testing-library/react') ? ['unit', 'component'] : ['unit'] });
+    if (dependencies.has('@playwright/test')) profiles.push({ id: 'playwright', title: 'Playwright 浏览器测试', command: 'pnpm exec playwright test', healthCheck: 'pnpm exec playwright --version', targetMode: 'append', evidenceTypes: ['browser'] });
+    return profiles;
   } catch (error) {
     // A repository without package.json is not a production Node project, but
     // keeping this deterministic fallback lets embedders supply a ProcessRunner
     // in isolated tests. Real projects with a package.json must expose a
     // discovered runner or an explicit .aiw testing profile.
-    if (isMissing(error)) return [{ id: 'vitest', title: 'Vitest 单元测试', command: 'pnpm exec vitest run', healthCheck: 'pnpm exec vitest --version', targetMode: 'append' }];
+    if (isMissing(error)) return [{ id: 'vitest', title: 'Vitest 单元测试', command: 'pnpm exec vitest run', healthCheck: 'pnpm exec vitest --version', targetMode: 'append', evidenceTypes: ['unit'] }];
     throw new ProjectTestProfileError(`无法读取项目 package.json 以发现测试能力：${error instanceof Error ? error.message : '未知错误'}`);
   }
 }

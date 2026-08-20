@@ -68,7 +68,7 @@ export class TaskRunner {
   async run(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult> {
     const lease = await this.runLock.acquire({ taskId: input.taskId });
     if (lease === undefined) {
-      throw new TaskRunnerError('TASK_BUSY', '当前任务已有节点正在运行');
+      throw new TaskRunnerError('TASK_BUSY', '当前任务正在被其他命令修改，请等待当前操作结束后重试');
     }
     try {
       return await this.runLocked(input);
@@ -170,7 +170,12 @@ export class TaskRunner {
         ...(task.workflowPath === undefined ? {} : { workflowPath: task.workflowPath.id }),
         projectRoot: this.deps.taskStore.projectDirectory(),
         testPlan: isDeliveryUnit(node) ? deliveryTestPlan(node) : [],
-        testProfiles: testProfiles.map((profile) => ({ id: profile.id, title: profile.title, targetMode: profile.targetMode })),
+        testProfiles: testProfiles.map((profile) => ({
+          id: profile.id,
+          title: profile.title,
+          targetMode: profile.targetMode,
+          evidenceTypes: profile.evidenceTypes,
+        })),
       },
       instruction: node.title,
       contextManifestPath: join(this.deps.taskStore.taskDirectory(task.id), contextManifestFactPath),
@@ -319,6 +324,7 @@ export class TaskRunner {
           intent: parseAcceptanceIntent(intentContent),
           tests,
           acceptanceRefs: task.nodes[nodeId]!.acceptanceRefs,
+          verificationPlan: task.nodes[nodeId]!.verificationPlan,
         });
         await this.deps.taskStore.createFact(task.id, resultOutput.stagingPath, serializeAcceptanceResults(acceptance));
       }
@@ -422,8 +428,8 @@ export class TaskRunner {
       if (unit.decisionIds.length !== node.decisionRefs.length || unit.decisionIds.some((id) => !node.decisionRefs.includes(id))) {
         throw new Error(`交付单元 ${node.workUnitId} 的决策引用与当前影响图不一致`);
       }
-      if (unit.verificationCommands.length !== node.verificationCommands.length || unit.verificationCommands.some((command) => !node.verificationCommands.includes(command))) {
-        throw new Error(`交付单元 ${node.workUnitId} 的测试命令与当前影响图不一致`);
+      if (JSON.stringify(unit.verificationPlan) !== JSON.stringify(node.verificationPlan)) {
+        throw new Error(`交付单元 ${node.workUnitId} 的验收测试映射与当前影响图不一致`);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : '无法校验影响图';
@@ -975,7 +981,7 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
       throw new TaskRunnerError('ARTIFACT_INVALID', `交付单元验收结果必须与其所属验收项逐项一一对应：${parts.join('；')}。`);
     }
     try {
-      const expectedResults = evaluateDeliveryAcceptance({ intent, tests, acceptanceRefs: node.acceptanceRefs });
+      const expectedResults = evaluateDeliveryAcceptance({ intent, tests, acceptanceRefs: node.acceptanceRefs, verificationPlan: node.verificationPlan });
       if (JSON.stringify(expectedResults) !== JSON.stringify(results)) {
         throw new Error('验收结果必须完全由 AIW 根据验收意图和实际测试记录生成');
       }

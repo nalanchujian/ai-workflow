@@ -193,6 +193,7 @@ describe('task state machine', () => {
       workUnitId: 'export',
       acceptanceRefs: ['AC-01'],
       decisionRefs: [],
+      verificationPlan: [{ id: 'TEST-EXPORT-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'pnpm test' }],
     };
 
     const next = transitionNode(task, 'plan', { type: 'start', runId: 'replace-plan-run' });

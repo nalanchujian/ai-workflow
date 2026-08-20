@@ -79,17 +79,18 @@ describe('CodexAdapter', () => {
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
-    expect(context).toContain('结构化交接包：.aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify.yaml');
+    expect(context).toContain('<artifact-protocol id="handoff"');
+    expect(context).toContain('结构化交接包写入 .aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify.yaml');
     expect(context).toContain('本次运行的唯一交接包先写入：.aiw/tasks/refund-123/runs/run-1/staging/handoffs/clarify.yaml，经 AIW 校验后覆盖当前结果 handoffs/clarify.yaml。');
     expect(context).toContain('phase: clarify');
     expect(context).not.toContain('revision:');
     expect(context).toContain('id: FACT-METRICS-01');
-    expect(context).toContain('id: DEC-METRICS-01');
-    expect(context).toContain('Handoff 中的事实只能复用正式事实登记已存在的 `FACT-*` ID');
-    expect(context).toContain('Handoff 中的决策只能记录已由 AIW 确认的 `DEC-*`');
+    expect(context).toContain('decisions: []');
+    expect(context).toContain('事实只能复用正式事实登记中的 FACT-*');
+    expect(context).toContain('决策只能复用 AIW 已确认的 DEC-*');
     expect(context).toContain('status: covered');
-    expect(context).toContain('description: 未解决风险');
-    expect(context).toContain('不得增加 schema 未定义字段');
+    expect(context).toContain('- description: string');
+    expect(context).toContain('不得增加协议未声明字段');
   });
 
   it('requires a plan to declare machine-readable implementation units without path whitelists', async () => {
@@ -104,18 +105,23 @@ describe('CodexAdapter', () => {
     });
     const request = runRequest({ projectRoot, runDirectory });
     request.task.nodeId = 'plan';
+    request.task.testProfiles = [{ id: 'playwright', title: 'Playwright 浏览器测试', targetMode: 'append', evidenceTypes: ['browser'] }];
     request.artifacts = ['artifacts/implementation-plan.md', 'artifacts/work-breakdown.yaml'];
     request.outputContract = outputContractFor(request.runId, request.artifacts);
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(context).toContain('<artifact-protocol id="work-breakdown"');
     expect(context).toContain('不需要预先穷举可修改的文件路径');
     expect(context).toContain('「## 实施单元」');
-    expect(context).toContain('每个 `units` 项只能使用');
+    expect(context).toContain('- units: array<object>');
+    expect(context).toContain('- acceptanceCoverage: array<object>');
     expect(context).toContain('acceptanceId: AC-01');
-    expect(context).toContain('不得使用 `acceptanceRef`、`status`、`units`');
-    expect(context).toContain('不得使用 `acceptanceIds`、`allowedPaths`');
+    expect(context).toContain('evidenceTypes: browser');
+    expect(context).toContain('evidenceType: browser');
+    expect(context).toContain('acceptanceRefs:');
+    expect(context).toContain('计划不得降级 AC 要求的证据类型');
   });
 
   it('requires clarify to turn unresolved facts into recommended decision options', async () => {
@@ -131,15 +137,19 @@ describe('CodexAdapter', () => {
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(context).toContain('<artifact-protocol id="fact-register"');
+    expect(context).toContain('<artifact-protocol id="acceptance-catalog"');
+    expect(context).toContain('<artifact-protocol id="decision-register"');
     expect(context).toContain('artifacts/decision-register.yaml');
-    expect(context).toContain('正式事实引用规则优先于上文示例');
-    expect(context).toContain('验收项允许字段为 `id`、`title`、`description`、`factRefs`');
-    expect(context).toContain('每个决策项只提供一至两个本期继续的 AI 方案');
-    expect(context).toContain('一至两个本期继续的 AI 方案');
-    expect(context).toContain('第一层自动记录为外部等待');
+    expect(context).not.toContain('正式事实引用规则优先于上文示例');
+    expect(context).toContain('- evidenceType: enum "unit" | "component" | "browser" | "contract" | "integration"');
+    expect(context).toContain('只提供一至两个“本期继续”方案');
+    expect(context).toContain('等待外部条件由 task review 单独记录');
     expect(context).toContain('detail:');
-    expect(context).toContain('一次人工选择只能解决一个独立业务结论');
+    expect(context).toContain('一次人工选择只解决一个独立业务结论');
     expect(context).toContain('aiw.decision-register/v1');
+    expect(context).toContain('evidenceType: component');
+    expect(context).toContain('UI 交互使用 component 或 browser');
   });
 
   it('requires each delivery unit to emit acceptance intent while AIW owns results', async () => {
@@ -149,13 +159,14 @@ describe('CodexAdapter', () => {
       processRunner: { async run() { return { exitCode: 0, signal: null, stdout: '', stderr: '', timedOut: false }; } },
     });
     const request = runRequest({ projectRoot, runDirectory });
-    request.task = { ...request.task, nodeId: 'delivery-list', phase: 'implement', testPlan: [{ id: 'TEST-LIST-01', command: 'pnpm test -- list' }] };
+    request.task = { ...request.task, nodeId: 'delivery-list', phase: 'implement', testPlan: [{ id: 'TEST-LIST-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'pnpm test -- list' }] };
     request.artifacts = ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'];
     request.outputContract = outputContractFor(request.runId, request.artifacts);
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(context).toContain('<artifact-protocol id="acceptance-intent"');
     expect(context).toContain('artifacts/acceptance-results.yaml');
     expect(context).toContain('artifacts/acceptance-intent.yaml');
     expect(context).toContain('artifacts/test-results.yaml');
@@ -163,6 +174,10 @@ describe('CodexAdapter', () => {
     expect(context).not.toContain('- .aiw/tasks/refund-123/artifacts/test-results.yaml');
     expect(context).toContain('不要**在交付报告、Handoff 或其他 Codex 产物中填写');
     expect(context).toContain('本次运行中完成代码实现、工程验证和验收测试');
+    expect(context).toContain('测试映射已由批准计划锁定');
+    expect(context).toContain('- items: array<object>');
+    expect(context).toContain('- evidence: array<string>');
+    expect(context).not.toContain('testPlanRefs: [TEST-LIST-01]');
   });
 
   it('places an exact output receipt after a stale skill instruction for a regenerated delivery node', async () => {
@@ -176,7 +191,7 @@ describe('CodexAdapter', () => {
       ...request.task,
       nodeId: 'delivery-list-custom-metrics',
       phase: 'implement',
-      testPlan: [{ id: 'TEST-LIST-01', command: 'node scripts/list.test.mjs' }],
+      testPlan: [{ id: 'TEST-LIST-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'node scripts/list.test.mjs' }],
     };
     request.artifacts = [
       'artifacts/delivery-list-custom-metrics/delivery.md',

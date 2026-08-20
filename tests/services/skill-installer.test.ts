@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { SkillInstaller } from '../../src/services/skill-installer.js';
@@ -144,6 +144,20 @@ describe('SkillInstaller', () => {
     const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
 
     await expect(installer.install({ url: 'https://example.test/skills.git' })).rejects.toThrow('不得固化 AIW 平台路径');
+    await expect(registry.list()).resolves.toEqual([]);
+  });
+
+  it('rejects a skill that copies the platform artifact schema', async () => {
+    const directory = await createTempDirectory('aiw-skill-installer-');
+    directories.push(directory);
+    const { repository } = await createBundledSkillRepositoryFixture(directory);
+    const skillPath = join(repository, 'skills', 'requirements-clarification', 'SKILL.md');
+    const content = await readFile(skillPath, 'utf8');
+    await writeFile(skillPath, content.replace('## 验证', '```yaml\nschemaVersion: aiw.fact-register/v1\nitems: []\n```\n\n## 验证'));
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
+
+    await expect(installer.install({ url: 'https://example.test/skills.git' })).rejects.toThrow('不得复制 AIW 产物协议');
     await expect(registry.list()).resolves.toEqual([]);
   });
 

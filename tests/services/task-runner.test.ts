@@ -540,7 +540,7 @@ openRisks: []
     await writeFile(join(staleArtifacts, 'questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n后续可以按验收清单继续推进。\n', 'utf8');
     await writeFile(join(staleArtifacts, 'acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
     await writeFile(join(staleArtifacts, 'fact-register.yaml'), 'schemaVersion: aiw.fact-register/v1\nitems:\n  - id: FACT-REFUND-01\n    kind: confirmed\n    statement: 用户能够提交退款申请并查看退款处理结果。\n    confidence: high\n    evidence:\n      - sourceId: requirements\n        path: sources/requirements/r1/snapshot.md\n', 'utf8');
-    await writeFile(join(staleArtifacts, 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n', 'utf8');
+    await writeFile(join(staleArtifacts, 'acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v2\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n    evidenceType: unit\n', 'utf8');
     await writeFile(join(staleArtifacts, 'decision-register.yaml'), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
     await writeHandoff(fixture.taskStore, 'refund-123');
 
@@ -645,7 +645,7 @@ async function createRunnerFixture(options: {
           await writeFile(artifact('questions.md'), '# 需求疑问\n\n## 开放问题\n\n当前没有阻塞性待确认事项。\n\n## 影响\n\n可按照验收清单继续完成技术方案。\n', 'utf8');
           await writeFile(artifact('fact-register.yaml'), 'schemaVersion: aiw.fact-register/v1\nitems:\n  - id: FACT-REFUND-01\n    kind: confirmed\n    statement: 用户能够提交退款申请并查看退款处理结果。\n    confidence: high\n    evidence:\n      - sourceId: requirements\n        path: sources/requirements/r1/snapshot.md\n', 'utf8');
           await writeFile(artifact('acceptance.md'), '# 验收标准\n\n## 验收项\n\n- AC-01：用户可以提交退款申请并查看处理结果。\n', 'utf8');
-          await writeFile(artifact('acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v1\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n', 'utf8');
+          await writeFile(artifact('acceptance.yaml'), 'schemaVersion: aiw.acceptance-catalog/v2\nitems:\n  - id: AC-01\n    title: 退款申请\n    description: 用户可以提交退款申请并查看处理结果。\n    factRefs: [FACT-REFUND-01]\n    evidenceType: unit\n', 'utf8');
           await writeFile(artifact('decision-register.yaml'), options.decisionRegister ?? 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
           await writeHandoff(taskStore, task.id, options.writeHandoff, 'run-1');
         }

@@ -41,4 +41,22 @@ describe('TaskStore', () => {
     await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'clarify.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(store.load(task.id)).resolves.toMatchObject({ id: task.id });
   });
+
+  it('increments stateVersion and rejects a stale task update', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-store-');
+    directories.push(projectRoot);
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    await store.create(task);
+    const first = await store.load(task.id);
+    const stale = await store.load(task.id);
+    first.title = '第一个写入者';
+    stale.title = '陈旧写入者';
+
+    const updated = await store.update(first);
+
+    expect(updated.stateVersion).toBe(1);
+    await expect(store.update(stale)).rejects.toThrow('任务状态已变化');
+    await expect(store.load(task.id)).resolves.toMatchObject({ title: '第一个写入者', stateVersion: 1 });
+  });
 });

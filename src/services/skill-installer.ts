@@ -222,6 +222,14 @@ function assertNoPlatformPathInstructions(body: string, label: string): void {
   if (match !== null) {
     throw new Error(`${label} 不得固化 AIW 平台路径：${match[1]}。请改为引用本次运行的 AIW 输出回执。`);
   }
+  const protocolCopy = [
+    /\bschemaVersion\b/,
+    /```ya?ml\b/i,
+    /\b(?:acceptance-intent|acceptance-results|test-results|work-breakdown|fact-register|decision-register)\.ya?ml\b/i,
+  ].find((pattern) => pattern.test(body));
+  if (protocolCopy !== undefined) {
+    throw new Error(`${label} 不得复制 AIW 产物协议。字段、枚举和示例由运行时 Zod Schema 生成。`);
+  }
 }
 
 function assertMethodName(content: string, expectedName: string): void {

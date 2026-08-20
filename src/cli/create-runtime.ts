@@ -29,6 +29,7 @@ import { DeliveryTestExecutor } from '../services/delivery-test-executor.js';
 import { ProjectTestProfiles } from '../services/project-test-profiles.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
+import { FileTaskRunLock } from '../services/task-run-lock.js';
 import type { GitClient } from '../ports/git-client.js';
 import type { McpClient } from '../ports/mcp-client.js';
 import type { McpServerCatalog } from '../ports/mcp-server-catalog.js';
@@ -69,6 +70,8 @@ export function createCliRuntime(input: {
 }): CliRuntime {
   const projectRoot = input.projectRoot();
   const taskStore = new TaskStore(projectRoot);
+  const runtimeRoot = join(input.homeDirectory, 'runtime');
+  const taskLock = new FileTaskRunLock(runtimeRoot);
   const registry = new SkillRegistry(join(input.homeDirectory, 'registry.yaml'));
   const config = new LocalConfig(join(input.homeDirectory, 'config.yaml'));
   const methodSourceResolver = new MethodSourceResolver(registry);
@@ -103,10 +106,10 @@ export function createCliRuntime(input: {
       }),
     }),
   });
-  const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore });
-  const taskCancellation = new TaskCancellationService({ taskStore, runtimeRoot: join(input.homeDirectory, 'runtime') });
+  const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore, taskLock });
+  const taskCancellation = new TaskCancellationService({ taskStore, runtimeRoot });
   const codexAdapter = new CodexAdapter({ processRunner: input.ports.processRunner });
-  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, cancellation: taskCancellation, decisionService: new TaskDecisionService({ taskStore }) });
+  const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, taskLock, cancellation: taskCancellation, decisionService: new TaskDecisionService({ taskStore }) });
   const taskRunner = new TaskRunner({
     taskStore,
     skillRegistry: registry,
@@ -121,7 +124,8 @@ export function createCliRuntime(input: {
     adapter: codexAdapter,
     deliveryTestExecutor: new DeliveryTestExecutor({ processRunner: input.ports.processRunner }),
     projectTestProfiles: new ProjectTestProfiles({ processRunner: input.ports.processRunner }),
-    runtimeRoot: join(input.homeDirectory, 'runtime'),
+    runtimeRoot,
+    runLock: taskLock,
   });
   return {
     registry,
@@ -139,7 +143,7 @@ export function createCliRuntime(input: {
       ...(input.ports.mcpClient === undefined ? {} : { mcpClient: input.ports.mcpClient }),
       ...(input.ports.mcpServerConfigResolver === undefined ? {} : { mcpServerConfigResolver: input.ports.mcpServerConfigResolver }),
     }),
-    runHistory: new RunHistoryService({ runtimeRoot: join(input.homeDirectory, 'runtime') }),
+    runHistory: new RunHistoryService({ runtimeRoot }),
     localConfig: config,
     localInitializer,
     defaultWorkflowBootstrapper,

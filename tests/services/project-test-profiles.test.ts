@@ -24,6 +24,7 @@ testing:
       command: pnpm exec vitest run
       healthCheck: pnpm exec vitest --version
       targetMode: append
+      evidenceTypes: [unit, component]
 `, 'utf8');
     const calls: string[] = [];
     const profiles = new ProjectTestProfiles({
@@ -35,9 +36,13 @@ testing:
       },
     });
 
-    await expect(profiles.resolve(root, [{ profile: 'unit', targets: ['src/example.test.ts'] }]))
-      .resolves.toEqual(['pnpm exec vitest run src/example.test.ts']);
-    await expect(profiles.assertHealthy(root, [{ profile: 'unit', targets: ['src/example.test.ts'] }])).resolves.toBeUndefined();
+    const refs = [{
+      profile: 'unit', targets: ['src/example.test.ts'], evidenceType: 'component' as const, acceptanceRefs: ['AC-01'],
+    }];
+    await expect(profiles.resolve(root, refs)).resolves.toEqual([{
+      profile: 'unit', evidenceType: 'component', acceptanceRefs: ['AC-01'], command: 'pnpm exec vitest run src/example.test.ts',
+    }]);
+    await expect(profiles.assertHealthy(root, refs)).resolves.toBeUndefined();
     expect(calls).toEqual(['pnpm exec vitest --version']);
   });
 
@@ -56,12 +61,14 @@ testing:
       command: pnpm exec vitest run
       healthCheck: pnpm exec vitest --version
       targetMode: append
+      evidenceTypes: [unit]
 `, 'utf8');
     const profiles = new ProjectTestProfiles({
       processRunner: { async run() { return { exitCode: 1, signal: null, stdout: '', stderr: 'runner missing', timedOut: false }; } },
     });
 
-    await expect(profiles.resolve(root, [{ profile: 'invented', targets: [] }])).rejects.toThrow('项目未提供测试能力：invented');
-    await expect(profiles.assertHealthy(root, [{ profile: 'unit', targets: [] }])).rejects.toThrow('当前不可用');
+    await expect(profiles.resolve(root, [{ profile: 'invented', targets: [], evidenceType: 'unit', acceptanceRefs: ['AC-01'] }])).rejects.toThrow('项目未提供测试能力：invented');
+    await expect(profiles.resolve(root, [{ profile: 'unit', targets: [], evidenceType: 'browser', acceptanceRefs: ['AC-01'] }])).rejects.toThrow('不支持 browser 证据');
+    await expect(profiles.assertHealthy(root, [{ profile: 'unit', targets: [], evidenceType: 'unit', acceptanceRefs: ['AC-01'] }])).rejects.toThrow('当前不可用');
   });
 });

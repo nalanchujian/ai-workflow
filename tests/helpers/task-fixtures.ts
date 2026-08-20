@@ -28,6 +28,7 @@ export function createSkillLock(name: string): SkillLock {
 export function createSevenPhaseTask(): Task {
   return {
     schemaVersion: 'aiw.task/v2',
+    stateVersion: 0,
     id: 'refund-123',
     title: '实现退款功能',
     repository: '.',
@@ -76,7 +77,7 @@ function node(
     requiresApproval,
     acceptanceRefs: [],
     decisionRefs: [],
-    verificationCommands: phase === 'implement' ? ['pnpm test'] : [],
+    verificationPlan: [],
     ...(skill ? { skill } : {}),
   };
 }

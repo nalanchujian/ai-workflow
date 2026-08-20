@@ -60,6 +60,7 @@ export class TaskInitializer {
       await writeFile(join(stagingDirectory, 'task.md'), `# ${id}\n\n需求来源：${sourceReference.origin}\n`, 'utf8');
       const task: Task = {
         schemaVersion: 'aiw.task/v2',
+        stateVersion: 0,
         id,
         title: `任务 ${id}`,
         repository: '.',
@@ -233,7 +234,7 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
     { id: 'implement', title: '交付业务单元', outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'], requiresApproval: true },
   ];
   const nodes: Record<string, TaskNode> = {
-    intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', hasResult: true, outputs: ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'], verificationCommands: [], acceptanceRefs: [], decisionRefs: [] },
+    intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', hasResult: true, outputs: ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'], verificationPlan: [], acceptanceRefs: [], decisionRefs: [] },
   };
   let dependency = 'intake';
   for (const definition of stageDefinitions) {
@@ -246,7 +247,7 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
       status: definition.id === 'clarify' ? 'ready' : 'pending',
       hasResult: false,
       outputs: definition.outputs,
-      verificationCommands: [],
+      verificationPlan: [],
       acceptanceRefs: [],
       decisionRefs: [],
     };

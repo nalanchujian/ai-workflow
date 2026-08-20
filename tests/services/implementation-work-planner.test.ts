@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { materializeImplementationWork, validatePlanAcceptanceCoverage, validateWorkBreakdown } from '../../src/services/implementation-work-planner.js';
@@ -82,6 +82,7 @@ testing:
       command: pnpm exec vitest run --config project
       healthCheck: pnpm exec vitest --version
       targetMode: append
+      evidenceTypes: [unit]
 `, 'utf8');
     await writePlanFacts(store, task.id, 'first');
     const current = await store.load(task.id);
@@ -102,19 +103,20 @@ testing:
       '    factRefs: [FACT-REFUND-01]',
       '    decisionRefs: []',
       '    steps: [实现退款流程]',
-      '    verification: [{ profile: vitest, targets: [] }]',
+      '    verification: [{ profile: vitest, targets: [], evidenceType: unit, acceptanceRefs: [AC-01] }]',
       'acceptanceCoverage:',
       '  - acceptanceId: AC-01',
       '    disposition: implement',
       '    workUnitIds: [main]',
     ].join('\n') + '\n', 'utf8');
     await writeFile(join(store.taskDirectory(task.id), acceptancePath), [
-      'schemaVersion: aiw.acceptance-catalog/v1',
+      'schemaVersion: aiw.acceptance-catalog/v2',
       'items:',
       '  - id: AC-01',
       '    title: 退款申请',
       '    description: 用户可以提交退款申请并查看处理结果。',
       '    factRefs: [FACT-REFUND-01]',
+      '    evidenceType: unit',
     ].join('\n') + '\n', 'utf8');
     await writeFile(join(store.taskDirectory(task.id), factPath), [
       'schemaVersion: aiw.fact-register/v1',
@@ -135,7 +137,9 @@ testing:
     expect(materialized.task.nodes['delivery-main']).toMatchObject({
       status: 'ready',
       acceptanceRefs: ['AC-01'],
-      verificationCommands: ['pnpm exec vitest run --config project'],
+      verificationPlan: [{
+        id: 'TEST-MAIN-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'pnpm exec vitest run --config project',
+      }],
       outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
     });
   });
@@ -149,7 +153,7 @@ testing:
       '    goal: 实现列表页面',
       '    acceptanceRefs: [AC-01]',
       '    steps: [实现页面]',
-      '    verification: [{ profile: vitest, targets: [page] }]',
+      '    verification: [{ profile: vitest, targets: [page], evidenceType: unit, acceptanceRefs: [AC-01] }]',
       'acceptanceCoverage:',
       '  - acceptanceRef: AC-01',
       '    status: implement',
@@ -179,6 +183,25 @@ testing:
     ].join('\n');
 
     expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('expected object');
+  });
+
+  it('rejects a plan that downgrades the evidence type fixed by an acceptance criterion', async () => {
+    const projectRoot = await createTempDirectory('aiw-work-planner-');
+    directories.push(projectRoot);
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    task.nodes.plan.status = 'awaiting_approval';
+    task.nodes.plan.hasResult = true;
+    await store.create(task);
+    await writePlanFacts(store, task.id, 'first');
+    const current = await store.load(task.id);
+    const acceptancePath = completedArtifactPath('clarify', current.nodes.clarify!, 'artifacts/acceptance.yaml');
+    const absoluteAcceptancePath = join(store.taskDirectory(task.id), acceptancePath);
+    const acceptance = await readFile(absoluteAcceptancePath, 'utf8');
+    await writeFile(absoluteAcceptancePath, acceptance.replace('evidenceType: unit', 'evidenceType: browser'), 'utf8');
+
+    await expect(validatePlanAcceptanceCoverage(await store.load(task.id), store))
+      .rejects.toThrow('AC-01 要求 browser 证据');
   });
 
   it('rejects a multi-unit plan when the task selected quick delivery', async () => {
@@ -219,16 +242,18 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
   await mkdir(join(directory, factPath, '..'), { recursive: true });
   await writeFile(join(directory, planPath), '# 实施计划\n\n## 实施单元\n\n- 完成列表和导出功能。\n\n## 范围与边界\n\n- 保持现有接口边界。\n\n## 验证方式\n\n- pnpm test\n', 'utf8');
   await writeFile(join(directory, acceptancePath), [
-    'schemaVersion: aiw.acceptance-catalog/v1',
+    'schemaVersion: aiw.acceptance-catalog/v2',
     'items:',
     '  - id: AC-01',
     '    title: 列表页面',
     '    description: 用户可以完成列表页面的筛选与查看。',
     '    factRefs: [FACT-PAGE-01]',
+    '    evidenceType: unit',
     '  - id: AC-02',
     '    title: 导出文件',
     '    description: 用户可以获得符合规则的导出文件名称。',
     '    factRefs: [FACT-EXPORT-01]',
+    '    evidenceType: unit',
   ].join('\n') + '\n', 'utf8');
   await writeFile(join(directory, factPath), [
     'schemaVersion: aiw.fact-register/v1',
@@ -284,7 +309,7 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    factRefs: [FACT-PAGE-01]',
     '    decisionRefs: []',
     '    steps: [实现页面]',
-    '    verification: [{ profile: vitest, targets: [page] }]',
+    '    verification: [{ profile: vitest, targets: [page], evidenceType: unit, acceptanceRefs: [AC-01] }]',
     '  - id: export',
     '    title: 实现导出',
     '    goal: 实现导出文件名',
@@ -292,7 +317,7 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    factRefs: [FACT-EXPORT-01]',
     ...(blockExport ? ['    decisionRefs: [DEC-API-01]'] : ['    decisionRefs: []']),
     '    steps: [实现导出]',
-    '    verification: [{ profile: vitest, targets: [export] }]',
+    '    verification: [{ profile: vitest, targets: [export], evidenceType: unit, acceptanceRefs: [AC-02] }]',
     ...(blockExport ? ['    blockedBy: [DEC-API-01]'] : []),
     'acceptanceCoverage:',
     '  - acceptanceId: AC-01',

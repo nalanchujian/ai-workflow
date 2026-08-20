@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { OutputRecordSchema } from './task.js';
 import { ContextManifestSchema } from './context.js';
 import { OutputContractSchema } from './output-contract.js';
+import { AcceptanceEvidenceTypeSchema } from './acceptance-evidence.js';
 
 export const RunModeSchema = z.enum(['dry-run', 'execute']);
 export const RunStatusSchema = z.enum(['succeeded', 'failed', 'unavailable', 'cancelled']);
@@ -24,12 +25,16 @@ export const RunRequestSchema = z.object({
     projectRoot: z.string().min(1),
     testPlan: z.array(z.object({
       id: z.string().regex(/^TEST-[A-Z0-9-]+$/),
+      profile: z.string().min(1),
+      evidenceType: AcceptanceEvidenceTypeSchema,
+      acceptanceRefs: z.array(z.string().regex(/^AC-\d{2,}$/)).min(1),
       command: z.string().min(1),
     }).strict()).default([]),
     testProfiles: z.array(z.object({
       id: z.string().regex(/^[a-z][a-z0-9-]{0,40}$/),
       title: z.string().min(1),
       targetMode: z.enum(['append', 'none']),
+      evidenceTypes: z.array(AcceptanceEvidenceTypeSchema).min(1),
     }).strict()).default([]),
   }),
   instruction: z.string().min(1),

@@ -14,13 +14,15 @@ aiw task approve <task-id> <node-id> [--project <path>] [--note <说明>]
 
 `--project` 不传时使用当前目录。所有任务事实写入 `<project>/.aiw/`。
 
+同一任务一次只允许一个会改变任务事实的命令执行，包括 `task run`、`task source refresh`、`task review`、`task approve`、`task decision resolve`、工作方式切换和风险关闭。若另一个命令正在处理该任务，AIW 会提示“当前任务正在被其他命令修改”；等待当前命令结束后原样重试即可。不同任务互不影响。
+
 ## 初始化和环境
 
 ### `aiw init`
 
 创建或补全 `~/.aiw/config.yaml`，自动安装默认技能包并尝试发现已配置的文档 MCP。它不创建业务任务，也不写入业务仓库。
 
-默认工作流为 `standard-web-feature@11.0.0`，来源为 `ai-workflow-skills@v11.0.0`。
+默认工作流为 `standard-web-feature@12.0.1`，来源为 `ai-workflow-skills@v12.0.1`。
 
 ### `aiw doctor`
 
@@ -43,6 +45,8 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 ### `aiw task source refresh <task-id> requirements`
 
 重新读取需求来源并生成新快照。需求变化必须使用此命令，不得手改 `snapshot.md`、方案、计划或交付报告来伪造需求更新。
+
+来源读取、快照落盘、下游失效和任务状态更新是同一个受锁事务；节点运行期间不能刷新来源，来源刷新期间也不能运行或审批该任务。
 
 ## 推进节点
 
@@ -92,7 +96,7 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 
 ### `aiw skills update --ref <tag-or-commit>`
 
-升级本机默认技能包并切换同名默认模板版本。它只影响新任务；旧任务继续使用创建时锁定版本。当前交付单元模型需要 `ai-workflow-skills@v11.0.0` 及以上版本。
+升级本机默认技能包并切换同名默认模板版本。它只影响新任务；旧任务继续使用创建时锁定版本。当前交付单元模型需要 `ai-workflow-skills@v12.0.1` 及以上版本。
 
 ### `aiw runtime`
 
