@@ -27,6 +27,11 @@ export const RunRequestSchema = z.object({
       id: z.string().regex(/^TEST-[A-Z0-9-]+$/),
       command: z.string().min(1),
     }).strict()).default([]),
+    testProfiles: z.array(z.object({
+      id: z.string().regex(/^[a-z][a-z0-9-]{0,40}$/),
+      title: z.string().min(1),
+      targetMode: z.enum(['append', 'none']),
+    }).strict()).default([]),
   }),
   instruction: z.string().min(1),
   contextManifestPath: z.string().min(1),

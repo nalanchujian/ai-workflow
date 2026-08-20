@@ -144,7 +144,7 @@ describe('CodexAdapter', () => {
     expect(context).toContain('aiw.decision-register/v1');
   });
 
-  it('requires each delivery unit to emit machine-readable acceptance results', async () => {
+  it('requires each delivery unit to emit acceptance intent while AIW owns results', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.aiw-runtime', 'run-acceptance');
     const adapter = new CodexAdapter({
@@ -152,13 +152,14 @@ describe('CodexAdapter', () => {
     });
     const request = runRequest({ projectRoot, runDirectory });
     request.task = { ...request.task, nodeId: 'delivery-list', phase: 'implement', testPlan: [{ id: 'TEST-LIST-01', command: 'pnpm test -- list' }] };
-    request.artifacts = ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'];
+    request.artifacts = ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'];
     request.outputContract = outputContractFor(request.runId, request.artifacts);
 
     await adapter.run(request);
 
     const context = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(context).toContain('artifacts/acceptance-results.yaml');
+    expect(context).toContain('artifacts/acceptance-intent.yaml');
     expect(context).toContain('artifacts/test-results.yaml');
     expect(context).toContain('AIW 会在 Codex 结束后作为唯一执行者运行');
     expect(context).not.toContain('- .aiw/tasks/refund-123/artifacts/test-results.yaml');
@@ -181,6 +182,7 @@ describe('CodexAdapter', () => {
     };
     request.artifacts = [
       'artifacts/delivery-list-custom-metrics-r2/r1/delivery.md',
+      'artifacts/delivery-list-custom-metrics-r2/r1/acceptance-intent.yaml',
       'artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml',
       'artifacts/delivery-list-custom-metrics-r2/r1/acceptance-results.yaml',
       'handoffs/delivery-list-custom-metrics-r2/r1.yaml',
@@ -197,7 +199,7 @@ describe('CodexAdapter', () => {
     const receipt = context.slice(context.lastIndexOf('<aiw-output-receipt>'));
     expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics-r2/r1/delivery.md');
     expect(receipt).toContain('发布正式路径：.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/delivery.md');
-    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics-r2/r1/acceptance-results.yaml');
+    expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/artifacts/delivery-list-custom-metrics-r2/r1/acceptance-intent.yaml');
     expect(receipt).toContain('.aiw/tasks/refund-123/artifacts/delivery-list-custom-metrics-r2/r1/test-results.yaml（仅 AIW 写入）');
     expect(receipt).toContain('.aiw/tasks/refund-123/runs/run-1/staging/handoffs/delivery-list-custom-metrics-r2/r1.yaml');
     expect(receipt).toContain('忽略低优先级技能中的旧路径示例');
@@ -258,7 +260,7 @@ function runRequest(input: { projectRoot: string; runDirectory: string }): RunRe
   return {
     schemaVersion: 'aiw.run/v2',
     runId: 'run-1',
-    task: { id: 'refund-123', nodeId: 'clarify', phase: 'clarify', nodeRevision: 0, projectRoot: input.projectRoot, testPlan: [] },
+    task: { id: 'refund-123', nodeId: 'clarify', phase: 'clarify', nodeRevision: 0, projectRoot: input.projectRoot, testPlan: [], testProfiles: [] },
     instruction: '澄清退款需求。',
     contextManifestPath: '.aiw/tasks/refund-123/runs/run-1/context-manifest.json',
     runDirectory: input.runDirectory,

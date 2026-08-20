@@ -51,7 +51,10 @@ export function outputContractFor(runId: string, finalPaths: string[]): OutputCo
 }
 
 export function isPlatformManagedOutput(path: string): boolean {
-  return path === 'artifacts/test-results.yaml' || path.endsWith('/test-results.yaml');
+  return path === 'artifacts/test-results.yaml'
+    || path.endsWith('/test-results.yaml')
+    || path === 'artifacts/acceptance-results.yaml'
+    || path.endsWith('/acceptance-results.yaml');
 }
 
 export function codexOutputEntries(contract: OutputContract): OutputContract['entries'] {

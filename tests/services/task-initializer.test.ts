@@ -42,7 +42,7 @@ describe('TaskInitializer', () => {
     expect(task.nodes.clarify.outputs).toContain('artifacts/decision-register.yaml');
     expect(task.nodes.clarify.outputs).toContain('artifacts/acceptance.yaml');
     expect(task.nodes.implement.skill?.name).toBe('typescript-web-implementation');
-    expect(task.nodes.implement.outputs).toEqual(['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml']);
+    expect(task.nodes.implement.outputs).toEqual(['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml']);
     expect((await store.load('task-20260813-120000-000')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
     await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.md'), 'utf8')).resolves.toContain('需求来源：requirements.md');
     await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'handoffs', 'intake', 'r1.yaml'), 'utf8')).resolves.toContain('id: FACT-SOURCE-REQUIREMENTS');

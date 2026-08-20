@@ -55,6 +55,7 @@ MVP 不支持云端调度、身份权限、多人并发运行、PR/发布运维�
 
 - `plan` 产出实施计划和严格校验的 `work-breakdown.yaml`；
 - 每个 AC 有唯一覆盖方式；本期或外部等待的 AC 只归属一个交付单元；
+- 每个交付单元只能引用项目已声明或自动发现的测试能力；AIW 在计划阶段完成健康检查，测试环境不可用时不得进入开发；
 - 计划审批后为每个业务单元生成 `delivery-<unit-id>` 节点和最小上下文。
 - 需求、事实、决策、AC 与交付单元之间存在可计算、带哈希的影响关系；交付单元运行前必须校验该关系仍与当前计划一致。
 - 新增会改变方案的外部事实或来源刷新时，系统必须保守地重新澄清/规划；不得假装可以根据未切片的整篇来源安全地局部放行。
@@ -63,8 +64,8 @@ MVP 不支持云端调度、身份权限、多人并发运行、PR/发布运维�
 ### AC-04：单元交付闭环
 
 - 每个交付单元在一次运行中完成代码、工程验证、测试和所属 AC 的验收；
-- 产出 `delivery.md`、由 AIW 写入的 `test-results.yaml`、`acceptance-results.yaml` 和 Handoff；
-- AIW 在 Codex 完成代码后执行计划锁定的验证命令，保存原始 stdout/stderr、退出码和哈希；AC 标记为 `passed` 时必须引用本次运行中退出码为 0 的测试记录；
+- 产出 `delivery.md`、由 Codex 声明的 `acceptance-intent.yaml`、由 AIW 写入的 `test-results.yaml`、`acceptance-results.yaml` 和 Handoff；
+- AIW 在 Codex 完成代码后执行计划锁定的验证命令，保存原始 stdout/stderr、退出码和哈希；AIW（而非 Codex）根据验收意图与真实测试记录生成 AC 的 `passed`、`failed` 或 `blocked` 结论；
 - 不存在全局 `verify`、`test` 节点，也不将所有单元的上下文汇总到最后；
 - 跨单元验收通过独立集成交付单元表达。
 

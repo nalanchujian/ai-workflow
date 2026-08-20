@@ -31,7 +31,7 @@ describe('ContextBuilder', () => {
     task.nodes['delivery-details'] = {
       ...task.nodes.implement,
       title: '交付详情页',
-      outputs: ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
+      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
       contextPath: 'artifacts/work-units/r1/delivery-details.md',
       generatedFromPlanRevision: 1,
       acceptanceRefs: ['AC-01'],
@@ -168,7 +168,7 @@ describe('ContextBuilder', () => {
     task.nodes['delivery-details'] = {
       ...task.nodes.implement,
       title: '实现详情页',
-      outputs: ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
+      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
       generatedFromPlanRevision: 1,
       acceptanceRefs: ['AC-01'],
     };

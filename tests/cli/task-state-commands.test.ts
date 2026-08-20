@@ -279,7 +279,7 @@ describe('TaskStateCommands', () => {
     const { store, directory } = await createApprovalTask('plan');
     const task = await store.load('refund-123');
     await writeFile(join(directory, completedArtifactPath('plan', task.nodes.plan!, 'artifacts/work-breakdown.yaml')), [
-      'schemaVersion: aiw.work-breakdown/v1',
+      'schemaVersion: aiw.work-breakdown/v2',
       'units:',
       '  - id: page',
       '    title: 实现页面筛选',
@@ -288,7 +288,7 @@ describe('TaskStateCommands', () => {
       '    factRefs: [FACT-REFUND-01]',
       '    decisionRefs: []',
       '    steps: [实现筛选状态]',
-      '    verification: [pnpm test -- links]',
+      '    verification: [{ profile: vitest, targets: [links] }]',
       '  - id: export',
       '    title: 实现导出文件名',
       '    goal: 按筛选项生成导出名称',
@@ -296,7 +296,7 @@ describe('TaskStateCommands', () => {
       '    factRefs: [FACT-REFUND-01]',
       '    decisionRefs: []',
       '    steps: [实现文件名生成函数]',
-      '    verification: [pnpm test -- export]',
+      '    verification: [{ profile: vitest, targets: [export] }]',
       'acceptanceCoverage:',
       '  - acceptanceId: AC-01',
       '    disposition: implement',
@@ -335,7 +335,7 @@ describe('TaskStateCommands', () => {
     const { store, directory } = await createApprovalTask('plan');
     const task = await store.load('refund-123');
     await writeFile(join(directory, completedArtifactPath('plan', task.nodes.plan!, 'artifacts/work-breakdown.yaml')), [
-      'schemaVersion: aiw.work-breakdown/v1',
+      'schemaVersion: aiw.work-breakdown/v2',
       'units:',
       '  - id: page',
       '    title: 实现页面筛选',
@@ -344,7 +344,7 @@ describe('TaskStateCommands', () => {
       '    factRefs: [FACT-REFUND-01]',
       '    decisionRefs: []',
       '    steps: [实现筛选状态]',
-      '    verification: [pnpm test -- links]',
+      '    verification: [{ profile: vitest, targets: [links] }]',
       'acceptanceCoverage:',
       '  - acceptanceId: AC-01',
       '    disposition: implement',
@@ -753,6 +753,8 @@ async function createApprovalTask(nodeId: 'clarify' | 'plan' | 'delivery-main', 
     const firstArtifact = outputs.find((path) => path.startsWith('artifacts/'))!;
     const content = output === handoffPath(nodeId, node.revision)
       ? `schemaVersion: aiw.handoff/v1\ntaskId: ${task.id}\nnodeId: ${nodeId}\nphase: ${node.phase}\nrevision: ${node.revision}\nsummary: 已完成${node.title}并形成结构化交接结论。\nfacts:\n  - id: FACT-REFUND-01\n    statement: 当前节点已生成声明的工作产物。\n    evidence:\n      - path: ${firstArtifact}\ndecisions: []\nacceptance: []\nchanges: []\nverification: []\nopenRisks: []\n`
+      : nodeId === 'delivery-main' && output.endsWith('/acceptance-intent.yaml')
+        ? `schemaVersion: aiw.acceptance-intent/v1\nitems:\n  - id: AC-01\n    evidence:\n      - artifacts/delivery.md\n    testPlanRefs: [TEST-REFUND-01]\n`
       : nodeId === 'delivery-main' && output.endsWith('/acceptance-results.yaml')
         ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: ${options.acceptanceStatus ?? 'passed'}\n    evidence:\n      - artifacts/delivery.md\n    testResultRefs: ${options.acceptanceStatus === undefined || options.acceptanceStatus === 'passed' ? '[TEST-REFUND-01]' : '[]'}\n`
       : nodeId === 'delivery-main' && output.endsWith('/test-results.yaml')

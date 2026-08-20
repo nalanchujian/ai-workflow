@@ -21,7 +21,7 @@ export async function completeNode(projectRoot: string, taskId: string, nodeId: 
   for (const path of outputPaths) {
     // AIW, not Codex, writes the canonical result after executing the
     // approved test commands. This must hold for versioned delivery outputs.
-    if (node.phase === 'implement' && path.endsWith('/test-results.yaml')) continue;
+    if (node.phase === 'implement' && (path.endsWith('/test-results.yaml') || path.endsWith('/acceptance-results.yaml'))) continue;
     const destination = join(store.taskDirectory(taskId), 'runs', runId, 'staging', path);
     await mkdir(join(destination, '..'), { recursive: true });
     const content = path === handoffPath(nodeId, node.revision + 1)
@@ -29,7 +29,7 @@ export async function completeNode(projectRoot: string, taskId: string, nodeId: 
       : nodeId === 'plan' && path.endsWith('/implementation-plan.md')
       ? '# 实施计划\n\n## 实施单元\n\n- 完成退款功能。\n\n## 范围与边界\n\n- 复用现有退款流程，不新增依赖。\n\n## 验证方式\n\n- pnpm test\n'
       : nodeId === 'plan' && path.endsWith('/work-breakdown.yaml')
-          ? 'schemaVersion: aiw.work-breakdown/v1\nunits:\n  - id: main\n    title: 完成退款功能\n    goal: 完成退款功能的最小实现\n    acceptanceRefs: [AC-01]\n    factRefs: [FACT-REFUND-01]\n    decisionRefs: []\n    steps: [实现退款流程]\n    verification: [pnpm test]\nacceptanceCoverage:\n  - acceptanceId: AC-01\n    disposition: implement\n    workUnitIds: [main]\n'
+          ? 'schemaVersion: aiw.work-breakdown/v2\nunits:\n  - id: main\n    title: 完成退款功能\n    goal: 完成退款功能的最小实现\n    acceptanceRefs: [AC-01]\n    factRefs: [FACT-REFUND-01]\n    decisionRefs: []\n    steps: [实现退款流程]\n    verification:\n      - profile: vitest\n        targets: []\nacceptanceCoverage:\n  - acceptanceId: AC-01\n    disposition: implement\n    workUnitIds: [main]\n'
       : nodeId === 'clarify' && path.endsWith('/fact-register.yaml')
         ? 'schemaVersion: aiw.fact-register/v1\nitems:\n  - id: FACT-REFUND-01\n    kind: confirmed\n    statement: 用户能够提交退款申请并查看退款处理结果。\n    confidence: high\n    evidence:\n      - sourceId: requirements\n        path: sources/requirements/r1/snapshot.md\n'
       : nodeId === 'clarify' && path.endsWith('/decision-register.yaml')
@@ -45,9 +45,9 @@ export async function completeNode(projectRoot: string, taskId: string, nodeId: 
             : nodeId === 'solution'
               ? '# 技术方案\n\n## 方案结论\n\n沿用现有退款流程。\n\n## 架构与接口影响\n\n不新增依赖。\n\n## 风险与待决事项\n\n无。\n'
               : node.phase === 'implement'
-                ? path.endsWith('/acceptance-results.yaml')
-          ? `schemaVersion: aiw.acceptance-results/v1\nitems:\n  - id: AC-01\n    status: passed\n    evidence:\n      - ${deliveryArtifact ?? firstArtifact}\n    testResultRefs: [${testId}]\n`
-          : `# 交付报告\n\n## 实际变更\n\n完成退款功能。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试计划\n\n${testId}：\`pnpm test\`\n\n## 逐项验收\n\nAC-01 通过，等待 AIW 测试执行结果确认。\n\n## 未完成事项与风险\n\n无。\n`
+                ? path.endsWith('/acceptance-intent.yaml')
+          ? `schemaVersion: aiw.acceptance-intent/v1\nitems:\n  - id: AC-01\n    evidence:\n      - ${deliveryArtifact ?? firstArtifact}\n    testPlanRefs: [${testId}]\n`
+          : `# 交付报告\n\n## 实际变更\n\n完成退款功能。\n\n## 工程验证\n\n类型检查通过。\n\n## 测试计划\n\n${testId}：\`${node.verificationCommands[0] ?? 'pnpm test'}\`\n\n## 逐项验收\n\nAC-01 等待 AIW 测试执行结果确认。\n\n## 未完成事项与风险\n\n无。\n`
         : `# ${nodeId}\n\n## 结论\n\n已完成当前节点并保留可追溯结果。\n`;
     await writeFile(destination, content, 'utf8');
   }

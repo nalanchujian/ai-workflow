@@ -133,7 +133,7 @@ items:
       rationale: 导出字段必须以服务端契约作为唯一依据，不能由页面推断。
 `);
   await writeFile(join(taskDirectory, planPath('implementation-plan.md')), '# 实施计划\n\n## 交付单元\n\n- 分别完成导出与字段配置。\n');
-  await writeFile(join(taskDirectory, planPath('work-breakdown.yaml')), `schemaVersion: aiw.work-breakdown/v1
+  await writeFile(join(taskDirectory, planPath('work-breakdown.yaml')), `schemaVersion: aiw.work-breakdown/v2
 units:
   - id: export
     title: 主列表导出
@@ -143,7 +143,7 @@ units:
     decisionRefs: [DEC-API-01]
     blockedBy: [DEC-API-01]
     steps: [组装导出字段参数, 校验导出结果]
-    verification: [pnpm test -- export]
+    verification: [{ profile: vitest, targets: [export] }]
   - id: page
     title: 主列表字段配置
     goal: 支持用户配置并保留主列表可见字段。
@@ -151,7 +151,7 @@ units:
     factRefs: [FACT-PAGE-01]
     decisionRefs: []
     steps: [实现字段配置, 保存当前选择]
-    verification: [pnpm test -- metrics]
+    verification: [{ profile: vitest, targets: [metrics] }]
 acceptanceCoverage:
   - acceptanceId: AC-01
     disposition: waiting_external

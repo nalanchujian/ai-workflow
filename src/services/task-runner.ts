@@ -10,6 +10,7 @@ import { registeredDecisionFactPaths, type OutputRecord, type SkillLock, type Ta
 import { declaredOutputPath, handoffPath, HandoffSchema, nextArtifactPath, outputPathsForCompletedRun, outputPathsForNextRun, validateHandoff, validateHandoffFactReferences } from '../domain/handoff.js';
 import { hasTestPlanEvidence, validateAcceptanceTestEvidence } from '../domain/test-report.js';
 import { AcceptanceResultsSchema } from '../domain/acceptance-results.js';
+import { AcceptanceIntentSchema } from '../domain/acceptance-intent.js';
 import { TestResultsSchema } from '../domain/test-results.js';
 import { AcceptanceCatalogSchema } from '../domain/acceptance-catalog.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
@@ -21,7 +22,7 @@ import { parse } from 'yaml';
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
-import { ImplementationWorkPlannerError, validateWorkBreakdown } from './implementation-work-planner.js';
+import { ImplementationWorkPlannerError, WorkBreakdownSchema, validateWorkBreakdown } from './implementation-work-planner.js';
 import { SkillRegistry } from './skill-registry.js';
 import { SourceSnapshotIntegrity, SourceSnapshotIntegrityError } from './source-snapshot-integrity.js';
 import { TaskFactGuard } from './task-fact-guard.js';
@@ -32,6 +33,8 @@ import { loadRunCompletionBundle } from './run-completion-bundle.js';
 import { TaskImpactError, readClarificationImpactArtifacts, readCurrentImpactGraph, validateClarificationImpactArtifacts } from './task-impact-service.js';
 import { DeliveryTestExecutor, deliveryTestPlan } from './delivery-test-executor.js';
 import { WorkflowPathService } from './workflow-path-service.js';
+import { evaluateDeliveryAcceptance, parseAcceptanceIntent, serializeAcceptanceResults } from './delivery-acceptance-evaluator.js';
+import { ProjectTestProfiles } from './project-test-profiles.js';
 
 export class TaskRunnerError extends Error {
   constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'SOURCE_INTEGRITY_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'ARTIFACT_STALE' | 'WORKTREE_DIRTY' | 'RUN_RECOVERED', message: string) {
@@ -53,6 +56,7 @@ export class TaskRunner {
     changeInspector: WorkingTreeStatus;
     adapter: CodexAdapter;
     deliveryTestExecutor?: DeliveryTestExecutor;
+    projectTestProfiles?: ProjectTestProfiles;
     workflowPathService?: WorkflowPathService;
     runtimeRoot: string;
     runIdFactory?: () => string;
@@ -125,6 +129,15 @@ export class TaskRunner {
       throw new TaskRunnerError('SKILL_LOCK_INVALID', '已锁定技能与当前节点阶段不兼容');
     }
     const methods = await Promise.all(node.skill.methodSources.map((source) => this.deps.methodSourceResolver.readLocked(source)));
+    const testProfiles = input.nodeId === 'plan'
+      ? await (this.deps.projectTestProfiles ?? new ProjectTestProfiles()).list(this.deps.taskStore.projectDirectory())
+      : [];
+    if (input.nodeId === 'plan' && testProfiles.length === 0) {
+      throw new TaskRunnerError(
+        'ARTIFACT_INVALID',
+        '项目尚未发现可用测试能力。请在 .aiw/config.yaml 的 testing.profiles 中配置受支持的测试命令与健康检查后，再生成实施计划。',
+      );
+    }
     const outputPaths = outputPathsForNextRun(input.nodeId, node);
     const manifest = await this.deps.contextBuilder.build({
       task,
@@ -158,6 +171,7 @@ export class TaskRunner {
         ...(task.workflowPath === undefined ? {} : { workflowPath: task.workflowPath.id }),
         projectRoot: this.deps.taskStore.projectDirectory(),
         testPlan: isDeliveryUnit(node) ? deliveryTestPlan(node) : [],
+        testProfiles: testProfiles.map((profile) => ({ id: profile.id, title: profile.title, targetMode: profile.targetMode })),
       },
       instruction: node.title,
       contextManifestPath: join(this.deps.taskStore.taskDirectory(task.id), contextManifestFactPath),
@@ -289,7 +303,7 @@ export class TaskRunner {
         if (this.deps.deliveryTestExecutor === undefined) {
           throw new TaskRunnerError('ARTIFACT_INVALID', '当前环境未配置 AIW 测试执行器，无法生成可验证的交付验收证据');
         }
-        await this.deps.deliveryTestExecutor.execute({
+        const tests = await this.deps.deliveryTestExecutor.execute({
           task,
           nodeId,
           node: task.nodes[nodeId]!,
@@ -299,6 +313,27 @@ export class TaskRunner {
           outputPath: request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/test-results.yaml'))?.stagingPath,
           signal,
         });
+        const intentOutput = request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/acceptance-intent.yaml'));
+        const resultOutput = request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/acceptance-results.yaml'));
+        if (intentOutput === undefined || resultOutput === undefined) {
+          throw new TaskRunnerError('ARTIFACT_INVALID', '交付单元缺少验收意图或平台验收结果产物声明');
+        }
+        const intentContent = await readFile(join(this.deps.taskStore.taskDirectory(task.id), intentOutput.stagingPath), 'utf8');
+        const acceptance = evaluateDeliveryAcceptance({
+          intent: parseAcceptanceIntent(intentContent),
+          tests,
+          acceptanceRefs: task.nodes[nodeId]!.acceptanceRefs,
+        });
+        await this.deps.taskStore.createFact(task.id, resultOutput.stagingPath, serializeAcceptanceResults(acceptance));
+      }
+      if (nodeId === 'plan') {
+        const breakdownOutput = request.outputContract.entries.find((entry) => entry.finalPath.endsWith('/work-breakdown.yaml'));
+        if (breakdownOutput === undefined) throw new TaskRunnerError('ARTIFACT_INVALID', '计划节点缺少实施工作单元声明');
+        const breakdown = WorkBreakdownSchema.parse(parse(await readFile(join(this.deps.taskStore.taskDirectory(task.id), breakdownOutput.stagingPath), 'utf8')));
+        await (this.deps.projectTestProfiles ?? new ProjectTestProfiles()).assertHealthy(
+          this.deps.taskStore.projectDirectory(),
+          breakdown.units.flatMap((unit) => unit.verification),
+        );
       }
       if (signal.aborted || await cancellationRequested(request.runDirectory)) {
         const cancelled = cancelledResult(request, '已取消当前运行');
@@ -836,21 +871,29 @@ function validateArtifactContent(task: Task, nodeId: string, path: string, conte
       }));
     }
   }
+  if (declaredPath === 'artifacts/acceptance-intent.yaml') {
+    try {
+      AcceptanceIntentSchema.parse(parse(content));
+      return;
+    } catch (error) {
+      throw new TaskRunnerError('ARTIFACT_INVALID', formatSchemaDiagnostics({
+        title: '验收意图',
+        error,
+        aliases: {
+          acceptanceId: '不能使用 acceptanceId；请改为 id。',
+          result: '不能使用 result；AIW 会生成最终 status。',
+          proofs: '不能使用 proofs；请改为 evidence。',
+        },
+        itemLabel: '验收意图',
+      }));
+    }
+  }
   if (declaredPath === 'artifacts/acceptance-results.yaml') {
     try {
       AcceptanceResultsSchema.parse(parse(content));
       return;
     } catch (error) {
-      throw new TaskRunnerError('ARTIFACT_INVALID', formatSchemaDiagnostics({
-        title: '验收结果',
-        error,
-        aliases: {
-          acceptanceId: '不能使用 acceptanceId；请改为 id。',
-          result: '不能使用 result；请改为 status。',
-          proofs: '不能使用 proofs；请改为 evidence。',
-        },
-        itemLabel: '验收结果',
-      }));
+      throw new TaskRunnerError('ARTIFACT_INVALID', 'AIW 生成的验收结果无效：' + (error instanceof Error ? error.message : '格式错误'));
     }
   }
   if (declaredPath === 'artifacts/test-results.yaml') {
@@ -917,10 +960,12 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
     }
   }
   if (isDeliveryUnit(node)) {
+    const intentContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance-intent.yaml'));
     const resultContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/acceptance-results.yaml'));
     const testContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/test-results.yaml'));
     const deliveryContent = contents.get(nextArtifactPath(nodeId, node, 'artifacts/delivery.md'));
-    if (resultContent === undefined || testContent === undefined || deliveryContent === undefined) return;
+    if (intentContent === undefined || resultContent === undefined || testContent === undefined || deliveryContent === undefined) return;
+    const intent = AcceptanceIntentSchema.parse(parse(intentContent));
     const results = AcceptanceResultsSchema.parse(parse(resultContent));
     const tests = TestResultsSchema.parse(parse(testContent));
     const expected = new Set(node.acceptanceRefs);
@@ -935,6 +980,10 @@ async function validateArtifactSet(task: Task, taskStore: TaskStore, nodeId: str
       throw new TaskRunnerError('ARTIFACT_INVALID', `交付单元验收结果必须与其所属验收项逐项一一对应：${parts.join('；')}。`);
     }
     try {
+      const expectedResults = evaluateDeliveryAcceptance({ intent, tests, acceptanceRefs: node.acceptanceRefs });
+      if (JSON.stringify(expectedResults) !== JSON.stringify(results)) {
+        throw new Error('验收结果必须完全由 AIW 根据验收意图和实际测试记录生成');
+      }
       validateAcceptanceTestEvidence({ report: deliveryContent, acceptance: results, tests });
       await assertTestEvidenceIntegrity(task, taskStore, tests);
     } catch (error) {

@@ -83,14 +83,15 @@ describe('MVP workflow (AC-1, AC-3, AC-7, AC-12, AC-24)', () => {
     const deliveryNodeId = Object.keys(JSON.parse(planned.stdout).nodes).find((nodeId) => nodeId.startsWith('delivery-'));
     expect(deliveryNodeId).toBe('delivery-main');
     const deliveryRun = await runCli(['task', 'run', taskId, deliveryNodeId!], fixture.runtime);
-    expect(deliveryRun.exitCode).toBe(0);
+    expect(deliveryRun.exitCode, `${deliveryRun.stdout}\n${deliveryRun.stderr}`).toBe(0);
+    expect((await runCli(['task', 'status', taskId, '--json'], fixture.runtime)).stdout).toContain('awaiting_approval');
     fixture.repository.commitTaskFacts();
     await expect(runCli(['task', 'approve', taskId, deliveryNodeId!, '--actor', 'tech-lead'], fixture.runtime)).resolves.toMatchObject({ exitCode: 0 });
     fixture.repository.commitTaskFacts();
 
     const status = await runCli(['task', 'status', taskId, '--json'], fixture.runtime);
     expect(JSON.parse(status.stdout).nodes['delivery-main'].status).toBe('completed');
-    expect(fixture.process.calls).toHaveLength(5); // 4 个 Codex 节点 + AIW 执行的交付测试
+    expect(fixture.process.calls).toHaveLength(6); // 4 个 Codex 节点 + 计划测试健康检查 + AIW 执行的交付测试
   });
 
 });

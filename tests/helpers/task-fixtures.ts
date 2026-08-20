@@ -49,7 +49,7 @@ export function createSevenPhaseTask(): Task {
       solution: node('形成技术方案', 'solution', ['clarify'], 'pending', false, ['artifacts/solution.md'], createSkillLock('technical-solution')),
       plan: node('制定实施计划', 'plan', ['solution'], 'pending', true, ['artifacts/implementation-plan.md', 'artifacts/work-breakdown.yaml'], createSkillLock('implementation-planning')),
       // This is an internal anchor.  Approved plans replace it with delivery-<unit> nodes.
-      implement: node('交付业务单元', 'implement', ['plan'], 'pending', true, ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'], createSkillLock('typescript-web-implementation')),
+      implement: node('交付业务单元', 'implement', ['plan'], 'pending', true, ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'], createSkillLock('typescript-web-implementation')),
     },
     approvalRefs: [],
     decisions: [],

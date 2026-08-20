@@ -11,6 +11,7 @@ import { ImpactGraphSchema, type ImpactGraph } from '../domain/impact-graph.js';
 import { completedArtifactPath } from '../domain/handoff.js';
 import { type Task } from '../domain/task.js';
 import { readWorkBreakdown, type WorkBreakdown } from './implementation-work-planner.js';
+import { ProjectTestProfiles } from './project-test-profiles.js';
 import { TaskStore } from './task-store.js';
 
 export class TaskImpactError extends Error {
@@ -193,15 +194,15 @@ export async function materializeImpactGraph(task: Task, taskStore: TaskStore): 
         ...(workUnitId === undefined || deliveriesByUnit.get(workUnitId) === undefined ? {} : { deliveryNodeId: deliveriesByUnit.get(workUnitId) }),
       };
     }),
-    units: breakdown.units.map((unit) => ({
+    units: await Promise.all(breakdown.units.map(async (unit) => ({
       id: unit.id,
       deliveryNodeId: deliveriesByUnit.get(unit.id) ?? missingDeliveryNode(unit.id),
       acceptanceRefs: unit.acceptanceRefs,
       factRefs: unit.factRefs,
       decisionIds: unit.decisionRefs,
       dependsOn: unit.dependsOn,
-      verificationCommands: unit.verification,
-    })),
+      verificationCommands: await new ProjectTestProfiles().resolve(taskStore.projectDirectory(), unit.verification),
+    }))),
   });
   const content = stringify(graph);
   return {

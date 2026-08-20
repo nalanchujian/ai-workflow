@@ -8,12 +8,12 @@ import { z } from 'zod';
 import { AcceptanceCatalogSchema, type AcceptanceCatalog } from '../domain/acceptance-catalog.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
-import { verificationCommandError } from '../domain/verification-command.js';
 import { completedArtifactPath } from '../domain/handoff.js';
 import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
 import { TaskStore } from './task-store.js';
 import { deriveTaskStatus } from './task-state-machine.js';
+import { ProjectTestProfiles, VerificationProfileRefSchema } from './project-test-profiles.js';
 
 const unitIdPattern = /^[a-z][a-z0-9-]{0,40}$/;
 
@@ -25,7 +25,7 @@ const WorkUnitSchema = z.object({
   factRefs: z.array(z.string().regex(/^FACT-[A-Z0-9-]+$/, '事实引用格式无效')).min(1),
   decisionRefs: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   steps: z.array(z.string().min(1)).min(1),
-  verification: z.array(z.string().min(1)).min(1),
+  verification: z.array(VerificationProfileRefSchema).min(1),
   blockedBy: z.array(z.string().regex(/^DEC-[A-Z0-9-]+$/, '决策 ID 格式无效')).default([]),
   dependsOn: z.array(z.string().regex(unitIdPattern, '依赖工作单元 ID 格式无效')).default([]),
 }).strict();
@@ -38,7 +38,7 @@ const AcceptanceCoverageSchema = z.object({
 }).strict();
 
 export const WorkBreakdownSchema = z.object({
-  schemaVersion: z.literal('aiw.work-breakdown/v1'),
+  schemaVersion: z.literal('aiw.work-breakdown/v2'),
   units: z.array(WorkUnitSchema).min(1),
   acceptanceCoverage: z.array(AcceptanceCoverageSchema).min(1),
 }).strict().superRefine((breakdown, context) => {
@@ -61,11 +61,8 @@ export const WorkBreakdownSchema = z.object({
     if (unit.blockedBy.some((id) => !unit.decisionRefs.includes(id))) {
       context.addIssue({ code: 'custom', path: ['units', index, 'decisionRefs'], message: 'blockedBy 中的决策必须同时出现在 decisionRefs' });
     }
-    for (const [verificationIndex, command] of unit.verification.entries()) {
-      const message = verificationCommandError(command);
-      if (message !== undefined) {
-        context.addIssue({ code: 'custom', path: ['units', index, 'verification', verificationIndex], message: `验证命令无效：${message}` });
-      }
+    if (new Set(unit.verification.map((item) => `${item.profile}:${item.targets.join(',')}`)).size !== unit.verification.length) {
+      context.addIssue({ code: 'custom', path: ['units', index, 'verification'], message: '工作单元测试能力引用不能重复' });
     }
   }
   if (hasCycle(breakdown.units.map((unit) => ({ id: unit.id, dependsOn: unit.dependsOn })))) {
@@ -155,6 +152,7 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
   const factsById = new Map(FactRegisterSchema.parse(parse(factContent)).items.map((fact) => [fact.id, fact]));
   const decisionsById = new Map(DecisionRegisterSchema.parse(parse(decisionContent)).items.map((decision) => [decision.id, decision]));
 
+  const testProfiles = new ProjectTestProfiles();
   for (const unit of breakdown.units) {
     const nodeId = nodeIds.get(unit.id)!;
     const contextPath = `artifacts/work-units/r${planRevision}/${nodeId}.md`;
@@ -163,6 +161,10 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       const resolution = next.decisions.find((decision) => decision.id === decisionId);
       return resolution === undefined || resolution.status === 'waiting_external';
     });
+    // task.repository is task metadata and may be relative (for example `.`).
+    // The TaskStore owns the resolved business-repository directory, so test
+    // profile discovery must use it rather than the CLI process directory.
+    const verificationCommands = await testProfiles.resolve(taskStore.projectDirectory(), unit.verification);
     const node: TaskNode = {
       title: unit.title,
       phase: 'implement',
@@ -171,17 +173,17 @@ export async function materializeImplementationWork(task: Task, taskStore: TaskS
       requiresApproval: true,
       status: blockedByDecisionIds.length > 0 ? 'blocked' : dependencies.every((dependency) => next.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
       revision: 0,
-      outputs: ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
+      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
       contextPath,
       generatedFromPlanRevision: planRevision,
       workUnitId: unit.id,
-      verificationCommands: unit.verification,
+      verificationCommands,
       acceptanceRefs: unit.acceptanceRefs,
       decisionRefs: unit.decisionRefs,
       ...(blockedByDecisionIds.length === 0 ? {} : { blockedByDecisionIds }),
     };
     next.nodes[nodeId] = node;
-    facts.push({ path: contextPath, content: renderUnitContext(unit, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash, factsById, decisionsById, next) });
+    facts.push({ path: contextPath, content: renderUnitContext(unit, verificationCommands, task.id, planRevision, planPath, breakdownPath, planHash, breakdownHash, factsById, decisionsById, next) });
     next.events.push({ type: 'materialize_implementation', nodeId, at: new Date().toISOString(), note: `计划 r${planRevision}；工作单元：${unit.id}` });
   }
   return { task: TaskSchema.parse(deriveTaskStatus(next)), facts };
@@ -256,6 +258,7 @@ function workBreakdownIssueMessages(issue: z.core.$ZodIssue, kind: 'coverage' | 
           acceptanceIds: '不能使用 acceptanceIds；请改为 acceptanceRefs。',
           paths: '不能使用 paths；请使用 steps 描述实施边界。',
           commands: '不能使用 commands；请改为 verification。',
+          command: '不能使用 command；每项 verification 必须使用 profile 和可选 targets。',
           dependencies: '不能使用 dependencies；请改为 dependsOn。',
           requiresApproval: '交付单元固定需要审批；不要声明 requiresApproval。',
         };
@@ -371,6 +374,7 @@ function nextNodeId(task: Task, base: string, planRevision: number): string {
 
 function renderUnitContext(
   unit: WorkBreakdown['units'][number],
+  verificationCommands: string[],
   taskId: string,
   planRevision: number,
   planPath: string,
@@ -416,7 +420,7 @@ function renderUnitContext(
     ...unit.steps.map((step, index) => `${index + 1}. ${step}`),
     '',
     '## 工程验证与验收测试',
-    ...unit.verification.map((command) => `- ${command}`),
+    ...verificationCommands.map((command) => `- ${command}`),
     '',
     '## 交付要求',
     '- 在本单元内完成代码修改、工程验证和验收测试；不得等待全局验证节点。',

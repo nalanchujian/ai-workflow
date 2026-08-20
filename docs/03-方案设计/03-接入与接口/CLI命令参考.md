@@ -52,7 +52,7 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 
 可运行节点包括：`clarify`、标准需求中的 `solution`、`plan`，以及计划批准后生成的 `delivery-<unit-id>`。快速修改选定后不产生可运行的 `solution`，状态页会直接引导到 `plan`。
 
-运行前 AIW 校验来源和上游产物哈希、Git 提交状态、业务工作树基线和上下文预算；运行后保存 Prompt 清单、Diff、补丁、结果和产物哈希。
+运行前 AIW 校验来源和上游产物哈希、Git 提交状态、业务工作树基线和上下文预算；`plan` 还会校验所选项目测试能力的健康状态。运行后保存 Prompt 清单、Diff、补丁、结果和产物哈希。
 
 重跑会生成新 revision，旧产物与审批事实保留，但当前节点和下游当前版本失效。
 
@@ -69,7 +69,7 @@ aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>"
 用于 `plan` 和每个 `delivery-<unit-id>`。审批前必须先提交当前 `.aiw` 产物。
 
 - `plan` 审批会校验每个 AC 的唯一覆盖，然后生成交付单元；
-- 交付单元普通审批要求该单元 `acceptance-results.yaml` 中的所有 AC 都是 `passed`；
+- 交付单元普通审批要求 AIW 生成的 `acceptance-results.yaml` 中所有 AC 都是 `passed`；Codex 只能写 `acceptance-intent.yaml`，不能自行声明通过；
 - `clarify` 必须使用 `task review`，不能使用此命令。
 
 ## 高级和例外场景

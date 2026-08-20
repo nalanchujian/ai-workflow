@@ -71,6 +71,18 @@ describe('ImplementationWorkPlanner', () => {
     task.nodes.plan.status = 'completed';
     task.nodes.plan.revision = 1;
     await store.create(task);
+    await writeFile(join(projectRoot, '.aiw', 'config.yaml'), `schemaVersion: aiw.config/v1
+sourceSharing:
+  default: repository
+  restricted: require-redacted-snapshot
+testing:
+  profiles:
+    - id: vitest
+      title: 项目单元测试
+      command: pnpm exec vitest run --config project
+      healthCheck: pnpm exec vitest --version
+      targetMode: append
+`, 'utf8');
     await writePlanFacts(store, task.id, 'first');
     const current = await store.load(task.id);
     const planBreakdownPath = completedArtifactPath('plan', current.nodes.plan!, 'artifacts/work-breakdown.yaml');
@@ -81,7 +93,7 @@ describe('ImplementationWorkPlanner', () => {
     await mkdir(join(store.taskDirectory(task.id), acceptancePath, '..'), { recursive: true });
     await mkdir(join(store.taskDirectory(task.id), factPath, '..'), { recursive: true });
     await writeFile(join(store.taskDirectory(task.id), planBreakdownPath), [
-      'schemaVersion: aiw.work-breakdown/v1',
+      'schemaVersion: aiw.work-breakdown/v2',
       'units:',
       '  - id: main',
       '    title: 完成退款功能',
@@ -90,7 +102,7 @@ describe('ImplementationWorkPlanner', () => {
       '    factRefs: [FACT-REFUND-01]',
       '    decisionRefs: []',
       '    steps: [实现退款流程]',
-      '    verification: [pnpm test]',
+      '    verification: [{ profile: vitest, targets: [] }]',
       'acceptanceCoverage:',
       '  - acceptanceId: AC-01',
       '    disposition: implement',
@@ -123,20 +135,21 @@ describe('ImplementationWorkPlanner', () => {
     expect(materialized.task.nodes['delivery-main']).toMatchObject({
       status: 'ready',
       acceptanceRefs: ['AC-01'],
-      outputs: ['artifacts/delivery.md', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
+      verificationCommands: ['pnpm exec vitest run --config project'],
+      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
     });
   });
 
   it('explains incorrect acceptance coverage fields by item and replacement field name', () => {
     const invalidBreakdown = [
-      'schemaVersion: aiw.work-breakdown/v1',
+      'schemaVersion: aiw.work-breakdown/v2',
       'units:',
       '  - id: page',
       '    title: 实现页面',
       '    goal: 实现列表页面',
       '    acceptanceRefs: [AC-01]',
       '    steps: [实现页面]',
-      '    verification: [pnpm test -- page]',
+      '    verification: [{ profile: vitest, targets: [page] }]',
       'acceptanceCoverage:',
       '  - acceptanceRef: AC-01',
       '    status: implement',
@@ -148,9 +161,9 @@ describe('ImplementationWorkPlanner', () => {
     expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 units；请改为 workUnitIds。');
   });
 
-  it('rejects prose and malformed package-script arguments in planned verification commands', () => {
+  it('rejects malformed test-profile references in planned verification', () => {
     const invalidBreakdown = [
-      'schemaVersion: aiw.work-breakdown/v1',
+      'schemaVersion: aiw.work-breakdown/v2',
       'units:',
       '  - id: page',
       '    title: 实现页面',
@@ -158,16 +171,14 @@ describe('ImplementationWorkPlanner', () => {
       '    acceptanceRefs: [AC-01]',
       '    factRefs: [FACT-PAGE-01]',
       '    steps: [实现页面]',
-      '    verification: ["pnpm run tsc -- --noEmit", "页面组件测试"]',
+      '    verification: ["页面组件测试"]',
       'acceptanceCoverage:',
       '  - acceptanceId: AC-01',
       '    disposition: implement',
       '    workUnitIds: [page]',
     ].join('\n');
 
-    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('验证命令无效');
-    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('多余的 `--`');
-    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用自然语言描述');
+    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('expected object');
   });
 
   it('rejects a multi-unit plan when the task selected quick delivery', async () => {
@@ -264,7 +275,7 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
   ];
   await writeFile(join(directory, decisionPath), decisionRegister.join('\n') + '\n', 'utf8');
   await writeFile(join(directory, breakdownPath), [
-    'schemaVersion: aiw.work-breakdown/v1',
+    'schemaVersion: aiw.work-breakdown/v2',
     'units:',
     '  - id: page',
     '    title: 实现页面',
@@ -273,7 +284,7 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    factRefs: [FACT-PAGE-01]',
     '    decisionRefs: []',
     '    steps: [实现页面]',
-    '    verification: [pnpm test -- page]',
+    '    verification: [{ profile: vitest, targets: [page] }]',
     '  - id: export',
     '    title: 实现导出',
     '    goal: 实现导出文件名',
@@ -281,7 +292,7 @@ async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first
     '    factRefs: [FACT-EXPORT-01]',
     ...(blockExport ? ['    decisionRefs: [DEC-API-01]'] : ['    decisionRefs: []']),
     '    steps: [实现导出]',
-    '    verification: [pnpm test -- export]',
+    '    verification: [{ profile: vitest, targets: [export] }]',
     ...(blockExport ? ['    blockedBy: [DEC-API-01]'] : []),
     'acceptanceCoverage:',
     '  - acceptanceId: AC-01',
