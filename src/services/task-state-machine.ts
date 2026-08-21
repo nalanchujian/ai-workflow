@@ -1,9 +1,9 @@
-import { TaskSchema, type OutputRecord, type Task, type TaskNode, type WorkflowPathSelection } from '../domain/task.js';
+import { TaskSchema, type OutputRecord, type Task, type TaskNode } from '../domain/task.js';
 
 export type NodeEvent =
   | { type: 'evaluate' }
   | { type: 'start'; runId: string }
-  | { type: 'succeed'; runId: string; outputs: OutputRecord[]; evidencePath: string }
+  | { type: 'succeed'; runId: string; outputs: OutputRecord[] }
   | { type: 'approve'; actor: string; note?: string }
   | { type: 'fail'; message: string; actor?: string }
   | { type: 'cancel'; note: string };
@@ -17,50 +17,49 @@ export class TaskTransitionError extends Error {
 
 export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Task {
   const next = TaskSchema.parse(task);
-  const node = getNode(next, nodeId);
+  let node = getNode(next, nodeId);
 
-  switch (event.type) {
-    case 'evaluate':
-      if (node.status === 'pending' && dependenciesCompleted(next, node)) {
-        node.status = 'ready';
-        addEvent(next, 'evaluate', nodeId);
-      }
-      break;
-    case 'start':
-      if (node.phase !== 'intake' && ['completed', 'awaiting_approval', 'cancelled', 'invalidated'].includes(node.status)) {
-        resetForOverwrite(next, nodeId);
-      } else {
-        assertStatus(node, ['ready', 'failed'], '只能启动已就绪、可重试、已完成、待审批或已失效节点');
-      }
-      node.status = 'running';
-      addEvent(next, 'start', nodeId, { runId: event.runId });
-      break;
-    case 'succeed':
-      assertStatus(node, ['running'], '只能完成运行中的节点');
-      // A node has one current result. Re-runs replace it in place.
-      node.hasResult = true;
-      node.status = node.requiresApproval ? 'awaiting_approval' : 'completed';
-      addEvent(next, 'succeed', nodeId, { runId: event.runId, outputs: event.outputs, evidencePath: event.evidencePath });
-      if (node.status === 'completed') {
-        unlockDependents(next, nodeId);
-      }
-      break;
-    case 'approve':
-      assertStatus(node, ['awaiting_approval'], '只能批准等待审批的节点');
-      node.status = 'completed';
-      addEvent(next, 'approve', nodeId, { actor: event.actor, note: event.note });
-      unlockDependents(next, nodeId);
-      break;
-    case 'fail':
-      assertStatus(node, ['running'], '只能将运行中的节点标记为失败');
-      node.status = 'failed';
-      addEvent(next, 'fail', nodeId, { reason: event.message, ...(event.actor === undefined ? {} : { actor: event.actor }) });
-      break;
-    case 'cancel':
-      assertStatus(node, ['running'], '只能取消运行中的节点');
-      node.status = 'cancelled';
-      addEvent(next, 'cancel', nodeId, { note: event.note });
-      break;
+  if (event.type === 'evaluate') {
+    if (node.status === 'pending' && dependenciesCompleted(next, node)) {
+      node.status = 'ready';
+      addEvent(next, 'evaluate', nodeId);
+    }
+    return TaskSchema.parse(deriveTaskStatus(next));
+  }
+
+  if (event.type === 'start') {
+    if (node.phase === 'intake') throw new TaskTransitionError('资料接入节点不能通过 task run 执行');
+    if (['completed', 'awaiting_approval', 'cancelled', 'invalidated'].includes(node.status)) {
+      resetForOverwrite(next, nodeId);
+      node = getNode(next, nodeId);
+    } else {
+      assertStatus(node, ['ready', 'failed'], '只能启动已就绪、失败、已完成、待确认或已失效节点');
+    }
+    node.status = 'running';
+    node.hasResult = false;
+    addEvent(next, 'start', nodeId, { runId: event.runId });
+    return TaskSchema.parse(deriveTaskStatus(next));
+  }
+
+  if (event.type === 'succeed') {
+    assertStatus(node, ['running'], '只能完成运行中的节点');
+    node.hasResult = true;
+    node.status = node.requiresApproval ? 'awaiting_approval' : 'completed';
+    addEvent(next, 'succeed', nodeId, { runId: event.runId, outputs: event.outputs });
+    if (node.status === 'completed') unlockDependents(next, nodeId);
+  } else if (event.type === 'approve') {
+    assertStatus(node, ['awaiting_approval'], '只能批准等待确认的节点');
+    node.status = 'completed';
+    addEvent(next, 'approve', nodeId, { actor: event.actor, ...(event.note === undefined ? {} : { note: event.note }) });
+    unlockDependents(next, nodeId);
+  } else if (event.type === 'fail') {
+    assertStatus(node, ['running'], '只能将运行中的节点标记为失败');
+    node.status = 'failed';
+    addEvent(next, 'fail', nodeId, { reason: event.message, ...(event.actor === undefined ? {} : { actor: event.actor }) });
+  } else {
+    assertStatus(node, ['running'], '只能取消运行中的节点');
+    node.status = 'cancelled';
+    addEvent(next, 'cancel', nodeId, { note: event.note });
   }
 
   return TaskSchema.parse(deriveTaskStatus(next));
@@ -69,152 +68,73 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
 export function invalidateDependents(task: Task, upstreamNodeId: string, reason: string): Task {
   const next = TaskSchema.parse(task);
   getNode(next, upstreamNodeId);
-  const queue = [upstreamNodeId];
-  const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const currentNodeId = queue.shift();
-    if (currentNodeId === undefined || visited.has(currentNodeId)) {
-      continue;
-    }
-    visited.add(currentNodeId);
-
-    for (const [nodeId, node] of Object.entries(next.nodes)) {
-      if (!node.dependsOn.includes(currentNodeId)) {
-        continue;
-      }
-
-      queue.push(nodeId);
-      if (node.status === 'pending' || node.status === 'invalidated' || node.status === 'superseded') {
-        continue;
-      }
-
-      node.status = 'invalidated';
-      addEvent(next, 'invalidate', nodeId, { reason });
-    }
+  for (const nodeId of downstreamNodeIds(next, upstreamNodeId)) {
+    const node = next.nodes[nodeId];
+    if (node === undefined) continue;
+    node.status = 'invalidated';
+    node.hasResult = false;
+    addEvent(next, 'invalidate', nodeId, { reason });
   }
-
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
-/**
- * A completed artifact is no longer trustworthy when its current bytes differ
- * from the successful run or its approval record.  Keep the old facts for
- * audit, but make the affected stage and every downstream stage unusable until
- * the upstream stage is run again.
- */
 export function invalidateNodeAndDependents(task: Task, nodeId: string, reason: string): Task {
-  return invalidateNodesAndDependents(task, [nodeId], reason);
-}
-
-/** Invalidates only selected roots and their true DAG dependents. */
-export function invalidateNodesAndDependents(task: Task, nodeIds: string[], reason: string): Task {
   const next = TaskSchema.parse(task);
-  const affected = [...new Set(nodeIds.flatMap((nodeId) => {
-    getNode(next, nodeId);
-    return [nodeId, ...downstreamNodeIds(next, nodeId)];
-  }))];
-
+  const affected = [nodeId, ...downstreamNodeIds(next, nodeId)];
   for (const id of affected) {
     const node = next.nodes[id];
-    if (node === undefined || node.status === 'superseded' || node.status === 'invalidated') continue;
+    if (node === undefined) continue;
     node.status = 'invalidated';
+    node.hasResult = false;
     addEvent(next, 'invalidate', id, { reason });
   }
-
   next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((id) => path === `approvals/${id}.yaml`));
-  // The graph is a projection of the currently approved clarification and
-  // plan. Once either upstream artifact is invalidated, it must not remain a
-  // seemingly valid pointer in task.yaml while a replan is pending.
-  if (affected.some((id) => ['clarify', 'solution', 'plan'].includes(id))) {
-    next.impactGraph = undefined;
-  }
-  if (affected.includes('clarify')) {
-    resetWorkflowPath(next, '需求澄清已失效，需重新选择工作方式');
-  }
-  if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
-/** A source snapshot is the only mutable input. Its change restarts the downstream flow from the first affected node. */
 export function restartDependentsForSourceChange(task: Task, upstreamNodeId: string, reason: string): Task {
-  const next = invalidateDependents(task, upstreamNodeId, reason);
-  const affected = [upstreamNodeId, ...downstreamNodeIds(next, upstreamNodeId)];
-  for (const node of Object.values(next.nodes)) {
-    if (node.status === 'invalidated') node.status = 'pending';
+  const next = TaskSchema.parse(task);
+  getNode(next, upstreamNodeId);
+  for (const id of downstreamNodeIds(next, upstreamNodeId)) {
+    if (next.nodes[id]?.generatedFromPlan === true) {
+      delete next.nodes[id];
+      continue;
+    }
+    const node = next.nodes[id];
+    if (node === undefined) continue;
+    node.status = 'pending';
+    node.hasResult = false;
+    addEvent(next, 'invalidate', id, { reason });
   }
-  for (const [nodeId, node] of Object.entries(next.nodes)) {
+  for (const [id, node] of Object.entries(next.nodes)) {
     if (node.status === 'pending' && dependenciesCompleted(next, node)) {
       node.status = 'ready';
-      addEvent(next, 'evaluate', nodeId, { reason: 'source changed' });
+      addEvent(next, 'evaluate', id, { reason });
     }
   }
-  // Files remain immutable audit history, but no prior decision or approval may be
-  // treated as current after its upstream source snapshot changes.
-  next.decisions = [];
-  next.impactGraph = undefined;
-  resetWorkflowPath(next, '需求来源已更新，需重新选择工作方式');
-  next.approvalRefs = next.approvalRefs.filter((path) => !affected.some((nodeId) => path === `approvals/${nodeId}.yaml`));
-  if (affectsDelivery(task, affected)) next.deliveryStatus = 'not_assessed';
+  next.approvalRefs = [];
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
-/**
- * The fast path does not create a second workflow.  It only bypasses the
- * standalone solution stage for a strictly eligible task; planning and the
- * single delivery unit keep exactly the same evidence and approval rules.
- */
-export function selectWorkflowPath(task: Task, selection: WorkflowPathSelection): Task {
-  const next = TaskSchema.parse(task);
-  const clarify = getNode(next, 'clarify');
-  const solution = getNode(next, 'solution');
-  const plan = getNode(next, 'plan');
-  if (!['awaiting_approval', 'completed'].includes(clarify.status)) {
-    throw new TaskTransitionError('只能在需求澄清完成后选择工作方式');
-  }
-  if (plan.hasResult || solution.hasResult) {
-    throw new TaskTransitionError('方案或计划已生成，不能再切换工作方式；请重新执行需求澄清。');
-  }
-
-  restoreStandardTopology(next);
-  if (selection.id === 'quick') {
-    solution.status = 'superseded';
-    plan.dependsOn = ['clarify'];
-    plan.status = clarify.status === 'completed' ? 'ready' : 'pending';
-    addEvent(next, 'supersede', 'solution', { reason: '快速修改：省略独立技术方案节点，直接进行单元计划' });
-  }
-  next.workflowPath = selection;
-  addEvent(next, 'select_workflow_path', undefined, { actor: selection.selectedBy, note: `${selection.id}；评估：${selection.assessmentPath}` });
-  return TaskSchema.parse(deriveTaskStatus(next));
-}
-
-/** Re-evaluate only nodes that explicitly declared the resolved decision as a blocker. */
-export function reconcileDecisionBlocks(task: Task, decisionId: string): Task {
-  const next = TaskSchema.parse(task);
-  const resolution = next.decisions.find((decision) => decision.id === decisionId);
-  if (resolution?.status !== 'resolved') {
-    return TaskSchema.parse(deriveTaskStatus(next));
-  }
-  for (const [nodeId, node] of Object.entries(next.nodes)) {
-    if (node.status !== 'blocked' || !node.blockedByDecisionIds?.includes(decisionId)) continue;
-    const unresolved = node.blockedByDecisionIds.some((blockedId) => {
-      const current = next.decisions.find((decision) => decision.id === blockedId);
-      return current === undefined || current.status === 'waiting_external';
-    });
-    if (!unresolved) {
-      node.status = dependenciesCompleted(next, node) ? 'ready' : 'pending';
-      node.blockedByDecisionIds = undefined;
-      addEvent(next, 'evaluate', nodeId, { reason: `决策 ${decisionId} 已解除` });
+function resetForOverwrite(task: Task, nodeId: string): void {
+  const affected = [nodeId, ...downstreamNodeIds(task, nodeId)];
+  for (const id of affected) {
+    if (id !== nodeId && task.nodes[id]?.generatedFromPlan === true) {
+      delete task.nodes[id];
+      continue;
     }
+    const node = task.nodes[id];
+    if (node === undefined) continue;
+    node.status = id === nodeId ? node.status : 'pending';
+    node.hasResult = false;
+    if (id !== nodeId) addEvent(task, 'invalidate', id, { reason: `重新执行 ${nodeId}，下游结果已失效` });
   }
-  return TaskSchema.parse(deriveTaskStatus(next));
+  task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path === `approvals/${id}.yaml`));
 }
 
 function getNode(task: Task, nodeId: string): TaskNode {
   const node = task.nodes[nodeId];
-  if (node === undefined) {
-    throw new TaskTransitionError(`未知节点：${nodeId}`);
-  }
+  if (node === undefined) throw new TaskTransitionError(`未知节点：${nodeId}`);
   return node;
 }
 
@@ -231,75 +151,10 @@ function unlockDependents(task: Task, upstreamNodeId: string): void {
   }
 }
 
-/** Re-running a completed stage replaces its active output and every downstream active output. */
-function resetForOverwrite(task: Task, nodeId: string): void {
-  const affected = [nodeId, ...downstreamNodeIds(task, nodeId)];
-  const affectedSet = new Set(affected);
-  // `implement` is the internal workflow anchor. Plans always materialize
-  // named delivery units from this locked skill; the anchor itself is never
-  // a user-facing delivery unit.
-  const generatedImplementationIds = affected.filter((id) => id !== nodeId && id !== 'implement' && task.nodes[id]?.phase === 'implement' && task.nodes[id]?.generatedFromPlan === true);
-
-  for (const id of generatedImplementationIds) {
-    const generated = task.nodes[id];
-    if (generated === undefined || generated.status === 'superseded') continue;
-    generated.status = 'superseded';
-    addEvent(task, 'supersede', id, { reason: `重新执行 ${nodeId}，当前实施单元已失效` });
-  }
-
-  const implementation = task.nodes.implement;
-  if (implementation !== undefined && affectedSet.has('implement')) {
-    implementation.status = 'pending';
-    implementation.dependsOn = ['plan'];
-    implementation.blockedByDecisionIds = undefined;
-  }
-
-  for (const id of affected) {
-    if (id === nodeId || id === 'implement' || generatedImplementationIds.includes(id)) continue;
-    const node = task.nodes[id];
-    if (node === undefined) continue;
-    node.status = 'pending';
-    node.blockedByDecisionIds = undefined;
-    addEvent(task, 'invalidate', id, { reason: `重新执行 ${nodeId}，已覆盖上次结果` });
-  }
-
-  if (affectedSet.has('clarify')) {
-    task.decisions = [];
-    resetWorkflowPath(task, '重新执行需求澄清，已清除原工作方式选择');
-  }
-  if (affectedSet.has('clarify') || affectedSet.has('plan')) task.impactGraph = undefined;
-  if (affectsDelivery(task, affected)) task.deliveryStatus = 'not_assessed';
-  task.approvalRefs = task.approvalRefs.filter((path) => !affected.some((id) => path === `approvals/${id}.yaml`));
-}
-
-/** Return the graph to the sole standard topology before a fresh clarification. */
-function resetWorkflowPath(task: Task, reason: string): void {
-  if (task.workflowPath === undefined && task.nodes.solution?.status !== 'superseded') return;
-  task.workflowPath = undefined;
-  restoreStandardTopology(task);
-  addEvent(task, 'invalidate', 'solution', { reason });
-}
-
-function restoreStandardTopology(task: Task): void {
-  const clarify = task.nodes.clarify;
-  const solution = task.nodes.solution;
-  const plan = task.nodes.plan;
-  if (solution !== undefined) {
-    solution.dependsOn = ['clarify'];
-    if (solution.status === 'superseded' || solution.status === 'invalidated') {
-      solution.status = clarify?.status === 'completed' ? 'ready' : 'pending';
-    }
-  }
-  if (plan !== undefined) {
-    plan.dependsOn = ['solution'];
-    if (!plan.hasResult && solution?.status !== 'completed') plan.status = 'pending';
-  }
-}
-
 function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {
-  const queue = [upstreamNodeId];
   const result: string[] = [];
-  const visited = new Set<string>([upstreamNodeId]);
+  const queue = [upstreamNodeId];
+  const visited = new Set(queue);
   while (queue.length > 0) {
     const current = queue.shift()!;
     for (const [nodeId, node] of Object.entries(task.nodes)) {
@@ -312,17 +167,8 @@ function downstreamNodeIds(task: Task, upstreamNodeId: string): string[] {
   return result;
 }
 
-function affectsDelivery(task: Task, nodeIds: string[]): boolean {
-  return nodeIds.some((nodeId) => {
-    const node = task.nodes[nodeId];
-    return nodeId === 'plan' || (node?.phase === 'implement' && node.generatedFromPlan === true);
-  });
-}
-
 function assertStatus(node: TaskNode, allowed: TaskNode['status'][], message: string): void {
-  if (!allowed.includes(node.status)) {
-    throw new TaskTransitionError(message);
-  }
+  if (!allowed.includes(node.status)) throw new TaskTransitionError(message);
 }
 
 function addEvent(
@@ -331,21 +177,23 @@ function addEvent(
   nodeId: string | undefined,
   detail: Omit<Task['events'][number], 'at' | 'nodeId' | 'type'> = {},
 ): void {
-  task.events.push({ type, nodeId, at: new Date().toISOString(), ...detail });
+  task.events.push({ type, ...(nodeId === undefined ? {} : { nodeId }), at: new Date().toISOString(), ...detail });
 }
 
 export function deriveTaskStatus(task: Task): Task {
-  const statuses = Object.values(task.nodes).map((node) => node.status);
-  if (statuses.every((status) => status === 'completed' || status === 'superseded')) {
+  const nodes = Object.values(task.nodes);
+  if (nodes.length > 0 && nodes.every((node) => node.status === 'completed')) {
     task.status = 'completed';
     return task;
   }
-  if (statuses.every((status) => status === 'completed' || status === 'cancelled' || status === 'superseded') && statuses.includes('cancelled')) {
-    task.status = 'cancelled';
+  if (nodes.some((node) => ['ready', 'running', 'awaiting_approval', 'pending'].includes(node.status))) {
+    task.status = 'active';
     return task;
   }
-  const canProgress = statuses.some((status) => ['ready', 'running', 'awaiting_approval'].includes(status));
-  const hasBlockedWork = statuses.some((status) => ['blocked', 'failed', 'invalidated', 'cancelled'].includes(status));
-  task.status = hasBlockedWork ? (canProgress ? 'partially_blocked' : 'blocked') : 'active';
+  if (nodes.some((node) => node.status === 'failed' || node.status === 'invalidated')) {
+    task.status = 'blocked';
+    return task;
+  }
+  task.status = 'cancelled';
   return task;
 }

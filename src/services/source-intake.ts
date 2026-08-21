@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
@@ -30,7 +29,6 @@ export interface SnapshotRecord {
   revision: number;
   fetchedAt: string;
   markdown: string;
-  contentSha256: string;
   extractor: string;
 }
 
@@ -81,7 +79,6 @@ export class SourceIntake {
       ...(snapshot.sectionEndBlockId === undefined ? {} : { sectionEndBlockId: snapshot.sectionEndBlockId }),
       revision: snapshot.revision,
       fetchedAt: snapshot.fetchedAt,
-      contentSha256: snapshot.contentSha256,
       extractor: snapshot.extractor,
     };
     await writeFile(snapshotPath, snapshot.markdown, 'utf8');
@@ -97,7 +94,6 @@ export class SourceIntake {
       revision: snapshot.revision,
       snapshotPath: relative(taskDirectory, snapshotPath).replaceAll('\\', '/'),
       metaPath: relative(taskDirectory, metaPath).replaceAll('\\', '/'),
-      contentSha256: snapshot.contentSha256,
     };
   }
 
@@ -220,12 +216,11 @@ function isWithinDirectory(directory: string, target: string): boolean {
   return path !== '..' && !path.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(path);
 }
 
-function snapshot(input: Omit<SnapshotRecord, 'contentSha256' | 'fetchedAt'> & { fetchedAt?: string }): SnapshotRecord {
+function snapshot(input: Omit<SnapshotRecord, 'fetchedAt'> & { fetchedAt?: string }): SnapshotRecord {
   assertSize(input.markdown);
   return {
     ...input,
     fetchedAt: input.fetchedAt ?? new Date().toISOString(),
-    contentSha256: createHash('sha256').update(input.markdown, 'utf8').digest('hex'),
   };
 }
 

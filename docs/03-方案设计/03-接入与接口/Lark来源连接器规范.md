@@ -134,7 +134,6 @@ Wiki 链接先调用标准 Lark MCP 工具 `wiki_v2_space_getNode`，传入节�
   "sectionEndBlockId": "<block-id>",
   "revision": 1,
   "fetchedAt": "2026-08-12T12:00:00Z",
-  "contentSha256": "<hex>",
   "extractor": "lark-mcp/v1"
 }
 ```
@@ -148,7 +147,7 @@ Lark URL
   → Lark Source Connector
   → 已配置的 Lark MCP Server
   → 标准化 Markdown + 元数据
-  → Source Intake 写入快照和哈希
+  → Source Intake 写入快照和来源元数据
   → Git 共享任务事实
   → clarify 阶段按上下文规则读取
 ```
@@ -162,12 +161,8 @@ Lark URL
 
 ## 专项验证点
 
-[MVP需求与验收规范](../../02-需求定义/MVP需求与验收规范.md)中的 AC 是唯一产品通过标准。本表只说明 Lark 连接器应覆盖的验证重点及其对应 AC，不新增独立验收结论。
-
-| 连接器验证重点 | 对应产品验收 |
-|---|---|
-| 从本机 profile 解析 `lark-openapi`，能够直接读取 docx，或先将 Wiki 节点解析为 docx 后读取正文，并生成 `lark-mcp/v1` 元数据与 Markdown 快照。 | AC-01 |
-| MCP 未配置、无权限、超时、返回无效结构或正文超限时，不产生不完整任务事实，也不泄露凭据。 | AC-01 |
-| 刷新后正文哈希未变化时，不创建 revision、不改变节点状态。 | AC-05 |
-| 刷新后正文哈希变化时，保留旧快照，创建新 revision，并使已开始的下游节点失效。 | AC-05 |
-| 后续节点运行时，Context Manifest 记录来源快照路径、revision 和 SHA-256；不记录 MCP 配置、令牌或原始响应。 | AC-06 |
+- 能直接读取 docx，或先将 Wiki 节点解析为 docx 后读取正文，并生成 Markdown 快照。
+- MCP 未配置、无权限、超时、返回无效结构或正文超限时，不写入不完整快照，也不泄露凭据。
+- 刷新后正文未变化时，不创建新 revision、不改变节点状态。
+- 刷新后正文变化时，保留旧快照、创建新 revision，并让下游重新执行。
+- Context Manifest 只记录快照相对路径与 revision，不记录 MCP 配置、令牌或原始响应。

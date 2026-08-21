@@ -1,40 +1,28 @@
 import { describe, expect, it } from 'vitest';
 
-import { registeredDecisionFactPaths, TaskSchema } from '../../src/domain/task.js';
+import { TaskSchema } from '../../src/domain/task.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 
 describe('TaskSchema', () => {
+  it('accepts the simplified task without decisions, impact graphs, or delivery status', () => {
+    const task = createSevenPhaseTask();
+    expect(TaskSchema.parse(task)).toMatchObject({ schemaVersion: 'aiw.task/v3', status: 'active' });
+  });
+
   it('rejects a task graph with a dependency cycle', () => {
     const task = createSevenPhaseTask();
-    task.nodes.solution.dependsOn = ['plan'];
-
+    task.nodes.solution!.dependsOn = ['plan'];
     expect(() => TaskSchema.parse(task)).toThrow(/cycle/i);
   });
 
   it('rejects an executable node without a locked skill', () => {
     const task = createSevenPhaseTask();
-    delete task.nodes.clarify.skill;
-
-    expect(() => TaskSchema.parse(task)).toThrow(/skill/i);
+    delete task.nodes.clarify!.skill;
+    expect(() => TaskSchema.parse(task)).toThrow(/技能/);
   });
 
-  it('rejects a node operation revision instead of silently accepting a legacy result model', () => {
-    const task = createSevenPhaseTask();
-    const input = structuredClone(task) as Record<string, unknown>;
-    const nodes = input.nodes as Record<string, Record<string, unknown>>;
-    nodes.clarify!.revision = 1;
-
-    expect(() => TaskSchema.parse(input)).toThrow(/unrecognized key/i);
-  });
-
-  it('exposes only fact paths registered by the task decisions', () => {
-    const task = createSevenPhaseTask();
-    task.decisions = [{
-      id: 'DEC-API-01', status: 'resolved', optionId: 'use-api', actor: 'tester',
-      at: '2026-08-17T00:00:00.000Z', factPath: 'decisions/DEC-API-01.yaml',
-    }];
-
-    expect(registeredDecisionFactPaths(task)).toEqual(['decisions/DEC-API-01.yaml']);
-    expect(registeredDecisionFactPaths(task)).not.toContain('decisions/unknown.yaml');
+  it('rejects obsolete task protocol fields', () => {
+    const input = { ...createSevenPhaseTask(), decisions: [], impactGraph: {}, deliveryStatus: 'not_assessed' };
+    expect(() => TaskSchema.parse(input)).toThrow(/Unrecognized key/);
   });
 });

@@ -30,10 +30,10 @@ export function createProgram(deps: CliDependencies): Command {
   aiw init → aiw doctor
 
 日常使用：
-  aiw task init → aiw task run
-  节点待审批时使用 aiw task approve；AI 提出疑问时使用 aiw task review。
+  aiw task init → clarify → review → solution → plan → 开发单元
+  需求疑问只在 aiw task review 中逐项确认；开发单元仅负责代码开发。
 
-高级与例外场景：团队技能管理、运行记录清理、外部等待解除、风险关闭和任务取消。
+高级与例外场景：团队技能管理、运行记录清理和任务取消。
   分别查看 aiw skills --help、aiw history --help、aiw task --help。
 `);
   if (deps.runtime === undefined) {

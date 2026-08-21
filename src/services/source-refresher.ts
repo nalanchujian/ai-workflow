@@ -1,8 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
+
 import type { Task } from '../domain/task.js';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join } from 'node:path';
-import { stringify } from 'yaml';
-import { handoffPath, validateHandoff } from '../domain/handoff.js';
 import { restartDependentsForSourceChange } from './task-state-machine.js';
 import { SourceIntake } from './source-intake.js';
 import { TaskStore } from './task-store.js';
@@ -10,81 +9,38 @@ import type { TaskRunLock } from './task-run-lock.js';
 import { withTaskMutationLock } from './task-mutation-lock.js';
 
 export class SourceRefreshError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SourceRefreshError';
-  }
+  constructor(message: string) { super(message); this.name = 'SourceRefreshError'; }
 }
 
-export interface RefreshResult {
-  changed: boolean;
-  revision: number;
-  task: Task;
-}
+export interface RefreshResult { changed: boolean; revision: number; task: Task }
 
 export class SourceRefresher {
   constructor(private readonly deps: { intake: SourceIntake; taskStore: TaskStore; taskLock?: TaskRunLock }) {}
 
   async refresh(input: { taskId: string; sourceId: string }): Promise<RefreshResult> {
-    return withTaskMutationLock(this.deps.taskLock, input.taskId, () => this.refreshLocked(input));
-  }
+    return withTaskMutationLock(this.deps.taskLock, input.taskId, async () => {
+      const task = await this.deps.taskStore.load(input.taskId);
+      const current = task.sources[input.sourceId];
+      if (current === undefined) throw new SourceRefreshError(`来源不存在：${input.sourceId}`);
+      const snapshot = await this.deps.intake.snapshot({
+        sourceId: input.sourceId,
+        value: sourceValue(this.deps.taskStore.projectDirectory(), current.kind, current.origin),
+        ...(current.section === undefined ? {} : { section: current.section }),
+        revision: current.revision + 1,
+      });
+      const previous = await readFile(join(this.deps.taskStore.taskDirectory(task.id), current.snapshotPath), 'utf8');
+      if (snapshot.markdown === previous) return { changed: false, revision: current.revision, task };
 
-  private async refreshLocked(input: { taskId: string; sourceId: string }): Promise<RefreshResult> {
-    const task = await this.deps.taskStore.load(input.taskId);
-    const current = task.sources[input.sourceId];
-    if (current === undefined) {
-      throw new SourceRefreshError(`来源不存在：${input.sourceId}`);
-    }
-    const snapshot = await this.deps.intake.snapshot({
-      sourceId: input.sourceId,
-      value: sourceValue(this.deps.taskStore.projectDirectory(), current.kind, current.origin),
-      ...(current.section === undefined ? {} : { section: current.section }),
-      revision: current.revision + 1,
+      const reference = await this.deps.intake.writeSnapshot({ snapshot, taskDirectory: this.deps.taskStore.taskDirectory(task.id) });
+      const next = restartDependentsForSourceChange(task, 'intake', `来源 ${input.sourceId} 已更新`);
+      next.sources[input.sourceId] = reference;
+      next.nodes.intake!.outputs = [reference.snapshotPath, reference.metaPath];
+      return { changed: true, revision: reference.revision, task: await this.deps.taskStore.update(next) };
     });
-    if (snapshot.contentSha256 === current.contentSha256) {
-      return { changed: false, revision: current.revision, task };
-    }
-    const reference = await this.deps.intake.writeSnapshot({ snapshot, taskDirectory: this.deps.taskStore.taskDirectory(task.id) });
-    const next = restartDependentsForSourceChange(task, 'intake', `source ${input.sourceId} changed`);
-    next.sources[input.sourceId] = reference;
-    next.nodes.intake.hasResult = true;
-    next.nodes.intake.outputs = [reference.snapshotPath, reference.metaPath];
-    const intakeHandoffPath = handoffPath('intake');
-    const intakeHandoff = stringify({
-      schemaVersion: 'aiw.handoff/v1',
-      taskId: next.id,
-      nodeId: 'intake',
-      phase: 'intake',
-      summary: '已固化更新后的需求来源快照与提取边界。',
-      facts: [{
-        id: `FACT-SOURCE-${input.sourceId.toUpperCase().replaceAll(/[^A-Z0-9]+/g, '-')}`,
-        statement: `需求来源已更新至 revision ${reference.revision}。`,
-        evidence: [{ path: reference.snapshotPath }],
-      }],
-      decisions: [],
-      acceptance: [],
-      changes: [],
-      verification: [],
-      openRisks: [],
-    });
-    validateHandoff(intakeHandoff, {
-      taskId: next.id,
-      nodeId: 'intake',
-      phase: 'intake',
-      evidencePaths: [reference.snapshotPath, reference.metaPath],
-      decisionFactPaths: [],
-    });
-    const taskDirectory = this.deps.taskStore.taskDirectory(task.id);
-    await mkdir(dirname(join(taskDirectory, intakeHandoffPath)), { recursive: true });
-    await writeFile(join(taskDirectory, intakeHandoffPath), intakeHandoff, 'utf8');
-    const updated = await this.deps.taskStore.update(next);
-    return { changed: true, revision: reference.revision, task: updated };
   }
 }
 
 function sourceValue(projectRoot: string, kind: Task['sources'][string]['kind'], origin: string): string {
-  if (kind !== 'local-file' || isAbsolute(origin) || origin === 'local:redacted') {
-    return origin;
-  }
+  if (kind !== 'local-file' || isAbsolute(origin) || origin === 'local:redacted') return origin;
   return join(projectRoot, origin);
 }

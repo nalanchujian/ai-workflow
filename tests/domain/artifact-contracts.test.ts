@@ -3,22 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { validateMarkdownArtifactContract } from '../../src/domain/artifact-contracts.js';
 
 describe('Markdown artifact contracts', () => {
-  it('rejects an implementation report that omits evidence sections', () => {
-    expect(() => validateMarkdownArtifactContract('artifacts/delivery.md', '# 交付报告\n\n## 实际变更\n\n完成页面。\n'))
-      .toThrow('缺少章节「## 工程验证」「## 测试计划」「## 逐项验收」「## 未完成事项与风险」');
+  it('rejects a development result that omits required development sections', () => {
+    expect(() => validateMarkdownArtifactContract('artifacts/development/development-unit-1/result.md', '# 开发结果\n\n## 完成的代码修改\n\n完成页面。\n'))
+      .toThrow('缺少章节「## 变更文件」「## 未解决问题」「## 已知风险」');
   });
 
-  it('accepts a complete test report structure', () => {
-    expect(() => validateMarkdownArtifactContract('artifacts/test-report.md', [
-      '# 测试报告',
-      '## 测试计划',
-      'pnpm test',
-      '## 逐项验收',
-      'AC-01 通过',
-      '## 阻塞缺陷与风险',
-      '无',
-      '## 建议的下一步',
-      '提交结论',
-    ].join('\n'))).not.toThrow();
+  it('accepts a complete solution document', () => {
+    expect(() => validateMarkdownArtifactContract('artifacts/solution/solution.md', [
+      '# 技术方案', '## 方案结论', '采用现有接口。', '## 架构与接口影响', '无新增依赖。', '## 风险与待决事项', '无。',
+    ].join('\n\n'))).not.toThrow();
   });
 });

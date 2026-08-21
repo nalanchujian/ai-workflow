@@ -37,7 +37,7 @@ describe('SkillInstaller', () => {
 
     const installed = await installer.install({ url: 'https://example.test/skills.git' });
 
-    expect(installed.methods).toHaveLength(3);
+    expect(installed.methods).toHaveLength(2);
     expect(installed.skills).toHaveLength(4);
     await expect(registry.listMethods()).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ source: expect.objectContaining({ source: 'bundled:superpowers', id: 'superpowers:brainstorming' }) }),
@@ -48,7 +48,7 @@ describe('SkillInstaller', () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);
     const { repository } = await createBundledSkillRepositoryFixture(directory);
-    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: invalid reference\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:missing-method\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: invalid reference\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:missing-method\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 输出\n\n- result\n`);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({
       git: { async clone() { return { directory: repository, revision: 'b'.repeat(40) }; } },
@@ -64,7 +64,7 @@ describe('SkillInstaller', () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);
     const { repository } = await createBundledSkillRepositoryFixture(directory);
-    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 1.0.0\ndescription: requirement skill\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: configured:missing\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 1.0.0\ndescription: requirement skill\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: configured:missing\n---\n\n# Requirement\n\n## 输入\n\n- input\n\n## 步骤\n\n1. step\n\n## 输出\n\n- result\n`);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
 
@@ -139,7 +139,7 @@ describe('SkillInstaller', () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);
     const { repository } = await createBundledSkillRepositoryFixture(directory);
-    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: fixed path\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- 请写入 artifacts/brief.md\n\n## 步骤\n\n1. step\n\n## 验证\n\n- verify\n`);
+    await writeFile(join(repository, 'skills', 'requirements-clarification', 'SKILL.md'), `---\nname: requirements-clarification\nversion: 2.0.0\ndescription: fixed path\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nphases: [clarify]\nmethodSources:\n  - id: superpowers:brainstorming\n    version: 6.2.0\n    source: bundled:superpowers\n---\n\n# Requirement\n\n## 输入\n\n- 请写入 artifacts/brief.md\n\n## 步骤\n\n1. step\n\n## 输出\n\n- result\n`);
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
 
@@ -153,7 +153,7 @@ describe('SkillInstaller', () => {
     const { repository } = await createBundledSkillRepositoryFixture(directory);
     const skillPath = join(repository, 'skills', 'requirements-clarification', 'SKILL.md');
     const content = await readFile(skillPath, 'utf8');
-    await writeFile(skillPath, content.replace('## 验证', '```yaml\nschemaVersion: aiw.fact-register/v1\nitems: []\n```\n\n## 验证'));
+    await writeFile(skillPath, content.replace('## 输出', '```yaml\nschemaVersion: aiw.fact-register/v1\nitems: []\n```\n\n## 输出'));
     const registry = new SkillRegistry(join(directory, 'registry.yaml'));
     const installer = new SkillInstaller({ git: { async clone() { return { directory: repository, revision: 'abc123' }; } }, registry });
 

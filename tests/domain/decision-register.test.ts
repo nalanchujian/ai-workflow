@@ -3,65 +3,70 @@ import { describe, expect, it } from 'vitest';
 import { DecisionRegisterSchema } from '../../src/domain/decision-register.js';
 
 describe('DecisionRegisterSchema', () => {
-  it('accepts AI continuation proposals with one scoped acceptance impact', () => {
-    expect(() => DecisionRegisterSchema.parse({
-      schemaVersion: 'aiw.decision-register/v1',
-      items: [decision()],
-    })).not.toThrow();
-  });
-
-  it('rejects a decision that combines multiple acceptance items', () => {
-    expect(() => DecisionRegisterSchema.parse({
-      schemaVersion: 'aiw.decision-register/v1',
-      items: [{ ...decision(), affects: { acceptanceRefs: ['AC-07', 'AC-08'], workUnits: ['performance-overview'] } }],
-    })).toThrow(/只能关联一个/);
-  });
-
-  it('rejects legacy workflow state fields so proposal and resolution facts cannot diverge', () => {
-    expect(() => DecisionRegisterSchema.parse({
-      schemaVersion: 'aiw.decision-register/v1',
-      items: [{ ...decision(), status: 'proposed' }],
-    })).toThrow(/Unrecognized key/);
-  });
-
-  it('limits AI alternatives to two so the review interaction stays concise', () => {
-    expect(() => DecisionRegisterSchema.parse({
-      schemaVersion: 'aiw.decision-register/v1',
-      items: [{
-        ...decision(),
+  it('keeps pending, current-scope, and deferred decisions in one register without IDs', () => {
+    const register = DecisionRegisterSchema.parse({
+      schemaVersion: 'aiw.decision-register/v2',
+      pendingDecisions: [{
+        question: 'Selected data 使用哪些导出字段？',
+        background: '当前页面存在可见字段配置，但接口契约没有说明字段顺序。',
+        impact: '决定本期导出代码如何组装字段参数。',
         options: [
-          { id: 'formal-api', title: '使用正式接口', tradeoffs: '可完成联调，但需要确认字段粒度。' },
-          { id: 'mock-ui', title: '使用 Mock', tradeoffs: '可以先验证界面，但不能完成接口验收。' },
-          { id: 'existing-data', title: '复用现有数据', tradeoffs: '接入成本较低，但数据口径可能不完整。' },
+          { title: '使用当前页面可见字段', tradeoffs: '与页面一致，但依赖服务端接受字段列表。' },
+          { title: '只使用默认字段', tradeoffs: '实现简单，但本期不支持自定义导出字段。' },
         ],
+        recommendation: { option: 0, rationale: '与当前指标配置行为保持一致。' },
       }],
+      currentDecisions: [{
+        question: '指标配置保存在哪里？',
+        selectedApproach: '保存到浏览器本地存储',
+        rationale: '当前没有服务端保存接口。',
+      }],
+      deferredItems: [{
+        requirement: 'Performance overview 邮件发送',
+        reason: '缺少正式邮件服务接口。',
+        suggestedNextStep: '接口明确后创建独立任务。',
+      }],
+    });
+
+    expect(register.pendingDecisions).toHaveLength(1);
+    expect(register.currentDecisions).toHaveLength(1);
+    expect(register.deferredItems).toHaveLength(1);
+  });
+
+  it('limits AI options to two and requires the recommendation to reference one', () => {
+    expect(() => DecisionRegisterSchema.parse({
+      schemaVersion: 'aiw.decision-register/v2',
+      pendingDecisions: [{
+        question: '本期采用哪种字段规则？',
+        background: '当前需求没有明确字段选择和空值处理规则。',
+        impact: '决定本期代码范围和数据结构。',
+        options: [
+          { title: '方案一', tradeoffs: '可以快速实现，但存在接口差异风险。' },
+          { title: '方案二', tradeoffs: '范围更小，但功能覆盖不完整。' },
+          { title: '方案三', tradeoffs: '实现完整，但当前成本过高。' },
+        ],
+        recommendation: { option: 2, rationale: '推荐完整实现。' },
+      }],
+      currentDecisions: [],
+      deferredItems: [],
     })).toThrow(/最多两个/);
   });
 
-  it('rejects obsolete workflow effects on an option', () => {
+  it('rejects legacy DEC, FACT, AC, and work-unit references', () => {
     expect(() => DecisionRegisterSchema.parse({
-      schemaVersion: 'aiw.decision-register/v1',
-      items: [{ ...decision(), options: [{ id: 'formal-api', title: '使用正式接口', tradeoffs: '可完成联调并保持字段口径一致。', effect: 'resolved' }] }],
+      schemaVersion: 'aiw.decision-register/v2',
+      pendingDecisions: [{
+        id: 'DEC-API-01',
+        question: '本期采用哪种字段规则？',
+        background: '当前需求没有明确字段选择和空值处理规则。',
+        impact: '决定本期代码范围和数据结构。',
+        factRefs: ['FACT-API-01'],
+        affects: { acceptanceRefs: ['AC-01'], workUnits: ['list-export'] },
+        options: [{ title: '方案一', tradeoffs: '可以快速实现，但存在接口差异风险。' }],
+        recommendation: { option: 0, rationale: '当前可以直接开始开发。' },
+      }],
+      currentDecisions: [],
+      deferredItems: [],
     })).toThrow(/Unrecognized key/);
   });
 });
-
-function decision() {
-  return {
-    id: 'DEC-API-01',
-    title: '详情趋势数据来源',
-    detail: {
-      question: '详情趋势与导出本期使用哪一套服务端接口？',
-      background: '当前需求与仓库未提供趋势、导出和日期聚合的统一契约。',
-      impact: '不确认会使页面、导出与验收采用不同的数据口径。',
-    },
-    type: 'external-contract',
-    factRefs: ['FACT-API-01'],
-    affects: { acceptanceRefs: ['AC-07'], workUnits: ['performance-overview'] },
-    options: [
-      { id: 'formal-api', title: '使用正式 API', tradeoffs: '可以联调并完成真实验收，但需要确认字段契约。' },
-      { id: 'mock-ui', title: '使用 Mock', tradeoffs: '可以先验证界面，但不能证明正式接口已通过。' },
-    ],
-    recommendation: { optionId: 'formal-api', rationale: '正式接口最符合最终验收目标。' },
-  };
-}

@@ -1,198 +1,111 @@
 # AI Workflow
 
-`aiw`（AI Workflow）是一个面向开发团队、Git 原生的 AI 研发变更治理 CLI。它将需求来源、阶段产物、决策记录和运行证据固化为可追溯事实；仅在这些事实有效的前提下，复用团队技能并交由 Codex CLI 执行。
+`aiw` 是一个 Git 原生的 AI 研发工作流 CLI。它把需求来源、人工确认和开发过程保存到业务仓库，并调用 Codex 完成代码开发。
 
-## 项目定位
+## MVP 目标
 
-AI Workflow 不替代 Codex，也不创建新的聊天系统。MVP 的唯一目标链路是：
+当前 MVP 只解决一件事：让团队可以从真实需求资料出发，经过必要的人工确认，将复杂需求拆成多个可执行开发单元，并看到整体开发进度。
 
 ```text
 来源快照
-  → 事实/疑问拆分
-  → 决策关卡
-  → 业务单元图
-  → 单元交付（代码 + 验证 + 测试 + 验收）
-  → 汇总交付状态
+  → 事实登记 + 决策登记
+  → 技术方案
+  → 开发计划
+  → 独立开发单元
+  → 开发进度汇总
 ```
 
-围绕这条链路，它负责：
+各阶段职责：
 
-- 通过 Git 共享、审阅和版本化团队技能；
-- 将不确定的需求事实与待决业务结论分开，不把猜测包装为方案；
-- 将复杂需求拆为可独立交付、验证和验收的业务单元；
-- MVP 在需求澄清、实施计划和每个交付单元引入人工确认；后续支持由版本化策略自动完成门禁，同时保留全过程证据；
-- 只为当前阶段向 Codex 传递最小、已确认的上下文，并在超预算时要求进一步拆分而不静默丢失事实。
+- `intake`：读取本地文件、公开 URL 或已配置连接器支持的在线文档，固化来源快照。
+- `clarify`：只生成事实登记和决策登记；不生成验收项或跨节点 ID。
+- `review`：逐项选择“本期继续”或“延期处理”；本期继续时选择 AI 提供的方案，延期事项退出当前任务。
+- `solution`：根据当前事实和本期决策生成技术方案。
+- `plan`：把方案拆成结构化开发单元和依赖关系。
+- `development-unit-*`：每个单元在独立 Git worktree 中修改代码并生成开发结果。
+- `status`：汇总主干状态和开发单元进度。
 
-`aiw` 不需要云端服务：团队通过 Git 共享业务仓库中的任务事实与独立技能仓库；技能缓存、原始运行日志和临时文件保留在开发者本机。
+当前 MVP 不负责业务代码的验证、测试、验收、PR、发布或线上运维。AIW 自身仍通过自动化测试保证 CLI 实现质量。
 
-## 与 Superpowers、Trellis 的关系
+## 与 Codex、Superpowers、Trellis 的关系
 
-`aiw` 不重新实现通用编码 Agent 或通用研发方法，而是明确分层：
+- Codex CLI 是执行器，负责分析仓库和修改代码。
+- Superpowers 是方法来源。团队技能包内置 AIW 实际引用的方法，最终用户无需单独安装。
+- AIW 负责来源快照、事实/决策分离、人工关卡、开发单元编排、最小上下文和运行留痕。
+- Trellis 是产品能力对标对象，不是当前运行时依赖。
 
-- **Superpowers**：通用研发方法论来源。标准团队技能包受控内置实际引用的方法正文，并记录上游版本、commit、许可证与内容哈希；最终用户无需安装或配置它，`aiw` 只叠加任务输入、产物、审批与失效约束。
-- **aiw**：Git 原生的 AI 研发变更治理层。它管理来源快照、任务依赖、节点当前结果、决策门禁、最小可信上下文与下游失效；MVP 使用人工审批，后续可接入策略自动门禁。
-- **Codex CLI**：实际执行者，负责分析仓库、修改代码和运行验证。
-- **Trellis**：面向 Coding Agent 的完整研发执行框架，提供任务、Spec、Skill、Hook 与子 Agent 工作方式；它是能力对标对象。在不要求版本化事实、审批门禁与失效传播的场景，可作为低治理要求的降级选项；但不是 `aiw` 的同级替代方案或当前 MVP 的运行时依赖。
-
-当前 MVP 选择 Superpowers 作为方法论来源，不同时引入 Trellis。这样业务仓库中只有 `.aiw/` 一套任务事实，避免两套任务状态、上下文和工作流规则互相冲突。
-
-## MVP 边界
-
-MVP 聚焦“本机单 Agent + Git 共享任务事实与团队技能仓库”。它不会：
-
-- 构建云端调度、账号体系或多 Agent 协作平台；
-- 实现策略自动门禁或取消当前人工审批；
-- 在任务执行中自动切换技能，或执行技能包携带的任意脚本；
-- 保存完整聊天记录，或在未授权时读取需要登录的在线文档。
-
-## 目标工作流
+## 快速开始
 
 ```bash
 npm install -g @nalanchujian/aiw
+cd <业务仓库>
 aiw init
-aiw task init --project . --source https://example.com/requirements
-# 输出 taskId，例如 task-20260813-120000-000；将其填入下方命令
+aiw doctor --project .
+
+aiw task init --project . --source "<需求文档地址或本地文件>"
 git add .aiw && git commit -m "chore(aiw): initialize task"
+
 aiw task run <task-id> clarify
-git add .aiw && git commit -m "chore(aiw): clarify task"
+git add .aiw && git commit -m "chore(aiw): record clarify result"
 aiw task review <task-id>
-git add .aiw && git commit -m "chore(aiw): review clarification"
-# 标准需求：下一步是 solution；快速修改：下一步直接是 plan
+git add .aiw && git commit -m "chore(aiw): review clarify"
+
+aiw task run <task-id> solution
+git add .aiw && git commit -m "chore(aiw): record solution result"
+
+aiw task run <task-id> plan
+git add .aiw && git commit -m "chore(aiw): record plan result"
+aiw task approve <task-id> plan --note "计划确认"
+git add .aiw && git commit -m "chore(aiw): approve plan"
+
 aiw task status <task-id>
-# 后续每一步都按 task status 的唯一建议执行并提交 .aiw 事实
+# 按状态页执行一个或多个 development-unit-* 节点
 ```
 
-若不在业务仓库目录中执行，所有后续任务命令均可附加 `--project /业务仓库路径`；共享任务事实不保存发起人电脑的绝对路径。
+每次命令完成后，以 CLI 输出的下一步为准。任务事实位于业务仓库 `.aiw/`，运行日志和临时 worktree 位于本机 `~/.aiw/runtime/`。
 
-这是 MVP 流程：`aiw init` 自动安装并设置 `standard-web-feature@0.0.1` 为本机默认工作流，任务创建时锁定该模板及其具体技能。需求澄清会生成可审阅的验收标准和机器可读验收清单，并将不能直接确认的问题沉淀为带 AI 推荐和业务化问题详情的决策登记；`task review` 逐项记录唯一的人工结论：本期继续或等待外部条件，并根据同一份澄清事实给出“快速修改 / 标准需求”建议。快速修改仅在来源小、只有一个验收项、没有待决业务结论且所有事实均已确认时可选：它只跳过独立 `solution` 节点，仍必须生成单元计划、代码、真实测试、验收和 Git 证据；其计划只能生成一个无依赖、无决策的交付单元。其余任务均按标准需求完整经过 `solution → plan → 交付单元`。澄清阶段为每个 AC 固定证据类型；计划固定 `AC → 测试能力 → 测试目标 → 证据类型`，且不能用单元测试替代 UI、API 或集成证据。计划还必须逐项说明每个验收项由哪个交付单元完成，或因已记录的外部等待而被阻塞；任何遗漏都会阻止计划批准。需求范围改变只能更新来源并执行 `task source refresh`，再重新澄清、评估工作方式和规划；不得在计划或验收中用“拆期”替代来源变更。计划获批后，AIW 依据机器可读工作单元生成 `delivery-<unit-id>` 节点。每个交付单元在同一次运行中完成代码、工程验证、测试和所属 AC 的验收；Codex 只声明业务证据，AIW 作为唯一测试执行者运行批准计划并核对测试能力、目标、证据类型和 AC 引用。只有真实测试通过且记录与批准计划一致，AC 才能标记为通过；不再有汇总全部单元的全局 `verify`、`test` 节点。每个阶段产物、决策、待审批状态和审批记录均需通过 Git 固化后，才可作为下游依据。任一非 intake 节点都可再次 `task run`，最后一次校验成功的结果会直接覆盖该节点当前产物、交接和审批记录；此前运行仅作为 `runs/<run-id>/` 证据保留，不参与后续使用。交付单元存在未通过或阻塞 AC 时必须修复重跑，或使用 `task close-with-risk <task-id> <delivery-node-id>` 明确记录风险接受；风险接受只影响该单元的交付状态，不会改写验收结论。工作流在全部当前交付单元闭环后结束，不管理 PR、发布或线上运维。
-
-上例使用公开的 `ai-workflow-skills` 标准模板来源。团队应 Fork 该仓库后再定义自己的技能、版本和治理规则；已有任务始终使用创建时锁定的来源版本。
-
-## 当前状态
-
-**当前已实现该链路的基础闭环。** `aiw` 已组合技能安装、任务初始化、来源快照、决策门禁、业务单元交付、单元验收、交付状态汇总、`task run` 和 Codex Adapter；顶层 CLI 在开发者本机创建实际 Git、网络、文档连接器（当前含 Lark MCP）和 Codex 适配器，测试通过确定性替身覆盖主干与单元交付流程。
-
-MVP 已实现“快速修改 / 标准需求”的澄清后建议与选择；剩余目标是把“大需求可控”做完整：自动生成超大来源的章节/领域索引，以及上下文超预算时给出可直接落地的拆分建议。当前用户可以用 `--section` 显式选择连接器支持的章节，但 AIW 尚不会自动生成领域索引或自动改写任务图。事实可信度、来源证据和“来源—事实—决策—AC—单元”影响图已在澄清与计划链路中落盘并校验；来源未分片时仍保守地重新澄清/规划。这些能力的目标、验收与实施状态分别以[需求与验收规范](docs/02-需求定义/MVP需求与验收规范.md)和[MVP版本实施计划](docs/04-实施规划/MVP版本实施计划.md)为准。
-
-计划生成的交付单元会在 `~/.aiw/runtime/<task-id>/<run-id>/workspace` 下的独立 Git worktree 中执行。Codex 修改、工程验证、测试和验收全部在隔离区完成；只有校验全部通过，AIW 才把排除 `.aiw/` 的业务补丁一次性发布到用户工作区。失败、取消、超时或产物不合格只保留运行证据，不污染源业务代码。澄清、方案和计划等非交付节点仍只生成受控任务产物，不使用独立 worktree。
-
-真实使用前仍需准备 Git、兼容的 Node.js、与需求来源匹配的文档连接器（如使用受控在线文档）以及本机 Codex CLI；这些外部依赖不会由测试自动调用。可先运行 `aiw doctor --project .` 检查 Git、Codex、已安装的内置方法与文档连接器配置；需要验证某份在线文档时，显式传入 `--source <文档地址>`。CLI 只接收通用来源地址，内部再按地址路由到对应连接器；当前内置连接器支持 Lark 文档。
-
-## 本地运行
+## 本地开发
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm exec tsx src/cli.ts --help
-pnpm exec tsx src/cli.ts doctor --project .
-pnpm exec tsx src/cli.ts history prune --older-than 30d
-pnpm exec tsx src/cli.ts skills install <git-url>
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
-### 安装为 `aiw` 命令
-
-推荐从 npm 公共 Registry 安装：
+不发布 npm 包也可以验证本地源码：
 
 ```bash
-npm install -g @nalanchujian/aiw
-aiw --help
-aiw init
-aiw doctor --project /你的业务仓库
-```
-
-升级和卸载：
-
-```bash
-npm update -g @nalanchujian/aiw
+cd /Users/j/ai-workflow
+pnpm build
+pnpm pack
 npm uninstall -g @nalanchujian/aiw
+npm install -g /Users/j/ai-workflow/nalanchujian-aiw-0.0.1.tgz
+hash -r
+aiw -V
 ```
 
-`aiw init` 生成不含凭据的 `~/.aiw/config.yaml`，并安装配置中锁定的默认团队技能包。标准团队技能包已经提供 Superpowers 方法，不要求用户了解或配置其本机目录；如 Codex 中存在唯一兼容的文档 MCP，初始化会自动建立映射。团队升级默认技能时执行 `aiw skills update --ref <tag-or-commit>`；安装成功后会同步切换同名默认模板的新版本。本机 Registry 以 Git revision 保留同一来源的多个版本，未完成任务仍可按其锁定版本继续执行。当前 MVP 不会自动删除旧版本，也尚未提供技能缓存清理命令。
+## 文档入口
 
-升级时应删除旧配置中的 `methodSources`；当前版本仅支持团队技能包提供的 `bundled:*` 方法，旧任务需使用新版技能包重新创建。
+- [立项申请](docs/01-立项与规划/立项申请.md)：是否值得启动 MVP 试点。
+- [发展规划](docs/01-立项与规划/发展规划.md)：MVP 之后何时扩展能力。
+- [MVP需求与验收规范](docs/02-需求定义/MVP需求与验收规范.md)：AIW 产品本身必须实现什么。
+- [产品设计](docs/03-方案设计/01-总体设计/产品设计.md)：用户如何使用这套工作流。
+- [架构设计](docs/03-方案设计/01-总体设计/架构设计.md)：系统如何分层实现。
+- [研发工作流阶段规范](docs/03-方案设计/02-核心规范/研发工作流阶段规范.md)：每个阶段的输入、输出和推进规则。
+- [任务模型规范](docs/03-方案设计/02-核心规范/任务模型规范.md)：任务状态和开发单元依赖。
+- [上下文包规范](docs/03-方案设计/02-核心规范/上下文包规范.md)：每次 Codex 调用读取什么。
+- [技能包规范](docs/03-方案设计/02-核心规范/技能包规范.md)：团队技能和模板如何声明。
+- [CLI命令参考](docs/03-方案设计/03-接入与接口/CLI命令参考.md)：当前命令及使用场景。
+- [用户使用手册](docs/07-发布运营/用户使用手册.md)：新用户从零开始的操作步骤。
 
-从安装到完成首个任务的完整操作，见[用户使用手册](docs/07-发布运营/用户使用手册.md)。
+`docs/00-研发记录/` 保存历史设计与实施过程，不作为当前产品行为的权威来源。
 
-### 开发环境的全局链接
-
-本地开发才使用 pnpm 全局链接。`package.json` 已将 `aiw` 映射到构建产物 `dist/cli.js`。首次使用前执行一次 `pnpm setup`，重开终端后确认 `PNPM_HOME` 已在 `PATH` 中；这是 pnpm 用于放置全局命令的目录。
-
-```bash
-pnpm setup                     # 仅首次执行；重开终端后继续
-cd /Users/j/ai-workflow
-pnpm run link:global           # 构建并链接当前仓库
-aiw --help
-aiw init
-aiw doctor --project /Users/j/ai-workflow
-```
-
-源码更新后再次运行 `pnpm run link:global` 即可刷新构建产物。取消本机链接时执行：
-
-```bash
-cd /Users/j/ai-workflow
-pnpm run unlink:global
-```
-
-若不希望全局安装，可始终使用 `pnpm dev <command>`，例如 `pnpm dev doctor`。
-
-标准团队技能包把所需的 Superpowers 方法随版本安装并锁定；不需要额外的本机方法来源配置。`aiw init` 会尝试发现 Codex 中唯一兼容的文档 MCP，并仅保存不含凭据的本机映射；当前内置实现支持 Lark。连接器的供应商字段仅供维护者排障，普通使用者直接向 `--source` 传入文档地址即可；详见 [Lark来源连接器规范](docs/03-方案设计/03-接入与接口/Lark来源连接器规范.md)。可通过 `AIW_HOME` 覆盖默认的 `~/.aiw` 本机目录，便于隔离测试或多套配置。
-
-## 文档
-
-### 01 立项与规划
-
-- [立项申请](docs/01-立项与规划/立项申请.md)：说明为何立项、MVP 范围、投入风险、试点指标与阶段决策。
-- [发展规划](docs/01-立项与规划/发展规划.md)：定义从 MVP 到团队级、组织级能力的演进方向与进入条件。
-- [方案调研](docs/01-立项与规划/方案调研.md)：比较直接使用 Codex、Superpowers、Trellis 三条路径，明确 aiw 的治理定位。
-
-### 02 需求定义
-
-- [MVP需求与验收规范](docs/02-需求定义/MVP需求与验收规范.md)：功能范围、错误行为与自动化验收场景。
-- [需求来源与关键决策记录](docs/02-需求定义/需求来源与关键决策记录.md)：记录 MVP 范围的来源、已确认取舍、待验证假设与变更规则。
-
-### 03 方案设计
-
-#### 总体设计
-
-- [产品设计](docs/03-方案设计/01-总体设计/产品设计.md)：定义用户角色、核心流程、任务产物与团队协作方式。
-- [架构设计](docs/03-方案设计/01-总体设计/架构设计.md)：定义系统分层、任务模型、审批机制、上下文与安全边界。
-
-#### 核心规范
-
-- [研发工作流阶段规范](docs/03-方案设计/02-核心规范/研发工作流阶段规范.md)：固定主干、交付单元、产物、审批、方法论引用与失效规则。
-- [任务模型规范](docs/03-方案设计/02-核心规范/任务模型规范.md)：Git 共享的节点状态、审批、依赖和失效传播。
-- [上下文包规范](docs/03-方案设计/02-核心规范/上下文包规范.md)：共享任务产物、来源快照、注入规则和本机运行数据边界。
-- [技能包规范](docs/03-方案设计/02-核心规范/技能包规范.md)：团队技能的目录、元数据、版本锁定和安全边界。
-- [安全规范](docs/03-方案设计/02-核心规范/安全规范.md)：来源接入、技能供应链、提示词隔离与 Codex 进程边界。
-
-#### 接入与接口
-
-- [Lark来源连接器规范](docs/03-方案设计/03-接入与接口/Lark来源连接器规范.md)：通过已配置 MCP 获取、快照和刷新 Lark 需求资料。
-- [Codex适配器规范](docs/03-方案设计/03-接入与接口/Codex适配器规范.md)：运行请求、结果、失败处理和适配边界。
-- [CLI 命令参考](docs/03-方案设计/03-接入与接口/CLI命令参考.md)：MVP 命令、参数、输出和状态影响。
-
-### 04 实施规划
-
-- [MVP版本实施计划](docs/04-实施规划/MVP版本实施计划.md)：按测试驱动分解的框架与功能实现步骤。
-
-### 05 开发实现
-
-- [开发指南](docs/05-开发实现/开发指南.md)：本地环境、开发命令、代码边界、测试和提交约定。
-
-### 06 测试验证
-
-- [MVP验收记录](docs/06-测试验证/验收记录.md)：AC-01 至 AC-07 的自动化测试证据与执行命令。
-
-### 07 发布运营
-
-- [用户使用手册](docs/07-发布运营/用户使用手册.md)：安装、个人配置、任务创建、交付单元推进、变更处理和常见问题。
-- [公开 npm 发布实施计划](docs/04-实施规划/公开npm发布实施计划.md)：发布准备与人工发布顺序。
-
-## 仓库结构
+## 仓库职责
 
 ```text
-src/        # aiw CLI、任务编排和 Codex 适配器
-docs/       # 设计与实施文档
-tests/      # 单元和端到端测试
+ai-workflow/         # CLI、任务编排、运行时、文档和测试
+ai-workflow-skills/  # 工作流模板、阶段技能和内置方法来源
+业务仓库/.aiw/       # 具体任务事实
 ```
-
-阶段技能、工作流模板和内置方法来源位于独立的 `ai-workflow-skills` 仓库，不在本仓库复制维护。

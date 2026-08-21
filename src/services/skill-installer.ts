@@ -132,7 +132,7 @@ export class SkillInstaller {
       for (const [stage, reference] of Object.entries(profile.skills)) {
         const [skillName, version] = reference.split('@');
         const skill = skills.find((candidate) => candidate.name === skillName && candidate.version === version);
-        if (skill === undefined || !skill.phases.includes(stage as typeof skill.phases[number]) || skill.methodSources.length === 0) {
+        if (skill === undefined || !skill.phases.includes(stage as typeof skill.phases[number])) {
           throw new Error(`工作流模板引用了不兼容技能：${stage}`);
         }
       }
@@ -205,7 +205,7 @@ function bodyOf(content: string): string {
 }
 
 function assertSkillBody(body: string): void {
-  for (const heading of ['输入', '步骤', '验证']) {
+  for (const heading of ['输入', '步骤', '输出']) {
     if (!new RegExp(`^#{1,6}\\s+${heading}\\s*$`, 'm').test(body)) {
       throw new Error(`SKILL.md 缺少「${heading}」章节`);
     }
@@ -218,14 +218,14 @@ function assertSkillBody(body: string): void {
  * competing filesystem contract that becomes stale after a platform release.
  */
 function assertNoPlatformPathInstructions(body: string, label: string): void {
-  const match = /(?:^|[\s`])((?:\.aiw\/|artifacts\/|handoffs\/|runs\/)[^\s`)]*)/m.exec(body);
+  const match = /(?:^|[\s`])((?:\.aiw\/|artifacts\/|runs\/)[^\s`)]*)/m.exec(body);
   if (match !== null) {
     throw new Error(`${label} 不得固化 AIW 平台路径：${match[1]}。请改为引用本次运行的 AIW 输出回执。`);
   }
   const protocolCopy = [
     /\bschemaVersion\b/,
     /```ya?ml\b/i,
-    /\b(?:acceptance-intent|acceptance-results|test-results|work-breakdown|fact-register|decision-register)\.ya?ml\b/i,
+    /\b(?:development-plan|fact-register|decision-register)\.ya?ml\b/i,
   ].find((pattern) => pattern.test(body));
   if (protocolCopy !== undefined) {
     throw new Error(`${label} 不得复制 AIW 产物协议。字段、枚举和示例由运行时 Zod Schema 生成。`);

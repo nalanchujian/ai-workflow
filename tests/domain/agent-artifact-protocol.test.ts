@@ -11,21 +11,13 @@ describe('Agent artifact protocol', () => {
   it('renders every registered contract from its schema and a schema-valid YAML example', () => {
     expect(agentArtifactProtocolIds).toEqual([
       'fact-register',
-      'acceptance-catalog',
       'decision-register',
-      'work-breakdown',
-      'acceptance-intent',
-      'handoff',
+      'development-plan',
     ]);
 
     for (const id of agentArtifactProtocolIds) {
       const rendered = renderAgentArtifactProtocol(id, {
-        taskId: 'refund-123',
-        nodeId: 'clarify',
-        phase: 'clarify',
         evidencePath: 'sources/requirements/r1/snapshot.md',
-        testProfile: 'playwright',
-        testEvidenceType: 'browser',
       });
       expect(rendered).toContain(`<artifact-protocol id="${id}"`);
       expect(rendered).toContain('字段结构（由 Zod Schema 生成）');

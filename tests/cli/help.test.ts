@@ -20,10 +20,10 @@ describe('aiw CLI help', () => {
     expect(result.stdout).toContain('首次使用：');
     expect(result.stdout).toContain('aiw init → aiw doctor');
     expect(result.stdout).toContain('日常使用：');
-    expect(result.stdout).toContain('aiw task init → aiw task run');
-    expect(result.stdout).toContain('AI 提出疑问时使用 aiw task review');
+    expect(result.stdout).toContain('aiw task init → clarify → review → solution → plan → 开发单元');
+    expect(result.stdout).toContain('需求疑问只在 aiw task review 中逐项确认');
     expect(result.stdout).not.toContain('AI 提出疑问时使用 aiw task decision');
-    expect(result.stdout).toContain('高级与例外场景：团队技能管理、运行记录清理、外部等待解除、风险关闭和任务取消。');
+    expect(result.stdout).toContain('高级与例外场景：团队技能管理、运行记录清理和任务取消。');
     expect(result.stdout).toContain('aiw history --help');
     expect(result.stdout).toContain('高级：管理团队技能和工作流模板');
   });

@@ -26,8 +26,6 @@ import { TaskInitializer } from '../services/task-initializer.js';
 import { TaskRunner } from '../services/task-runner.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
-import { DeliveryTestExecutor } from '../services/delivery-test-executor.js';
-import { ProjectTestProfiles } from '../services/project-test-profiles.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
 import { FileTaskRunLock } from '../services/task-run-lock.js';
@@ -125,8 +123,6 @@ export function createCliRuntime(input: {
     taskFactGuard,
     changeInspector: input.ports.repositoryStatus,
     adapter: codexAdapter,
-    deliveryTestExecutor: new DeliveryTestExecutor({ processRunner: input.ports.processRunner }),
-    projectTestProfiles: new ProjectTestProfiles({ processRunner: input.ports.processRunner }),
     ...(input.ports.deliveryWorkspaceManager === undefined ? {} : { deliveryWorkspaceManager: input.ports.deliveryWorkspaceManager }),
     runtimeRoot,
     runLock: taskLock,

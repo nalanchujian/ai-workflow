@@ -14,7 +14,7 @@ describe('SourceIntake', () => {
     await Promise.all(directories.splice(0).map(removeTempDirectory));
   });
 
-  it('hashes an explicitly selected local Markdown file', async () => {
+  it('snapshots an explicitly selected local Markdown file without exposing artifact hashes', async () => {
     const projectRoot = await createTempDirectory('aiw-source-intake-');
     directories.push(projectRoot);
     const sourcePath = join(projectRoot, 'requirements.md');
@@ -24,7 +24,7 @@ describe('SourceIntake', () => {
     const snapshot = await intake.snapshot({ sourceId: 'requirements', value: sourcePath });
 
     expect(snapshot.markdown).toContain('Allow refunds within 30 days.');
-    expect(snapshot.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(snapshot).not.toHaveProperty('contentSha256');
     expect(snapshot.origin).toBe('requirements.md');
   });
 

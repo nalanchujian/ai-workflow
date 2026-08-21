@@ -5,7 +5,6 @@ import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
 import type { SkillLock, SourceKind, Task, TaskNode } from '../domain/task.js';
-import { handoffPath, validateHandoff } from '../domain/handoff.js';
 import type { InstalledSkill } from '../domain/skill.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
 import { executableStages } from '../domain/workflow-profile.js';
@@ -56,55 +55,26 @@ export class TaskInitializer {
     const stagingDirectory = join(dirname(taskDirectory), `.${id}.initializing-${randomUUID()}`);
     await mkdir(stagingDirectory, { recursive: true });
     try {
-      const sourceReference = await sourceIntake.writeSnapshot({ snapshot: source, taskDirectory: stagingDirectory });
-      await writeFile(join(stagingDirectory, 'task.md'), `# ${id}\n\n需求来源：${sourceReference.origin}\n`, 'utf8');
+      const writtenSource = await sourceIntake.writeSnapshot({ snapshot: source, taskDirectory: stagingDirectory });
       const task: Task = {
-        schemaVersion: 'aiw.task/v2',
+        schemaVersion: 'aiw.task/v3',
         stateVersion: 0,
         id,
         title: `任务 ${id}`,
         repository: '.',
         status: 'active',
-        deliveryStatus: 'not_assessed',
         skillProfile: {
           name: profile.name,
           version: profile.version,
           registrySource: profile.registrySource,
           sha256: profile.sha256,
         },
-        sources: { [sourceId]: sourceReference },
+        developmentSkill: lockSkill(skills.development),
+        sources: { [sourceId]: writtenSource },
         nodes: createNodes(skills),
         approvalRefs: [],
-        decisions: [],
         events: [],
       };
-      const intakeHandoffPath = handoffPath('intake');
-      const intakeHandoff = stringify({
-        schemaVersion: 'aiw.handoff/v1',
-        taskId: task.id,
-        nodeId: 'intake',
-        phase: 'intake',
-        summary: '已固化需求来源快照与提取边界。',
-        facts: [{
-          id: 'FACT-SOURCE-REQUIREMENTS',
-          statement: `需求来源已固化：${sourceReference.origin}`,
-          evidence: [{ path: sourceReference.snapshotPath }],
-        }],
-        decisions: [],
-        acceptance: [],
-        changes: [],
-        verification: [],
-        openRisks: [],
-      });
-      validateHandoff(intakeHandoff, {
-        taskId: task.id,
-        nodeId: 'intake',
-        phase: 'intake',
-        evidencePaths: [sourceReference.snapshotPath, sourceReference.metaPath],
-        decisionFactPaths: [],
-      });
-      await mkdir(dirname(join(stagingDirectory, intakeHandoffPath)), { recursive: true });
-      await writeFile(join(stagingDirectory, intakeHandoffPath), intakeHandoff, 'utf8');
       await taskStore.createFromStaging(task, stagingDirectory);
       if (projectConfig === undefined) {
         await writeProjectConfig(input.projectRoot);
@@ -227,14 +197,13 @@ function isUnfinished(task: Task): boolean {
 }
 
 function createNodes(skills: Record<(typeof executableStages)[number], InstalledSkill>): Record<string, TaskNode> {
-  const stageDefinitions: Array<{ id: (typeof executableStages)[number]; title: string; outputs: string[]; requiresApproval: boolean }> = [
-    { id: 'clarify', title: '澄清需求', outputs: ['artifacts/brief.md', 'artifacts/questions.md', 'artifacts/fact-register.yaml', 'artifacts/acceptance.md', 'artifacts/acceptance.yaml', 'artifacts/decision-register.yaml'], requiresApproval: true },
-    { id: 'solution', title: '形成技术方案', outputs: ['artifacts/solution.md'], requiresApproval: false },
-    { id: 'plan', title: '制定实施计划', outputs: ['artifacts/implementation-plan.md', 'artifacts/work-breakdown.yaml'], requiresApproval: true },
-    { id: 'implement', title: '交付业务单元', outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'], requiresApproval: true },
+  const stageDefinitions: Array<{ id: 'clarify' | 'solution' | 'plan'; title: string; outputs: string[]; requiresApproval: boolean }> = [
+    { id: 'clarify', title: '澄清需求', outputs: ['artifacts/clarify/fact-register.yaml', 'artifacts/clarify/decision-register.yaml'], requiresApproval: true },
+    { id: 'solution', title: '形成技术方案', outputs: ['artifacts/solution/solution.md'], requiresApproval: false },
+    { id: 'plan', title: '制定开发计划', outputs: ['artifacts/plan/development-plan.yaml'], requiresApproval: true },
   ];
   const nodes: Record<string, TaskNode> = {
-    intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', hasResult: true, outputs: ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'], verificationPlan: [], acceptanceRefs: [], decisionRefs: [] },
+    intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', hasResult: true, outputs: [] },
   };
   let dependency = 'intake';
   for (const definition of stageDefinitions) {
@@ -247,9 +216,6 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
       status: definition.id === 'clarify' ? 'ready' : 'pending',
       hasResult: false,
       outputs: definition.outputs,
-      verificationPlan: [],
-      acceptanceRefs: [],
-      decisionRefs: [],
     };
     dependency = definition.id;
   }

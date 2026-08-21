@@ -1,127 +1,61 @@
 # CLI 命令参考
 
-## 日常使用
+## 核心问题
+
+本文回答：当前 MVP 有哪些命令，各自用于什么场景。
+
+## 首次使用
 
 ```bash
-aiw init [--connector-server <name>]
-aiw doctor [--project <path>] [--source <地址>]
-aiw task init --project <path> --source <地址或文件> [--section <标题>] [--force-new]
-aiw task status <task-id> [--project <path>]
-aiw task run <task-id> <node-id> [--project <path>] [--dry-run] [--include <path>]
-aiw task review <task-id> [--project <path>] [--confirm]
-aiw task approve <task-id> <node-id> [--project <path>] [--note <说明>]
-aiw history show <task-id> <run-id> [--project <path>]
+aiw init
+aiw doctor --project <业务仓库>
+aiw doctor --project <业务仓库> --source <文档地址>
 ```
 
-`--project` 不传时使用当前目录。所有任务事实写入 `<project>/.aiw/`。
+- `init`：创建或补全安全的本机配置，安装默认技能包并发现可用文档连接器。
+- `doctor`：检查 Git、业务仓库、Codex、本机配置、方法来源和连接器；传入来源时验证读取权限。
 
-所有命令都可使用顶层 `--json` 输出单个 JSON 文档，例如 `aiw --json task status <task-id>`；默认输出面向用户的中文摘要和下一步。
-
-同一任务一次只允许一个会改变任务事实的命令执行，包括 `task run`、`task source refresh`、`task review`、`task approve`、`task decision resolve`、工作方式切换和风险关闭。若另一个命令正在处理该任务，AIW 会提示“当前任务正在被其他命令修改”；等待当前命令结束后原样重试即可。不同任务互不影响。
-
-## 初始化和环境
-
-### `aiw init`
-
-创建或补全 `~/.aiw/config.yaml`，自动安装默认技能包并尝试发现已配置的文档 MCP。它不创建业务任务，也不写入业务仓库。
-
-若发现多个兼容的 Codex MCP Server，使用 `--connector-server <name>` 明确选择；没有连接器时仍可使用本地文件和公开 URL。
-
-默认工作流为 `standard-web-feature@0.0.1`，来源为 `ai-workflow-skills@v0.0.1`。
-
-### `aiw doctor`
-
-检查 Git、Codex CLI、本机配置、已安装方法来源、文档连接器和可选文档读取授权。`--source` 会实际检查指定文档是否可读；不传时只检查连接器配置能否解析。
-
-## 任务来源
-
-### `aiw task init`
-
-创建任务、固化来源快照并锁定工作流模板和技能版本。
+## 日常任务
 
 ```bash
-aiw task init --project . --source "https://example.com/requirements"
-aiw task init --project . --source "./requirements.md"
-aiw task init --project . --source "https://<tenant>.larksuite.com/wiki/<token>" --section "二期"
+aiw task init --project <业务仓库> --source <地址或文件> [--section <标题>] [--force-new]
+aiw task run <task-id> <node-id> [--dry-run] [--include <项目内路径>]
+aiw task review <task-id>
+aiw task approve <task-id> plan --note <说明>
+aiw task status <task-id>
+aiw task source refresh <task-id> requirements
 ```
 
-地址由内部规则路由：Lark/飞书地址使用连接器，其他 HTTP(S) 地址作为公开网页，本地路径作为本地文件。重复创建同一来源和章节的未完成任务会被拒绝；明确需要新任务时加 `--force-new`。
+- `task init`：固化来源并创建任务。默认拒绝相同来源的重复未完成任务。
+- `task run`：首次执行和重跑统一入口。`intake` 不能运行。
+- `task review`：逐项确认澄清决策，并批准澄清节点。
+- `task approve ... plan`：批准开发计划并生成开发单元。
+- `task status`：查看主干、开发单元和汇总开发进度。
+- `task source refresh`：重新读取来源；内容变化后使下游重新执行。
 
-### `aiw task source refresh <task-id> requirements`
+`status`、`review`、`approve` 和 `source refresh` 当前从执行命令所在的业务仓库读取任务。`task run` 提供 `--project` 选项，但当前运行时仍以创建 CLI 时的项目目录为准；MVP 推荐始终先 `cd` 到业务仓库再执行任务命令。
 
-重新读取需求来源并生成新快照。需求变化必须使用此命令，不得手改 `snapshot.md`、方案、计划或交付报告来伪造需求更新。
-
-来源读取、快照落盘、下游失效和任务状态更新是同一个受锁事务；节点运行期间不能刷新来源，来源刷新期间也不能运行或审批该任务。
-
-## 推进节点
-
-### `aiw task run <task-id> <node-id>`
-
-统一执行入口，适用于首次运行、失败重试和已完成节点的覆盖式重跑。`intake` 不可运行。
-
-可运行节点包括：`clarify`、标准需求中的 `solution`、`plan`，以及计划批准后生成的 `delivery-<unit-id>`。快速修改选定后不产生可运行的 `solution`，状态页会直接引导到 `plan`。
-
-运行前 AIW 校验来源和上游产物哈希、Git 提交状态、业务工作树基线和上下文预算；`plan` 还会校验所选项目测试能力的健康状态。运行后保存 Prompt 清单、Diff、补丁、结果和产物哈希。
-
-`--dry-run` 只生成上下文、请求摘要和共享 Context Manifest，不启动 Codex。`--include <path>` 可重复传入，只允许注入业务仓库内的相对文件；这些额外文件不自动成为可用于审批的任务证据。
-
-重跑校验成功后会覆盖当前节点产物、交接和审批事实，并使下游结果失效；每次运行的日志和证据独立留在运行目录。交付单元在独立 Git worktree 中运行，验证通过后才发布业务补丁；失败时源业务工作区保持不变。非交付节点只写入受控任务产物。
-
-### `aiw task status <task-id>`
-
-展示任务整体状态、当前交付状态、主干节点、业务交付单元、决策阻塞和唯一下一步。出现多个可执行交付单元时会逐条输出对应的 `task run` 命令。
-
-### `aiw task review <task-id>`
-
-只用于 `clarify` 的人工确认。系统逐项展示待确认业务结论；每项先选“本期继续”或“等待外部条件”，继续时可在 AI 推荐与人工结论间选择。随后 AIW 根据当前澄清结果的来源规模、AC 数量、决策项和事实可信度建议“快速修改 / 标准需求”：只有快速条件全部满足时可选快速修改，否则固定按标准需求推进。该命令同时写入决策事实、路径评估和澄清审批。已确认的快速修改在尚未生成计划前可再次执行 `task review` 升级为标准需求；反向降级不支持。
-
-### `aiw task approve <task-id> <node-id>`
-
-用于 `plan` 和每个 `delivery-<unit-id>`。审批前必须先提交当前 `.aiw` 产物。
-
-- `plan` 审批会校验每个 AC 的唯一覆盖，然后生成交付单元；
-- 交付单元普通审批要求 AIW 生成的 `acceptance-results.yaml` 中所有 AC 都是 `passed`；Codex 只能写 `acceptance-intent.yaml`，不能自行声明通过；
-- `clarify` 必须使用 `task review`，不能使用此命令。
-
-## 高级和例外场景
-
-### `aiw task close-with-risk <task-id> <delivery-node-id>`
-
-仅当交付单元有未通过或阻塞 AC、且业务明确接受风险时使用。必填 `--owner`、`--reason`、`--expires-at`。命令会写入该单元的风险接受事实，不会隐藏失败证据。
-
-### `aiw task decision list <task-id>`
-
-查看决策登记和当前结论，通常用于排查阻塞。
-
-### `aiw task decision resolve <task-id> <decision-id>`
-
-解除外部等待。`--impact execution-only` 只恢复执行时机；`--impact replan` 必须附加 `--fact` 与 `--evidence`，并使方案、计划和下游交付单元失效，要求重新规划。
-
-### `aiw task cancel <task-id> <node-id> --note <说明>`
-
-向当前运行节点发送取消请求。取消后证据保留，节点可再次使用 `task run` 重试。
-
-### `aiw skills update --ref <tag-or-commit>`
-
-升级本机默认技能包并切换同名默认模板版本。它只影响新任务；旧任务继续使用创建时锁定版本。当前交付单元模型需要 `ai-workflow-skills@v0.0.1` 及以上版本。
-
-其他技能维护命令：
+## 高级和例外
 
 ```bash
-aiw skills install <git-url> [--ref <tag-or-commit>]
+aiw task cancel <task-id> <node-id> --note <原因>
+aiw skills install <git-url> [--ref <ref>]
+aiw skills update --ref <tag-or-commit>
 aiw skills list
 aiw skills profiles list
+aiw history show <task-id> <run-id>
+aiw history prune --older-than 30d
+aiw history prune --older-than 30d --apply
 ```
 
-`install` 用于安装额外团队技能来源；`list` 和 `profiles list` 分别查看本机已安装技能与工作流模板。普通使用者完成 `aiw init` 后不需要手动执行这些命令。
+- `cancel`：请求安全停止正在运行的节点。
+- `skills`：维护团队技能包和默认模板，普通用户通常不需要。
+- `history show`：查看某次本机运行的状态、上下文摘要和日志路径。
+- `history prune`：默认只预览；加 `--apply` 才删除过期本机运行目录。
 
-### `aiw history`
+## 输出约定
 
-查看和清理本机运行记录：
-
-```bash
-aiw history show <task-id> <run-id> [--project <path>]
-aiw history prune [--older-than 30d] [--apply]
-```
-
-`show` 展示状态、摘要、共享证据路径和上下文预算；`prune` 未加 `--apply` 时只列出候选目录，加上后才删除超过保留期且路径结构合法的 `~/.aiw/runtime/<task-id>/<run-id>/`。
+- 默认输出面向用户的中文摘要和编号化下一步。
+- `--json` 输出机器可读 JSON。
+- 下一步只有在确实存在未提交任务事实时才提示 Git 提交。
+- 节点失败时给出失败原因、需检查的业务路径和可执行重试命令。

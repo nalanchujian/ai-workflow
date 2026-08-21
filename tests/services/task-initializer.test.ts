@@ -25,8 +25,8 @@ describe('TaskInitializer', () => {
       registry,
       projectRepository: { async assertProjectReady() {} },
       sourceIntakeFactory: () => ({
-        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
-        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
       }) as never,
       taskStoreFactory: () => store,
       now: () => new Date('2026-08-13T12:00:00.000Z'),
@@ -39,13 +39,11 @@ describe('TaskInitializer', () => {
     expect(task.skillProfile.name).toBe('standard-web-feature');
     expect(task.nodes.intake.status).toBe('completed');
     expect(task.nodes.clarify.skill?.name).toBe('requirements-clarification');
-    expect(task.nodes.clarify.outputs).toContain('artifacts/decision-register.yaml');
-    expect(task.nodes.clarify.outputs).toContain('artifacts/acceptance.yaml');
-    expect(task.nodes.implement.skill?.name).toBe('typescript-web-implementation');
-    expect(task.nodes.implement.outputs).toEqual(['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml']);
+    expect(task.nodes.clarify.outputs).toEqual(['artifacts/clarify/fact-register.yaml', 'artifacts/clarify/decision-register.yaml']);
+    expect(task.nodes.solution.outputs).toEqual(['artifacts/solution/solution.md']);
+    expect(task.nodes.plan.outputs).toEqual(['artifacts/plan/development-plan.yaml']);
+    expect(task.developmentSkill.name).toBe('typescript-web-implementation');
     expect((await store.load('task-20260813-120000-000')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
-    await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.md'), 'utf8')).resolves.toContain('需求来源：requirements.md');
-    await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'handoffs', 'intake.yaml'), 'utf8')).resolves.toContain('id: FACT-SOURCE-REQUIREMENTS');
     await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
   });
 
@@ -71,8 +69,8 @@ describe('TaskInitializer', () => {
       registry,
       projectRepository: { async assertProjectReady() {} },
       sourceIntakeFactory: () => ({
-        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
-        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
       }) as never,
       taskStoreFactory: () => store,
       now: () => new Date('2026-08-13T12:00:00.000Z'),
@@ -80,8 +78,8 @@ describe('TaskInitializer', () => {
 
     const task = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@3.0.0' });
 
-    expect(task.nodes.implement.skill?.registrySource).toEqual(selectedSource);
-    expect(task.nodes.implement.skill?.sha256).toBe(hash('selected-typescript-web-implementation'));
+    expect(task.developmentSkill.registrySource).toEqual(selectedSource);
+    expect(task.developmentSkill.sha256).toBe(hash('selected-typescript-web-implementation'));
   });
 
   it('rejects an unfinished task with the same normalized requirement before reading the source again', async () => {
@@ -98,9 +96,9 @@ describe('TaskInitializer', () => {
       sourceIntakeFactory: () => ({
         async snapshot() {
           sourceReads += 1;
-          return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' };
+          return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', extractor: 'local-file/requirements.md' };
         },
-        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
       }) as never,
       taskStoreFactory: () => store,
       now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
@@ -124,8 +122,8 @@ describe('TaskInitializer', () => {
       registry,
       projectRepository: { async assertProjectReady() {} },
       sourceIntakeFactory: () => ({
-        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
-        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
       }) as never,
       taskStoreFactory: () => store,
       now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
@@ -148,8 +146,8 @@ describe('TaskInitializer', () => {
       registry,
       projectRepository: { async assertProjectReady() {} },
       sourceIntakeFactory: () => ({
-        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', contentSha256: hash('# Refund'), extractor: 'local-file/requirements.md' }; },
-        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Refund') }; },
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
       }) as never,
       taskStoreFactory: () => store,
       now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
@@ -212,9 +210,9 @@ describe('TaskInitializer', () => {
       sourceIntakeFactory: () => ({
         async snapshot(input: unknown) {
           sourceInput = input;
-          return { sourceId: 'requirements', kind: 'connected-document', origin: 'https://jphmzyvzr43.jp.larksuite.com/docx/doccn123', externalId: 'doccn123', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Requirement', contentSha256: hash('# Requirement'), extractor: 'lark-mcp/v1' };
+          return { sourceId: 'requirements', kind: 'connected-document', origin: 'https://jphmzyvzr43.jp.larksuite.com/docx/doccn123', externalId: 'doccn123', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Requirement', extractor: 'lark-mcp/v1' };
         },
-        async writeSnapshot() { return { kind: 'connected-document', origin: 'https://jphmzyvzr43.jp.larksuite.com/docx/doccn123', externalId: 'doccn123', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json', contentSha256: hash('# Requirement') }; },
+        async writeSnapshot() { return { kind: 'connected-document', origin: 'https://jphmzyvzr43.jp.larksuite.com/docx/doccn123', externalId: 'doccn123', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
       }) as never,
       taskStoreFactory: () => store,
       now: () => new Date('2026-08-13T12:00:00.000Z'),
@@ -235,14 +233,14 @@ function profile(): InstalledWorkflowProfile {
   return {
     name: 'standard-web-feature', version: '1.0.0', description: 'Standard web feature workflow', aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
     skills: {
-      clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', implement: 'typescript-web-implementation@1.0.0',
+      clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', development: 'typescript-web-implementation@1.0.0',
     },
   };
 }
 
 function allSkills(): InstalledSkill[] {
   return [
-    ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'implement'],
+    ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'development'],
   ].map(([name, phase]) => ({
     name, version: '1.0.0', description: `${name} skill`, aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', phases: [phase as InstalledSkill['phases'][number]], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash(name),
     methodSources: [{ id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0', revision: 'a'.repeat(40), sha256: hash(`method-${name}`) }],

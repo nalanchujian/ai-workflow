@@ -2,329 +2,121 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { materializeImplementationWork, validatePlanAcceptanceCoverage, validateWorkBreakdown } from '../../src/services/implementation-work-planner.js';
+import { materializeDevelopmentWork, readDevelopmentPlan, validateDevelopmentPlan } from '../../src/services/implementation-work-planner.js';
 import { TaskStore } from '../../src/services/task-store.js';
-import { completedArtifactPath } from '../../src/domain/handoff.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
 const directories: string[] = [];
 
-describe('ImplementationWorkPlanner', () => {
+describe('development work planner', () => {
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('overwrites the current delivery graph when the plan is run again', async () => {
-    const projectRoot = await createTempDirectory('aiw-work-planner-');
-    directories.push(projectRoot);
-    const store = new TaskStore(projectRoot);
-    const task = createSevenPhaseTask();
-    task.nodes.plan.status = 'completed';
-    task.nodes.plan.hasResult = true;
-    await store.create(task);
-    await writePlanFacts(store, task.id, 'first');
+  it('reads the current development plan without acceptance or verification mappings', async () => {
+    const fixture = await setup();
+    const plan = await readDevelopmentPlan(fixture.task, fixture.store);
+    expect(plan.units.map((unit) => unit.title)).toEqual(['主列表指标配置', '主列表导出']);
+  });
 
-    const first = await materializeImplementationWork(await store.load(task.id), store);
-    await Promise.all(first.facts.map((fact) => store.createFact(task.id, fact.path, fact.content)));
-    await store.update(first.task);
+  it('materializes independent development nodes and unit YAML files', async () => {
+    const fixture = await setup();
+    const materialized = await materializeDevelopmentWork(fixture.task, fixture.store);
 
-    const revised = await store.load(task.id);
-    revised.nodes.plan.status = 'completed';
-    revised.nodes.plan.hasResult = true;
-    await store.update(revised);
-    await writePlanFacts(store, task.id, 'second');
-
-    const second = await materializeImplementationWork(await store.load(task.id), store);
-
-    expect(second.task.nodes['delivery-page'].status).toBe('ready');
-    expect(second.task.nodes['delivery-export'].status).toBe('ready');
-    expect(second.task.nodes['delivery-export']).toMatchObject({
-      contextPath: 'artifacts/work-units/delivery-export.md',
+    expect(Object.keys(materialized.task.nodes)).toEqual(expect.arrayContaining([
+      'development-unit-1', 'development-unit-2',
+    ]));
+    expect(materialized.task.nodes['development-unit-1']).toMatchObject({
+      phase: 'development', dependsOn: ['plan'], requiresApproval: false, status: 'ready', generatedFromPlan: true,
     });
-    expect(second.task.nodes['delivery-export']?.dependsOn).toEqual(['plan']);
+    expect(await readFile(join(fixture.store.taskDirectory(fixture.task.id), 'artifacts/plan/units/development-unit-1.yaml'), 'utf8'))
+      .toContain('schemaVersion: aiw.development-unit/v1');
   });
 
-  it('keeps a work unit visible but blocked when its decision is waiting for an external condition', async () => {
-    const projectRoot = await createTempDirectory('aiw-work-planner-');
-    directories.push(projectRoot);
-    const store = new TaskStore(projectRoot);
-    const task = createSevenPhaseTask();
-    task.nodes.plan.status = 'completed';
-    task.nodes.plan.hasResult = true;
-    task.decisions = [{
-      id: 'DEC-API-01', status: 'waiting_external', optionId: 'wait-api', actor: 'tech-lead',
-      at: '2026-08-14T00:00:00.000Z', owner: 'backend', unblockCondition: '接口契约与联调样例已确认', factPath: 'decisions/DEC-API-01.yaml',
-    }];
-    await store.create(task);
-    await writePlanFacts(store, task.id, 'first', true);
+  it('turns declared unit dependencies into executable node dependencies', async () => {
+    const fixture = await setup({ secondDependencies: ['主列表指标配置'] });
+    const materialized = await materializeDevelopmentWork(fixture.task, fixture.store);
 
-    const materialized = await materializeImplementationWork(await store.load(task.id), store);
-
-    expect(materialized.task.nodes['delivery-export']).toMatchObject({ status: 'blocked', blockedByDecisionIds: ['DEC-API-01'] });
-    expect(materialized.task.status).toBe('partially_blocked');
-  });
-
-  it('materializes a named delivery unit even when the plan has exactly one unit', async () => {
-    const projectRoot = await createTempDirectory('aiw-work-planner-');
-    directories.push(projectRoot);
-    const store = new TaskStore(projectRoot);
-    const task = createSevenPhaseTask();
-    task.nodes.plan.status = 'completed';
-    task.nodes.plan.hasResult = true;
-    await store.create(task);
-    await writeFile(join(projectRoot, '.aiw', 'config.yaml'), `schemaVersion: aiw.config/v1
-sourceSharing:
-  default: repository
-  restricted: require-redacted-snapshot
-testing:
-  profiles:
-    - id: vitest
-      title: 项目单元测试
-      command: pnpm exec vitest run --config project
-      healthCheck: pnpm exec vitest --version
-      targetMode: append
-      evidenceTypes: [unit]
-`, 'utf8');
-    await writePlanFacts(store, task.id, 'first');
-    const current = await store.load(task.id);
-    const planBreakdownPath = completedArtifactPath('plan', current.nodes.plan!, 'artifacts/work-breakdown.yaml');
-    const acceptancePath = completedArtifactPath('clarify', current.nodes.clarify!, 'artifacts/acceptance.yaml');
-    const factPath = completedArtifactPath('clarify', current.nodes.clarify!, 'artifacts/fact-register.yaml');
-    const decisionPath = completedArtifactPath('clarify', current.nodes.clarify!, 'artifacts/decision-register.yaml');
-    await mkdir(join(store.taskDirectory(task.id), planBreakdownPath, '..'), { recursive: true });
-    await mkdir(join(store.taskDirectory(task.id), acceptancePath, '..'), { recursive: true });
-    await mkdir(join(store.taskDirectory(task.id), factPath, '..'), { recursive: true });
-    await writeFile(join(store.taskDirectory(task.id), planBreakdownPath), [
-      'schemaVersion: aiw.work-breakdown/v2',
-      'units:',
-      '  - id: main',
-      '    title: 完成退款功能',
-      '    goal: 完成退款功能的最小实现',
-      '    acceptanceRefs: [AC-01]',
-      '    factRefs: [FACT-REFUND-01]',
-      '    decisionRefs: []',
-      '    steps: [实现退款流程]',
-      '    verification: [{ profile: vitest, targets: [], evidenceType: unit, acceptanceRefs: [AC-01] }]',
-      'acceptanceCoverage:',
-      '  - acceptanceId: AC-01',
-      '    disposition: implement',
-      '    workUnitIds: [main]',
-    ].join('\n') + '\n', 'utf8');
-    await writeFile(join(store.taskDirectory(task.id), acceptancePath), [
-      'schemaVersion: aiw.acceptance-catalog/v2',
-      'items:',
-      '  - id: AC-01',
-      '    title: 退款申请',
-      '    description: 用户可以提交退款申请并查看处理结果。',
-      '    factRefs: [FACT-REFUND-01]',
-      '    evidenceType: unit',
-    ].join('\n') + '\n', 'utf8');
-    await writeFile(join(store.taskDirectory(task.id), factPath), [
-      'schemaVersion: aiw.fact-register/v1',
-      'items:',
-      '  - id: FACT-REFUND-01',
-      '    kind: confirmed',
-      '    statement: 用户能够提交退款申请并查看退款处理结果。',
-      '    confidence: high',
-      '    evidence:',
-      '      - sourceId: requirements',
-      '        path: sources/requirements/r1/snapshot.md',
-    ].join('\n') + '\n', 'utf8');
-    await writeFile(join(store.taskDirectory(task.id), decisionPath), 'schemaVersion: aiw.decision-register/v1\nitems: []\n', 'utf8');
-
-    const materialized = await materializeImplementationWork(await store.load(task.id), store);
-
-    expect(materialized.task.nodes.implement.status).toBe('superseded');
-    expect(materialized.task.nodes['delivery-main']).toMatchObject({
-      status: 'ready',
-      acceptanceRefs: ['AC-01'],
-      verificationPlan: [{
-        id: 'TEST-MAIN-01', profile: 'vitest', evidenceType: 'unit', acceptanceRefs: ['AC-01'], command: 'pnpm exec vitest run --config project',
-      }],
-      outputs: ['artifacts/delivery.md', 'artifacts/acceptance-intent.yaml', 'artifacts/test-results.yaml', 'artifacts/acceptance-results.yaml'],
+    expect(materialized.task.nodes['development-unit-2']).toMatchObject({
+      dependsOn: ['development-unit-1'], status: 'pending',
     });
   });
 
-  it('explains incorrect acceptance coverage fields by item and replacement field name', () => {
-    const invalidBreakdown = [
-      'schemaVersion: aiw.work-breakdown/v2',
-      'units:',
-      '  - id: page',
-      '    title: 实现页面',
-      '    goal: 实现列表页面',
-      '    acceptanceRefs: [AC-01]',
-      '    steps: [实现页面]',
-      '    verification: [{ profile: vitest, targets: [page], evidenceType: unit, acceptanceRefs: [AC-01] }]',
-      'acceptanceCoverage:',
-      '  - acceptanceRef: AC-01',
-      '    status: implement',
-      '    units: [page]',
-    ].join('\n');
-    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('验收覆盖第 1 项');
-    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 acceptanceRef；请改为 acceptanceId。');
-    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 status；请改为 disposition。');
-    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('不能使用 units；请改为 workUnitIds。');
-  });
-
-  it('rejects malformed test-profile references in planned verification', () => {
-    const invalidBreakdown = [
-      'schemaVersion: aiw.work-breakdown/v2',
-      'units:',
-      '  - id: page',
-      '    title: 实现页面',
-      '    goal: 实现列表页面',
-      '    acceptanceRefs: [AC-01]',
-      '    factRefs: [FACT-PAGE-01]',
-      '    steps: [实现页面]',
-      '    verification: ["页面组件测试"]',
-      'acceptanceCoverage:',
-      '  - acceptanceId: AC-01',
-      '    disposition: implement',
-      '    workUnitIds: [page]',
-    ].join('\n');
-
-    expect(() => validateWorkBreakdown(invalidBreakdown)).toThrow('expected object');
-  });
-
-  it('rejects a plan that downgrades the evidence type fixed by an acceptance criterion', async () => {
-    const projectRoot = await createTempDirectory('aiw-work-planner-');
-    directories.push(projectRoot);
-    const store = new TaskStore(projectRoot);
-    const task = createSevenPhaseTask();
-    task.nodes.plan.status = 'awaiting_approval';
-    task.nodes.plan.hasResult = true;
-    await store.create(task);
-    await writePlanFacts(store, task.id, 'first');
-    const current = await store.load(task.id);
-    const acceptancePath = completedArtifactPath('clarify', current.nodes.clarify!, 'artifacts/acceptance.yaml');
-    const absoluteAcceptancePath = join(store.taskDirectory(task.id), acceptancePath);
-    const acceptance = await readFile(absoluteAcceptancePath, 'utf8');
-    await writeFile(absoluteAcceptancePath, acceptance.replace('evidenceType: unit', 'evidenceType: browser'), 'utf8');
-
-    await expect(validatePlanAcceptanceCoverage(await store.load(task.id), store))
-      .rejects.toThrow('AC-01 要求 browser 证据');
-  });
-
-  it('rejects a multi-unit plan when the task selected quick delivery', async () => {
-    const projectRoot = await createTempDirectory('aiw-work-planner-');
-    directories.push(projectRoot);
-    const store = new TaskStore(projectRoot);
-    const task = createSevenPhaseTask();
-    task.nodes.plan.status = 'awaiting_approval';
-    task.nodes.plan.hasResult = true;
-    task.workflowPath = {
-      id: 'quick', assessmentPath: 'workflow-assessments/clarify.yaml', assessmentSha256: 'f'.repeat(64),
-      policyVersion: 'quick-standard/v1', selectedAt: '2026-08-19T00:00:00.000Z', selectedBy: 'tech-lead',
+  it('replaces existing generated nodes instead of creating operation revisions', async () => {
+    const fixture = await setup();
+    fixture.task.nodes['development-old'] = {
+      title: '旧单元', phase: 'development', dependsOn: ['plan'], skill: fixture.task.developmentSkill,
+      requiresApproval: false, status: 'completed', hasResult: true, generatedFromPlan: true,
+      outputs: ['artifacts/development/development-old/result.md'], contextPath: 'artifacts/plan/units/development-old.yaml',
     };
-    await store.create(task);
-    await writePlanFacts(store, task.id, 'first');
 
-    await expect(validatePlanAcceptanceCoverage(await store.load(task.id), store))
-      .rejects.toThrow('快速修改计划不满足约束');
+    const materialized = await materializeDevelopmentWork(fixture.task, fixture.store);
+
+    expect(materialized.task.nodes['development-old']).toBeUndefined();
+    expect(Object.keys(materialized.task.nodes).some((id) => id.endsWith('-r2'))).toBe(false);
+  });
+
+  it('rejects old work-breakdown fields', () => {
+    expect(() => validateDevelopmentPlan('schemaVersion: aiw.work-breakdown/v2\nunits: []\nacceptanceCoverage: []\n'))
+      .toThrow(/开发计划格式无效/);
+  });
+
+  it('rejects unknown and cyclic development dependencies', () => {
+    expect(() => validateDevelopmentPlan([
+      'schemaVersion: aiw.development-plan/v1',
+      'units:',
+      '  - title: A',
+      '    goal: A',
+      '    requirements: [A]',
+      '    codeScope: [src/a]',
+      '    steps: [A]',
+      '    dependencies: [B]',
+    ].join('\n'))).toThrow(/未知开发单元/);
+    expect(() => validateDevelopmentPlan([
+      'schemaVersion: aiw.development-plan/v1',
+      'units:',
+      '  - title: A',
+      '    goal: A',
+      '    requirements: [A]',
+      '    codeScope: [src/a]',
+      '    steps: [A]',
+      '    dependencies: [B]',
+      '  - title: B',
+      '    goal: B',
+      '    requirements: [B]',
+      '    codeScope: [src/b]',
+      '    steps: [B]',
+      '    dependencies: [A]',
+    ].join('\n'))).toThrow(/依赖不能形成循环/);
   });
 });
 
-async function writePlanFacts(store: TaskStore, taskId: string, revision: 'first' | 'second', blockExport = false): Promise<void> {
-  const directory = store.taskDirectory(taskId);
-  const task = await store.load(taskId);
-  if (!task.nodes.clarify!.hasResult) {
-    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', hasResult: true };
-    await store.update(task);
-  }
-  const exportCoverage = task.decisions.find((decision) => decision.id === 'DEC-API-01')?.status;
-  await mkdir(join(directory, 'artifacts'), { recursive: true });
-  const planPath = completedArtifactPath('plan', task.nodes.plan!, 'artifacts/implementation-plan.md');
-  const acceptancePath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/acceptance.yaml');
-  const factPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/fact-register.yaml');
-  const decisionPath = completedArtifactPath('clarify', task.nodes.clarify!, 'artifacts/decision-register.yaml');
-  const breakdownPath = completedArtifactPath('plan', task.nodes.plan!, 'artifacts/work-breakdown.yaml');
-  await mkdir(join(directory, planPath, '..'), { recursive: true });
-  await mkdir(join(directory, acceptancePath, '..'), { recursive: true });
-  await mkdir(join(directory, factPath, '..'), { recursive: true });
-  await writeFile(join(directory, planPath), '# 实施计划\n\n## 实施单元\n\n- 完成列表和导出功能。\n\n## 范围与边界\n\n- 保持现有接口边界。\n\n## 验证方式\n\n- pnpm test\n', 'utf8');
-  await writeFile(join(directory, acceptancePath), [
-    'schemaVersion: aiw.acceptance-catalog/v2',
-    'items:',
-    '  - id: AC-01',
-    '    title: 列表页面',
-    '    description: 用户可以完成列表页面的筛选与查看。',
-    '    factRefs: [FACT-PAGE-01]',
-    '    evidenceType: unit',
-    '  - id: AC-02',
-    '    title: 导出文件',
-    '    description: 用户可以获得符合规则的导出文件名称。',
-    '    factRefs: [FACT-EXPORT-01]',
-    '    evidenceType: unit',
-  ].join('\n') + '\n', 'utf8');
-  await writeFile(join(directory, factPath), [
-    'schemaVersion: aiw.fact-register/v1',
-    'items:',
-    '  - id: FACT-PAGE-01',
-    '    kind: confirmed',
-    '    statement: 用户需要在列表页面完成筛选和查看操作。',
-    '    confidence: high',
-    '    evidence:',
-    '      - sourceId: requirements',
-    '        path: sources/requirements/r1/snapshot.md',
-    '  - id: FACT-EXPORT-01',
-    '    kind: confirmed',
-    '    statement: 用户需要获取符合既定规则的导出文件名称。',
-    '    confidence: high',
-    '    evidence:',
-    '      - sourceId: requirements',
-    '        path: sources/requirements/r1/snapshot.md',
-  ].join('\n') + '\n', 'utf8');
-  const decisionRegister = blockExport ? [
-    'schemaVersion: aiw.decision-register/v1',
-    'items:',
-    '  - id: DEC-API-01',
-    '    title: 导出服务端契约',
-    '    detail:',
-    '      question: 当前导出接口是否支持本期所需的字段与排序？',
-    '      background: 仓库尚未记录服务端字段映射、空值语义和导出顺序。',
-    '      impact: 不确认会使导出结果无法按照验收标准稳定验证。',
-    '    type: external-contract',
-    '    factRefs: [FACT-EXPORT-01]',
-    '    affects:',
-    '      acceptanceRefs: [AC-02]',
-    '      workUnits: [export]',
-    '    options:',
-    '      - id: use-contract',
-    '        title: 使用正式服务端契约',
-    '        tradeoffs: 字段口径一致，但需要后端提供可用契约。',
-    '    recommendation:',
-    '      optionId: use-contract',
-    '      rationale: 当前导出行为必须以服务端字段契约作为唯一依据。',
-  ] : [
-    'schemaVersion: aiw.decision-register/v1',
-    'items: []',
-  ];
-  await writeFile(join(directory, decisionPath), decisionRegister.join('\n') + '\n', 'utf8');
-  await writeFile(join(directory, breakdownPath), [
-    'schemaVersion: aiw.work-breakdown/v2',
+async function setup(options: { secondDependencies?: string[] } = {}) {
+  const root = await createTempDirectory('aiw-development-plan-');
+  directories.push(root);
+  const store = new TaskStore(root);
+  const task = createSevenPhaseTask();
+  task.nodes.intake!.status = 'completed';
+  task.nodes.clarify!.status = 'completed';
+  task.nodes.solution!.status = 'completed';
+  task.nodes.plan!.status = 'completed';
+  task.nodes.plan!.hasResult = true;
+  await mkdir(join(store.taskDirectory(task.id), 'artifacts/plan'), { recursive: true });
+  await writeFile(join(store.taskDirectory(task.id), 'artifacts/plan/development-plan.yaml'), [
+    'schemaVersion: aiw.development-plan/v1',
     'units:',
-    '  - id: page',
-    '    title: 实现页面',
-    '    goal: 实现列表页面',
-    '    acceptanceRefs: [AC-01]',
-    '    factRefs: [FACT-PAGE-01]',
-    '    decisionRefs: []',
-    '    steps: [实现页面]',
-    '    verification: [{ profile: vitest, targets: [page], evidenceType: unit, acceptanceRefs: [AC-01] }]',
-    '  - id: export',
-    '    title: 实现导出',
-    '    goal: 实现导出文件名',
-    '    acceptanceRefs: [AC-02]',
-    '    factRefs: [FACT-EXPORT-01]',
-    ...(blockExport ? ['    decisionRefs: [DEC-API-01]'] : ['    decisionRefs: []']),
-    '    steps: [实现导出]',
-    '    verification: [{ profile: vitest, targets: [export], evidenceType: unit, acceptanceRefs: [AC-02] }]',
-    ...(blockExport ? ['    blockedBy: [DEC-API-01]'] : []),
-    'acceptanceCoverage:',
-    '  - acceptanceId: AC-01',
-    '    disposition: implement',
-    '    workUnitIds: [page]',
-    ...(blockExport && exportCoverage === 'waiting_external'
-      ? ['  - acceptanceId: AC-02', '    disposition: waiting_external', '    decisionId: DEC-API-01', '    workUnitIds: [export]']
-      : ['  - acceptanceId: AC-02', '    disposition: implement', '    workUnitIds: [export]']),
-  ].join('\n') + '\n', 'utf8');
+    '  - title: 主列表指标配置',
+    '    goal: 支持调整并保存主列表指标。',
+    '    requirements: [支持调整指标顺序]',
+    '    codeScope: [src/pages/growth/links/components/custom-metrics/]',
+    '    steps: [调整指标配置模型]',
+    '    dependencies: []',
+    '  - title: 主列表导出',
+    '    goal: 根据当前选择组装主列表导出参数。',
+    '    requirements: [支持当前可见字段]',
+    '    codeScope: [src/pages/growth/links/components/export/]',
+    '    steps: [更新导出参数组装]',
+    `    dependencies: [${(options.secondDependencies ?? []).join(', ')}]`,
+    '',
+  ].join('\n'), 'utf8');
+  return { root, store, task };
 }

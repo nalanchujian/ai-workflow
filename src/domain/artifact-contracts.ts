@@ -1,11 +1,6 @@
 const contracts: Array<{ matches: (path: string) => boolean; label: string; headings: string[] }> = [
-  { matches: (path) => path.endsWith('/brief.md'), label: '需求摘要', headings: ['目标与范围', '来源依据'] },
-  { matches: (path) => path.endsWith('/questions.md'), label: '需求疑问', headings: ['开放问题', '影响'] },
-  { matches: (path) => path.endsWith('/acceptance.md'), label: '验收标准', headings: ['验收项'] },
   { matches: (path) => path.endsWith('/solution.md'), label: '技术方案', headings: ['方案结论', '架构与接口影响', '风险与待决事项'] },
-  { matches: (path) => path.endsWith('/implementation-plan.md'), label: '实施计划', headings: ['实施单元', '范围与边界', '验证方式'] },
-  { matches: (path) => /\/work-units\/r\d+\/delivery-.+\.md$/.test(path), label: '交付单元上下文', headings: ['交付目标', '验收项', '交付步骤', '工程验证与验收测试'] },
-  { matches: (path) => path.endsWith('/delivery.md'), label: '交付报告', headings: ['实际变更', '工程验证', '测试计划', '逐项验收', '未完成事项与风险'] },
+  { matches: (path) => path.endsWith('/result.md'), label: '开发结果', headings: ['完成的代码修改', '变更文件', '未解决问题', '已知风险'] },
 ];
 
 export function validateMarkdownArtifactContract(path: string, content: string): void {

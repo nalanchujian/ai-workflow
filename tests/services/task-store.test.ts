@@ -22,7 +22,7 @@ describe('TaskStore', () => {
     await store.create(task);
     const loaded = await store.load(task.id);
 
-    expect(loaded).toMatchObject({ id: 'refund-123', schemaVersion: 'aiw.task/v2' });
+    expect(loaded).toMatchObject({ id: 'refund-123', schemaVersion: 'aiw.task/v3' });
     expect(loaded.nodes.clarify.status).toBe('ready');
   });
 
@@ -33,12 +33,12 @@ describe('TaskStore', () => {
     const task = createSevenPhaseTask();
     await store.create(task);
     await store.createFact(task.id, 'artifacts/brief.md', '# Brief\n');
-    await store.createFact(task.id, 'handoffs/clarify.yaml', 'handoff\n');
+    await store.createFact(task.id, 'notes/clarify.txt', 'note\n');
 
-    await store.removeFacts(task.id, ['artifacts/brief.md', 'handoffs/clarify.yaml']);
+    await store.removeFacts(task.id, ['artifacts/brief.md', 'notes/clarify.txt']);
 
     await expect(readFile(join(store.taskDirectory(task.id), 'artifacts', 'brief.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(readFile(join(store.taskDirectory(task.id), 'handoffs', 'clarify.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(store.taskDirectory(task.id), 'notes', 'clarify.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(store.load(task.id)).resolves.toMatchObject({ id: task.id });
   });
 

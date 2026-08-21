@@ -12,7 +12,6 @@ export const SupportedAiwCompatibility = '>=0.0.1 <1.0.0' as const;
 export const OutputContractEntrySchema = z.object({
   finalPath: z.string().min(1),
   stagingPath: z.string().min(1),
-  writer: z.enum(['codex', 'aiw']),
 }).strict();
 
 export const OutputContractSchema = z.object({
@@ -45,22 +44,10 @@ export function outputContractFor(runId: string, finalPaths: string[]): OutputCo
     entries: finalPaths.map((finalPath) => ({
       finalPath,
       stagingPath: stagingOutputPath(runId, finalPath),
-      writer: isPlatformManagedOutput(finalPath) ? 'aiw' : 'codex',
     })),
   });
 }
 
-export function isPlatformManagedOutput(path: string): boolean {
-  return path === 'artifacts/test-results.yaml'
-    || path.endsWith('/test-results.yaml')
-    || path === 'artifacts/acceptance-results.yaml'
-    || path.endsWith('/acceptance-results.yaml');
-}
-
 export function codexOutputEntries(contract: OutputContract): OutputContract['entries'] {
-  return contract.entries.filter((entry) => entry.writer === 'codex');
-}
-
-export function aiwOutputEntries(contract: OutputContract): OutputContract['entries'] {
-  return contract.entries.filter((entry) => entry.writer === 'aiw');
+  return contract.entries;
 }
