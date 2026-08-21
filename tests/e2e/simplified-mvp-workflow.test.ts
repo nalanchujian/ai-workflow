@@ -112,6 +112,17 @@ async function setup() {
     contextBuilder: new ContextBuilder({ taskDirectory: (value) => store.taskDirectory(value.id), projectRoot: () => root, maxTokens: 20_000 }),
     taskFactGuard,
     changeInspector: { async changedPaths() { return []; }, async untrackedPaths() { return []; }, async diff() { return ''; }, async revision() { return { head: 'abc', branch: 'main' }; } },
+    deliveryWorkspaceManager: {
+      async prepare() {
+        return {
+          projectRoot: root,
+          sourceHead: 'abc',
+          async publish() { return { published: true, patch: '', patchSha256: '0'.repeat(64), changedPaths: ['src/example.ts'] }; },
+          async rollback() {},
+          async dispose() {},
+        };
+      },
+    },
     adapter, runtimeRoot: join(root, '.runtime'), runIdFactory: () => `run-${++runNumber}`,
   });
   const commands = new TaskStateCommands({ taskStore: store, taskFactGuard, decisionService: new TaskDecisionService({ taskStore: store }) });

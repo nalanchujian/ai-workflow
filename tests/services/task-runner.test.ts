@@ -57,6 +57,24 @@ describe('TaskRunner', () => {
     expect(fixture.prompts.at(-1)).not.toContain('acceptance-results');
   });
 
+  it('fails a development unit that writes a result without changing business code', async () => {
+    const fixture = await createFixture('development-no-changes');
+    const task = await fixture.store.load('refund-123');
+    task.nodes.clarify!.status = 'completed'; task.nodes.solution!.status = 'completed'; task.nodes.plan!.status = 'completed';
+    task.nodes['development-unit-1'] = {
+      title: '实现退款入口', phase: 'development', dependsOn: ['plan'], skill: createSkillLock('typescript-web-implementation'),
+      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/development/development-unit-1/result.md'],
+      contextPath: 'artifacts/plan/units/development-unit-1.yaml', generatedFromPlan: true,
+    };
+    await fixture.store.update(task);
+    await fixture.store.replaceFact(task.id, 'artifacts/plan/units/development-unit-1.yaml', stringify({ schemaVersion: 'aiw.development-unit/v1', title: '退款入口', goal: '增加入口', requirements: ['可见'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] }));
+
+    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'development-unit-1', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_INVALID', message: '开发节点未产生任何业务代码变更' } });
+    expect((await fixture.store.load(task.id)).nodes['development-unit-1']?.status).toBe('failed');
+  });
+
   it('keeps dry-run side-effect free and still produces an inspectable context', async () => {
     const fixture = await createFixture('clarify');
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'clarify', dryRun: true, includes: [] });
@@ -67,7 +85,7 @@ describe('TaskRunner', () => {
   });
 });
 
-async function createFixture(mode: 'clarify' | 'missing-decision' | 'development') {
+async function createFixture(mode: 'clarify' | 'missing-decision' | 'development' | 'development-no-changes') {
   const root = await createTempDirectory('aiw-runner-'); directories.push(root);
   const runtimeRoot = join(root, '.runtime');
   const store = new TaskStore(root);
@@ -94,7 +112,7 @@ async function createFixture(mode: 'clarify' | 'missing-decision' | 'development
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     prompts.push(input.stdin);
     const taskRoot = join(input.cwd, '.aiw/tasks/refund-123/runs/run-1/staging');
-    if (mode === 'development') {
+    if (mode === 'development' || mode === 'development-no-changes') {
       const path = join(taskRoot, 'artifacts/development/development-unit-1/result.md'); await mkdir(dirname(path), { recursive: true });
       await writeFile(path, '# 开发结果\n\n## 完成的代码修改\n\n已实现退款入口。\n\n## 变更文件\n\n- src/refund.ts\n\n## 未解决问题\n\n无。\n\n## 已知风险\n\n无。\n');
     } else {
@@ -109,7 +127,22 @@ async function createFixture(mode: 'clarify' | 'missing-decision' | 'development
   const runner = new TaskRunner({
     taskStore: store, skillRegistry: registry, methodSourceResolver: new MethodSourceResolver(registry),
     contextBuilder: new ContextBuilder({ taskDirectory: (value) => store.taskDirectory(value.id), projectRoot: () => root, maxTokens: 20_000 }),
-    taskFactGuard, changeInspector, adapter, runtimeRoot, runIdFactory: () => 'run-1',
+    taskFactGuard, changeInspector, adapter,
+    deliveryWorkspaceManager: {
+      async prepare() {
+        return {
+          projectRoot: root,
+          sourceHead: 'abc',
+          async publish() {
+            const changedPaths = mode === 'development' ? ['src/refund.ts'] : [];
+            return { published: changedPaths.length > 0, patch: '', patchSha256: '0'.repeat(64), changedPaths };
+          },
+          async rollback() {},
+          async dispose() {},
+        };
+      },
+    },
+    runtimeRoot, runIdFactory: () => 'run-1',
   });
   return { runner, store, prompts };
 }

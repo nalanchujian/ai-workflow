@@ -101,12 +101,12 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   const root = new Command('state-internal');
   root.addCommand(new Command('status').description('查看任务当前状态和下一步').argument('<task-id>').action(async (taskId: string, _options: unknown, command: Command) => {
     const task = await deps.commands.status(taskId);
-    writeCommandResult(task, command, deps.stdout, statusOutput(task));
+    writeCommandResult(task, command, deps.stdout, statusOutput(task, await nextSteps(deps.commands, task)));
   }));
   root.addCommand(new Command('review').description('逐项确认需求澄清中的待决策事项').argument('<task-id>').action(async (taskId: string, _options: unknown, command: Command) => {
     const task = await deps.commands.status(taskId);
     if (task.nodes.clarify?.status !== 'awaiting_approval') {
-      writeCommandResult(task, command, deps.stdout, { headline: '需求澄清当前不需要确认', nextSteps: nextSteps(task) });
+      writeCommandResult(task, command, deps.stdout, { headline: '需求澄清当前不需要确认', nextSteps: await nextSteps(deps.commands, task) });
       return;
     }
     const pending = await deps.commands.pendingDecisions(taskId);
@@ -115,11 +115,11 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     deps.stdout.write(`需求澄清 · 待确认 ${pending.length} 项\n\n`);
     for (const [index, item] of pending.entries()) selections.push(await promptDecision(prompter, deps.stdout, item, index, pending.length));
     const reviewed = await deps.commands.reviewClarify(taskId, selections, { note: '需求澄清已逐项确认' });
-    writeCommandResult(reviewed, command, deps.stdout, { headline: '需求澄清已确认', nextSteps: nextSteps(reviewed) });
+    writeCommandResult(reviewed, command, deps.stdout, { headline: '需求澄清已确认', nextSteps: await nextSteps(deps.commands, reviewed, 'review clarify') });
   }));
   root.addCommand(new Command('approve').description('批准开发计划').argument('<task-id>').argument('<node-id>').option('--note <text>', '审批说明').action(async (taskId: string, nodeId: string, options: { note?: string }, command: Command) => {
     const task = await deps.commands.approve(taskId, nodeId, options);
-    writeCommandResult(task, command, deps.stdout, { headline: `「${nodeId}」节点已批准`, nextSteps: nextSteps(task) });
+    writeCommandResult(task, command, deps.stdout, { headline: `「${nodeId}」节点已批准`, nextSteps: await nextSteps(deps.commands, task, `approve ${nodeId}`) });
   }));
   root.addCommand(new Command('cancel').description('例外：取消正在运行的节点').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>', '取消原因').action(async (taskId: string, nodeId: string, options: { note: string }, command: Command) => {
     const result = await deps.commands.cancel(taskId, nodeId, options.note);
@@ -145,7 +145,7 @@ async function askChoice(prompter: ReviewPrompter, prompt: string, max: number):
   while (true) { const value = Number((await prompter.ask(prompt)).trim()); if (Number.isInteger(value) && value >= 1 && value <= max) return value; }
 }
 
-function statusOutput(task: Task) {
+function statusOutput(task: Task, guidance: string[] | undefined) {
   const development = Object.values(task.nodes).filter((node) => node.phase === 'development');
   const developmentLines = development.length === 0 ? [] : [
     `总计 ${development.length} 个：已完成 ${development.filter((node) => node.status === 'completed').length}，可执行 ${development.filter((node) => node.status === 'ready').length}，执行中 ${development.filter((node) => node.status === 'running').length}，失败 ${development.filter((node) => node.status === 'failed').length}，待开始 ${development.filter((node) => ['pending', 'invalidated'].includes(node.status)).length}`,
@@ -157,11 +157,21 @@ function statusOutput(task: Task) {
       { title: '节点', lines: Object.entries(task.nodes).map(([id, node]) => `${id}（${node.title}）：${nodeStatusLabel(node.status)}`) },
       ...(developmentLines.length === 0 ? [] : [{ title: '开发进度', lines: developmentLines }]),
     ],
-    nextSteps: nextSteps(task),
+    nextSteps: guidance,
   };
 }
 
-function nextSteps(task: Task): string[] | undefined {
+async function nextSteps(commands: Pick<TaskStateCommands, 'uncommittedTaskPaths'>, task: Task, commitMessage = 'record task facts'): Promise<string[] | undefined> {
+  const workflowSteps = workflowNextSteps(task) ?? [];
+  const uncommitted = await commands.uncommittedTaskPaths(task.id);
+  const commitSteps = uncommitted.length === 0
+    ? []
+    : [`git add .aiw && git commit -m "chore(aiw): ${commitMessage}"`];
+  const result = [...commitSteps, ...workflowSteps];
+  return result.length === 0 ? undefined : result;
+}
+
+function workflowNextSteps(task: Task): string[] | undefined {
   const review = task.nodes.clarify?.status === 'awaiting_approval';
   if (review) return [`aiw task review ${task.id}`];
   const approval = Object.entries(task.nodes).find(([, node]) => node.status === 'awaiting_approval');

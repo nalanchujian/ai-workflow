@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { stringify } from 'yaml';
 
-import { TaskStateCommands } from '../../src/cli/task-state-commands.js';
+import { createTaskStateCommand, TaskStateCommands } from '../../src/cli/task-state-commands.js';
 import { TaskDecisionService } from '../../src/services/task-decision-service.js';
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskStore } from '../../src/services/task-store.js';
@@ -49,6 +49,64 @@ describe('TaskStateCommands', () => {
   });
 });
 
+describe('task state command guidance', () => {
+  it('instructs the user to commit review facts before running solution', async () => {
+    let output = '';
+    const reviewed = taskWithReadyNode('solution');
+    reviewed.nodes.clarify!.status = 'completed';
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return taskAwaitingClarifyReview(); },
+        async pendingDecisions() { return []; },
+        async reviewClarify() { return reviewed; },
+        async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/task.yaml']; },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['review', 'refund-123'], { from: 'user' });
+
+    const commitIndex = output.indexOf('git add .aiw && git commit');
+    const runIndex = output.indexOf('aiw task run refund-123 solution');
+    expect(commitIndex).toBeGreaterThan(-1);
+    expect(runIndex).toBeGreaterThan(commitIndex);
+  });
+
+  it('omits the commit instruction after approval when task facts are already committed', async () => {
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async approve() { return taskWithReadyNode('development-unit-1'); },
+        async uncommittedTaskPaths() { return []; },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['approve', 'refund-123', 'plan', '--note', '通过'], { from: 'user' });
+
+    expect(output).not.toContain('git add .aiw && git commit');
+    expect(output).toContain('aiw task run refund-123 development-unit-1');
+  });
+
+  it('instructs the user to commit plan approval before running a development unit', async () => {
+    let output = '';
+    const command = createTaskStateCommand({
+      commands: {
+        async approve() { return taskWithReadyNode('development-unit-1'); },
+        async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/approvals/plan.yaml']; },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['approve', 'refund-123', 'plan', '--note', '通过'], { from: 'user' });
+
+    const commitIndex = output.indexOf('git add .aiw && git commit');
+    const runIndex = output.indexOf('aiw task run refund-123 development-unit-1');
+    expect(commitIndex).toBeGreaterThan(-1);
+    expect(runIndex).toBeGreaterThan(commitIndex);
+  });
+});
+
 async function createFixture() {
   const root = await createTempDirectory('aiw-state-'); directories.push(root);
   const store = new TaskStore(root); await store.create(createSevenPhaseTask());
@@ -58,4 +116,26 @@ async function createFixture() {
 
 function decisionRegister(): string {
   return stringify({ schemaVersion: 'aiw.decision-register/v2', pendingDecisions: [{ question: '接口方案？', background: '有两个方案。', impact: '影响实现。', options: [{ title: '复用接口', tradeoffs: '改动小。' }], recommendation: { option: 0, rationale: '优先复用。' } }], currentDecisions: [], deferredItems: [] });
+}
+
+function taskAwaitingClarifyReview() {
+  const task = createSevenPhaseTask();
+  task.nodes.clarify!.status = 'awaiting_approval';
+  task.nodes.clarify!.hasResult = true;
+  return task;
+}
+
+function taskWithReadyNode(nodeId: string) {
+  const task = createSevenPhaseTask();
+  for (const node of Object.values(task.nodes)) node.status = 'completed';
+  task.nodes[nodeId] = {
+    title: nodeId,
+    phase: nodeId === 'solution' ? 'solution' : 'development',
+    dependsOn: [],
+    requiresApproval: false,
+    status: 'ready',
+    hasResult: false,
+    outputs: [],
+  };
+  return task;
 }

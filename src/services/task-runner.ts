@@ -167,10 +167,14 @@ export class TaskRunner {
           const businessPaths = (await this.deps.changeInspector.changedPaths({ projectRoot: executionRoot })).filter((path) => path !== '.aiw' && !path.startsWith('.aiw/'));
           if (node.phase !== 'development' && businessPaths.length > 0) throw new TaskRunnerError('ARTIFACT_INVALID', `非开发节点不允许修改业务代码：${businessPaths.join(', ')}`);
           const publication = node.phase === 'development' ? await workspace?.publish() : undefined;
+          const changedPaths = publication?.changedPaths ?? businessPaths;
+          if (node.phase === 'development' && changedPaths.length === 0) {
+            throw new TaskRunnerError('ARTIFACT_INVALID', '开发节点未产生任何业务代码变更');
+          }
           for (const entry of outputContract.entries) await this.deps.taskStore.replaceFact(task.id, entry.finalPath, contents.get(entry.finalPath)!);
           const artifacts: OutputRecord[] = outputPaths.map((path) => ({ path }));
           await this.deps.taskStore.replaceFact(task.id, `runs/${runId}/change-evidence.json`, JSON.stringify({
-            schemaVersion: 'aiw.change-evidence/v1', nodeId, runId, changedPaths: publication?.changedPaths ?? businessPaths,
+            schemaVersion: 'aiw.change-evidence/v1', nodeId, runId, changedPaths,
           }, null, 2) + '\n');
           finalResult = RunResultSchema.parse({ ...adapterResult, contextManifest: finalizedManifest, artifacts });
         } catch (error) {
