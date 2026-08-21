@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { GitDeliveryWorkspaceManager } from '../../src/adapters/git-delivery-workspace.js';
+import { runGitProcess } from '../../src/adapters/git-process.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
 const execFileAsync = promisify(execFile);
@@ -16,6 +17,12 @@ afterEach(async () => {
 });
 
 describe('GitDeliveryWorkspaceManager', () => {
+  it('does not leak stdin EPIPE when Git exits before reading a large input', async () => {
+    await expect(runGitProcess(process.cwd(), ['--version'], 'x'.repeat(16 * 1024 * 1024))).resolves.toMatchObject({
+      stderr: '',
+    });
+  });
+
   it('keeps business changes isolated until publish and excludes .aiw facts from the patch', async () => {
     const fixture = await createRepository();
     const manager = new GitDeliveryWorkspaceManager();

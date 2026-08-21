@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { access, mkdir, rm, symlink } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 
@@ -8,6 +7,7 @@ import type {
   DeliveryWorkspaceManager,
   DeliveryWorkspacePublishResult,
 } from '../ports/delivery-workspace.js';
+import { runGitProcess } from './git-process.js';
 
 const safeSegment = /^[A-Za-z0-9._-]+$/;
 const businessPathspec = [
@@ -42,11 +42,11 @@ export class GitDeliveryWorkspaceManager implements DeliveryWorkspaceManager {
     if (relative(runtimeRoot, workspaceRoot).startsWith('..')) {
       throw new DeliveryWorkspaceError('隔离执行区越出本机运行目录');
     }
-    const sourceHead = (await git(projectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
+    const sourceHead = (await runGitProcess(projectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
     if (sourceHead.length === 0) throw new DeliveryWorkspaceError('无法读取源仓库 HEAD');
-    await git(projectRoot, ['worktree', 'prune']);
+    await runGitProcess(projectRoot, ['worktree', 'prune']);
     await mkdir(dirname(workspaceRoot), { recursive: true });
-    await git(projectRoot, ['worktree', 'add', '--detach', workspaceRoot, sourceHead]);
+    await runGitProcess(projectRoot, ['worktree', 'add', '--detach', workspaceRoot, sourceHead]);
     await linkNodeModules(projectRoot, workspaceRoot);
     return new GitDeliveryWorkspace(projectRoot, workspaceRoot, sourceHead);
   }
@@ -69,14 +69,14 @@ class GitDeliveryWorkspace implements DeliveryWorkspace {
   async publish(): Promise<DeliveryWorkspacePublishResult> {
     if (this.disposed) throw new DeliveryWorkspaceError('隔离执行区已经清理');
     if (this.published !== undefined) return this.published;
-    const workspaceHead = (await git(this.projectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
+    const workspaceHead = (await runGitProcess(this.projectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
     if (workspaceHead !== this.sourceHead) {
       throw new DeliveryWorkspaceError('隔离执行区 Git 历史已变化，不能发布业务改动');
     }
-    await git(this.projectRoot, ['add', '-A', '--', ...businessPathspec]);
+    await runGitProcess(this.projectRoot, ['add', '-A', '--', ...businessPathspec]);
     const [patchResult, pathsResult] = await Promise.all([
-      git(this.projectRoot, ['diff', '--cached', '--binary', '--full-index', 'HEAD']),
-      git(this.projectRoot, ['diff', '--cached', '--name-only', '-z', 'HEAD']),
+      runGitProcess(this.projectRoot, ['diff', '--cached', '--binary', '--full-index', 'HEAD']),
+      runGitProcess(this.projectRoot, ['diff', '--cached', '--name-only', '-z', 'HEAD']),
     ]);
     const patch = patchResult.stdout;
     const changedPaths = pathsResult.stdout.split('\0').filter(Boolean).sort();
@@ -90,7 +90,7 @@ class GitDeliveryWorkspace implements DeliveryWorkspace {
       this.published = result;
       return result;
     }
-    const sourceHead = (await git(this.sourceProjectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
+    const sourceHead = (await runGitProcess(this.sourceProjectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
     if (sourceHead !== this.sourceHead) {
       throw new DeliveryWorkspaceError('源仓库 HEAD 已变化，不能发布隔离执行结果');
     }
@@ -99,8 +99,8 @@ class GitDeliveryWorkspace implements DeliveryWorkspace {
     if (businessChanges.length > 0) {
       throw new DeliveryWorkspaceError(`源业务工作区已变化，不能发布隔离执行结果：${businessChanges.join(', ')}`);
     }
-    await git(this.sourceProjectRoot, ['apply', '--check', '--binary', '-'], patch);
-    await git(this.sourceProjectRoot, ['apply', '--binary', '-'], patch);
+    await runGitProcess(this.sourceProjectRoot, ['apply', '--check', '--binary', '-'], patch);
+    await runGitProcess(this.sourceProjectRoot, ['apply', '--binary', '-'], patch);
     this.published = result;
     return result;
   }
@@ -108,12 +108,12 @@ class GitDeliveryWorkspace implements DeliveryWorkspace {
   async rollback(): Promise<void> {
     if (this.disposed) throw new DeliveryWorkspaceError('隔离执行区已经清理');
     if (this.rolledBack || this.published?.published !== true) return;
-    const sourceHead = (await git(this.sourceProjectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
+    const sourceHead = (await runGitProcess(this.sourceProjectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
     if (sourceHead !== this.sourceHead) {
       throw new DeliveryWorkspaceError('源仓库 HEAD 已变化，无法安全回滚隔离执行结果');
     }
-    await git(this.sourceProjectRoot, ['apply', '--reverse', '--check', '--binary', '-'], this.published.patch);
-    await git(this.sourceProjectRoot, ['apply', '--reverse', '--binary', '-'], this.published.patch);
+    await runGitProcess(this.sourceProjectRoot, ['apply', '--reverse', '--check', '--binary', '-'], this.published.patch);
+    await runGitProcess(this.sourceProjectRoot, ['apply', '--reverse', '--binary', '-'], this.published.patch);
     this.rolledBack = true;
   }
 
@@ -121,10 +121,10 @@ class GitDeliveryWorkspace implements DeliveryWorkspace {
     if (this.disposed) return;
     this.disposed = true;
     try {
-      await git(this.sourceProjectRoot, ['worktree', 'remove', '--force', this.projectRoot]);
+      await runGitProcess(this.sourceProjectRoot, ['worktree', 'remove', '--force', this.projectRoot]);
     } catch {
       await rm(this.projectRoot, { recursive: true, force: true });
-      await git(this.sourceProjectRoot, ['worktree', 'prune']).catch(() => undefined);
+      await runGitProcess(this.sourceProjectRoot, ['worktree', 'prune']).catch(() => undefined);
     }
   }
 }
@@ -141,7 +141,7 @@ async function linkNodeModules(sourceRoot: string, workspaceRoot: string): Promi
 }
 
 async function changedPathsIn(projectRoot: string): Promise<string[]> {
-  const output = (await git(projectRoot, ['status', '--porcelain=v1', '--untracked-files=all', '-z'])).stdout.split('\0');
+  const output = (await runGitProcess(projectRoot, ['status', '--porcelain=v1', '--untracked-files=all', '-z'])).stdout.split('\0');
   const paths: string[] = [];
   for (let index = 0; index < output.length; index += 1) {
     const entry = output[index]!;
@@ -154,22 +154,4 @@ async function changedPathsIn(projectRoot: string): Promise<string[]> {
     }
   }
   return [...new Set(paths.filter(Boolean))].sort();
-}
-
-async function git(cwd: string, args: string[], stdin = ''): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn('git', ['-C', cwd, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
-    child.stderr.on('data', (chunk: string) => { stderr += chunk; });
-    child.once('error', rejectPromise);
-    child.once('close', (code) => {
-      if (code === 0) resolvePromise({ stdout, stderr });
-      else rejectPromise(new DeliveryWorkspaceError(`Git 命令失败：git ${args.join(' ')}${stderr.trim() === '' ? '' : `（${stderr.trim()}）`}`));
-    });
-    child.stdin.end(stdin);
-  });
 }
