@@ -38,7 +38,7 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
         ],
         nextSteps: [
           'git add .aiw && git commit -m "chore(aiw): initialize task"',
-          `aiw task run ${task.id} clarify`,
+          `aiw task continue ${task.id}`,
         ],
       });
     });
