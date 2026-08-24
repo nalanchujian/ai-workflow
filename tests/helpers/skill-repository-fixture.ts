@@ -21,6 +21,7 @@ export async function createBundledSkillRepositoryFixture(root: string): Promise
   await writeMethod(methodRoot, 'writing-plans');
   await mkdir(join(repository, 'skills'), { recursive: true });
   const skills = [
+    ['figma-design-analysis', ['design'], undefined],
     ['requirements-clarification', ['clarify'], 'brainstorming'],
     ['technical-solution', ['solution'], 'brainstorming'],
     ['implementation-planning', ['plan'], 'writing-plans'],
@@ -36,7 +37,7 @@ export async function createBundledSkillRepositoryFixture(root: string): Promise
   }
   const profileDirectory = join(repository, 'profiles', 'standard-web-feature');
   await mkdir(profileDirectory, { recursive: true });
-  await writeFile(join(profileDirectory, 'PROFILE.yaml'), `name: standard-web-feature\nversion: 2.0.0\ndescription: Standard web feature workflow\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nskills:\n  clarify: requirements-clarification@2.0.0\n  solution: technical-solution@2.0.0\n  plan: implementation-planning@2.0.0\n  development: typescript-web-implementation@2.0.0\n`);
+  await writeFile(join(profileDirectory, 'PROFILE.yaml'), `name: standard-web-feature\nversion: 2.0.0\ndescription: Standard web feature workflow\naiwCompatibility: ">=0.0.1 <1.0.0"\nartifactContract: aiw.task-output/v1\nskills:\n  design: figma-design-analysis@2.0.0\n  clarify: requirements-clarification@2.0.0\n  solution: technical-solution@2.0.0\n  plan: implementation-planning@2.0.0\n  development: typescript-web-implementation@2.0.0\n`);
   return { repository };
 }
 

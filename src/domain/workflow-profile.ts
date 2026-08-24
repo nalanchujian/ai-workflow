@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { RegistrySourceSchema } from './task.js';
 import { OutputContractVersion, SupportedAiwCompatibility } from './output-contract.js';
 
-const stageKeys = ['clarify', 'solution', 'plan', 'development'] as const;
+export const requiredExecutableStages = ['clarify', 'solution', 'plan', 'development'] as const;
+export const executableStages = ['design', ...requiredExecutableStages] as const;
 
 export const WorkflowProfileSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9-]*$/),
@@ -12,6 +13,7 @@ export const WorkflowProfileSchema = z.object({
   aiwCompatibility: z.literal(SupportedAiwCompatibility),
   artifactContract: z.literal(OutputContractVersion),
   skills: z.object({
+    design: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/).optional(),
     clarify: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
     solution: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
     plan: z.string().regex(/^[a-z][a-z0-9-]*@\d+\.\d+\.\d+$/),
@@ -24,6 +26,5 @@ export const InstalledWorkflowProfileSchema = WorkflowProfileSchema.extend({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
-export const executableStages = stageKeys;
 export type WorkflowProfile = z.infer<typeof WorkflowProfileSchema>;
 export type InstalledWorkflowProfile = z.infer<typeof InstalledWorkflowProfileSchema>;

@@ -10,6 +10,7 @@ import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskRunner } from '../../src/services/task-runner.js';
 import { TaskStore } from '../../src/services/task-store.js';
+import { DesignAnalysisInputPreparer } from '../../src/services/design-analysis-input-preparer.js';
 import { createSevenPhaseTask, createSkillLock } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -26,6 +27,40 @@ describe('TaskRunner', () => {
     expect(result.artifacts.map((item) => item.path)).toEqual(['artifacts/clarify/fact-register.yaml', 'artifacts/clarify/decision-register.yaml']);
     expect((await fixture.store.load('refund-123')).nodes.clarify?.status).toBe('awaiting_approval');
     await expect(readFile(join(fixture.store.taskDirectory('refund-123'), 'artifacts/clarify/fact-register.yaml'), 'utf8')).resolves.toContain('aiw.fact-register/v2');
+  });
+
+  it('captures Figma only when the optional design-analysis node runs', async () => {
+    const fixture = await createFixture('design');
+    const task = await fixture.store.load('refund-123');
+    task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
+    task.nodes['design-analysis'] = {
+      title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'),
+      requiresApproval: false, status: 'ready', hasResult: false,
+      outputs: ['artifacts/design/design-catalog.yaml', 'artifacts/design/design-rules.yaml', 'artifacts/design/design-context.md'],
+    };
+    task.nodes.clarify!.dependsOn = ['design-analysis'];
+    task.nodes.clarify!.status = 'pending';
+    await fixture.store.update(task);
+
+    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'design-analysis', dryRun: false, includes: [] });
+
+    expect(result.status).toBe('succeeded');
+    expect((await fixture.store.load(task.id)).nodes['design-analysis']?.status).toBe('completed');
+    expect(fixture.prompts.at(-1)).toContain('Figma 元数据和概览截图');
+    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'sources/design/current/overview.png'))).resolves.toEqual(Buffer.from('png'));
+  });
+
+  it('records a design-analysis failure when Figma MCP is unavailable', async () => {
+    const fixture = await createFixture('design-failure');
+    const task = await fixture.store.load('refund-123');
+    task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
+    task.nodes['design-analysis'] = { title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'), requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-catalog.yaml'] };
+    await fixture.store.update(task);
+
+    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'design-analysis', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'DESIGN_INPUT_UNAVAILABLE' } });
+    expect((await fixture.store.load(task.id)).nodes['design-analysis']?.status).toBe('failed');
   });
 
   it('fails when the agent omits a declared artifact', async () => {
@@ -85,7 +120,7 @@ describe('TaskRunner', () => {
   });
 });
 
-async function createFixture(mode: 'clarify' | 'missing-decision' | 'development' | 'development-no-changes') {
+async function createFixture(mode: 'design' | 'design-failure' | 'clarify' | 'missing-decision' | 'development' | 'development-no-changes') {
   const root = await createTempDirectory('aiw-runner-'); directories.push(root);
   const runtimeRoot = join(root, '.runtime');
   const store = new TaskStore(root);
@@ -104,6 +139,7 @@ async function createFixture(mode: 'clarify' | 'missing-decision' | 'development
     profiles: [],
     skills: [
       { name: 'requirements-clarification', version: '1.0.0', description: '澄清', aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', phases: ['clarify'], methodSources: [methodSource], body: '澄清需求。', registrySource, sha256: 'a'.repeat(64) },
+      { name: 'figma-design-analysis', version: '1.0.0', description: '设计分析', aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', phases: ['design'], methodSources: [methodSource], body: '分析设计稿。', registrySource, sha256: 'a'.repeat(64) },
       { name: 'typescript-web-implementation', version: '1.0.0', description: '开发', aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', phases: ['development'], methodSources: [methodSource], body: '开发代码。', registrySource, sha256: 'a'.repeat(64) },
     ],
     methods: [{ source: methodSource, content: '理解问题。', registrySource }],
@@ -112,7 +148,12 @@ async function createFixture(mode: 'clarify' | 'missing-decision' | 'development
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     prompts.push(input.stdin);
     const taskRoot = join(input.cwd, '.aiw/tasks/refund-123/runs/run-1/staging');
-    if (mode === 'development' || mode === 'development-no-changes') {
+    if (mode === 'design') {
+      const directory = join(taskRoot, 'artifacts/design'); await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, 'design-catalog.yaml'), stringify({ schemaVersion: 'aiw.design-catalog/v1', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, items: [{ figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
+      await writeFile(join(directory, 'design-rules.yaml'), stringify({ schemaVersion: 'aiw.design-rules/v1', rules: [{ category: 'layout', statement: '采用单列布局', nodeIds: ['1:2'] }], openQuestions: [] }));
+      await writeFile(join(directory, 'design-context.md'), '# 设计上下文\n\n## 设计范围\n\n退款页。\n\n## 页面与状态\n\n默认态。\n\n## 共性规则\n\n单列布局。\n\n## 待确认问题\n\n无。\n');
+    } else if (mode === 'development' || mode === 'development-no-changes') {
       const path = join(taskRoot, 'artifacts/development/development-unit-refund-entry/result.md'); await mkdir(dirname(path), { recursive: true });
       await writeFile(path, '# 开发结果\n\n## 完成的代码修改\n\n已实现退款入口。\n\n## 变更文件\n\n- src/refund.ts\n\n## 未解决问题\n\n无。\n\n## 已知风险\n\n无。\n');
     } else {
@@ -128,6 +169,17 @@ async function createFixture(mode: 'clarify' | 'missing-decision' | 'development
     taskStore: store, skillRegistry: registry, methodSourceResolver: new MethodSourceResolver(registry),
     contextBuilder: new ContextBuilder({ taskDirectory: (value) => store.taskDirectory(value.id), projectRoot: () => root, maxTokens: 20_000 }),
     taskFactGuard, changeInspector, adapter,
+    designInputPreparer: new DesignAnalysisInputPreparer({
+      taskStore: store,
+      connector: {
+        supports: () => true,
+        async captureRoot() {
+          if (mode === 'design-failure') throw new Error('Figma MCP 不可用');
+          return { fileKey: 'file-key', nodeId: '1:2', metadata: '<frame name="退款页" />', screenshot: Buffer.from('png'), capturedAt: '2026-08-24T00:00:00.000Z' };
+        },
+        async captureNode() { throw new Error('not used'); },
+      },
+    }),
     deliveryWorkspaceManager: {
       async prepare() {
         return {

@@ -10,6 +10,8 @@ import {
 describe('Agent artifact protocol', () => {
   it('renders every registered contract from its schema and a schema-valid YAML example', () => {
     expect(agentArtifactProtocolIds).toEqual([
+      'design-catalog',
+      'design-rules',
       'fact-register',
       'decision-register',
       'development-plan',

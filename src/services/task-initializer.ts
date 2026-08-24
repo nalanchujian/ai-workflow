@@ -7,10 +7,11 @@ import { z } from 'zod';
 import type { SkillLock, SourceKind, Task, TaskNode } from '../domain/task.js';
 import type { InstalledSkill } from '../domain/skill.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
-import { executableStages } from '../domain/workflow-profile.js';
+import { executableStages, requiredExecutableStages } from '../domain/workflow-profile.js';
 import { SourceIntake, type SnapshotRecord } from './source-intake.js';
 import { SkillRegistry } from './skill-registry.js';
 import { TaskStore } from './task-store.js';
+import { parseFigmaDesignUrl } from './figma-design-connector.js';
 
 interface SourceIntakePort {
   classify?(value: string): SourceKind;
@@ -27,7 +28,7 @@ export class TaskInitializer {
     now?: () => Date;
   }) {}
 
-  async init(input: { projectRoot: string; source: string; section?: string; skillProfile: string; forceNew?: boolean }): Promise<Task> {
+  async init(input: { projectRoot: string; source: string; section?: string; design?: string; skillProfile: string; forceNew?: boolean }): Promise<Task> {
     await this.deps.projectRepository.assertProjectReady(input.projectRoot);
     const taskStore = this.deps.taskStoreFactory(input.projectRoot);
     const sourceIntake = this.deps.sourceIntakeFactory(input.projectRoot);
@@ -42,7 +43,11 @@ export class TaskInitializer {
       throw new Error('工作流模板不存在');
     }
 
-    const skills = await this.resolveSkills(profile.skills, profile.registrySource);
+    const parsedDesign = input.design === undefined ? undefined : parseFigmaDesignUrl(input.design);
+    if (input.design !== undefined && parsedDesign === undefined) {
+      throw new Error('设计稿地址无效：请提供带 node-id 的 Figma Design 地址');
+    }
+    const skills = await this.resolveSkills(profile.skills, profile.registrySource, parsedDesign !== undefined);
     const sourceId = 'requirements';
     const source = await sourceIntake.snapshot({
       sourceId,
@@ -70,8 +75,11 @@ export class TaskInitializer {
           sha256: profile.sha256,
         },
         developmentSkill: lockSkill(skills.development),
+        ...(parsedDesign === undefined ? {} : {
+          designInput: { provider: 'figma' as const, url: input.design!, ...parsedDesign },
+        }),
         sources: { [sourceId]: writtenSource },
-        nodes: createNodes(skills),
+        nodes: createNodes(skills, parsedDesign !== undefined),
         approvalRefs: [],
         events: [],
       };
@@ -87,18 +95,22 @@ export class TaskInitializer {
   }
 
   private async resolveSkills(
-    references: Record<(typeof executableStages)[number], string>,
+    references: Record<(typeof requiredExecutableStages)[number], string> & { design?: string },
     profileSource: { url: string; revision: string },
-  ): Promise<Record<(typeof executableStages)[number], InstalledSkill>> {
-    const resolved = await Promise.all(executableStages.map(async (stage) => {
-      const [name, version] = parseReference(references[stage], `阶段 ${stage} 的技能`);
+    includeDesign: boolean,
+  ): Promise<ResolvedSkills> {
+    const stages = includeDesign ? executableStages : requiredExecutableStages;
+    const resolved = await Promise.all(stages.map(async (stage) => {
+      const reference = references[stage];
+      if (reference === undefined) throw new Error('当前工作流模板不支持 Figma 设计分析，请先更新团队技能包');
+      const [name, version] = parseReference(reference, `阶段 ${stage} 的技能`);
       const skill = await this.deps.registry.findFromSource(name, version, profileSource);
       if (skill === undefined || !skill.phases.includes(stage)) {
         throw new Error(`工作流模板引用了不兼容技能：${stage}`);
       }
       return [stage, skill] as const;
     }));
-    return Object.fromEntries(resolved) as Record<(typeof executableStages)[number], InstalledSkill>;
+    return Object.fromEntries(resolved) as ResolvedSkills;
   }
 
   private async rejectDuplicateTask(taskStore: TaskStore, sourceIntake: SourceIntakePort, input: { projectRoot: string; source: string; section?: string }): Promise<void> {
@@ -196,7 +208,9 @@ function isUnfinished(task: Task): boolean {
     && Object.values(task.nodes).some((node) => node.status !== 'completed' && node.status !== 'cancelled');
 }
 
-function createNodes(skills: Record<(typeof executableStages)[number], InstalledSkill>): Record<string, TaskNode> {
+type ResolvedSkills = Record<(typeof requiredExecutableStages)[number], InstalledSkill> & { design?: InstalledSkill };
+
+function createNodes(skills: ResolvedSkills, hasDesign: boolean): Record<string, TaskNode> {
   const stageDefinitions: Array<{ id: 'clarify' | 'solution' | 'plan'; title: string; outputs: string[]; requiresApproval: boolean }> = [
     { id: 'clarify', title: '澄清需求', outputs: ['artifacts/clarify/fact-register.yaml', 'artifacts/clarify/decision-register.yaml'], requiresApproval: true },
     { id: 'solution', title: '形成技术方案', outputs: ['artifacts/solution/solution.md'], requiresApproval: false },
@@ -206,6 +220,24 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
     intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', hasResult: true, outputs: [] },
   };
   let dependency = 'intake';
+  if (hasDesign) {
+    if (skills.design === undefined) throw new Error('当前工作流模板不支持 Figma 设计分析，请先更新团队技能包');
+    nodes['design-analysis'] = {
+      title: '分析设计稿',
+      phase: 'design',
+      dependsOn: ['intake'],
+      skill: lockSkill(skills.design),
+      requiresApproval: false,
+      status: 'ready',
+      hasResult: false,
+      outputs: [
+        'artifacts/design/design-catalog.yaml',
+        'artifacts/design/design-rules.yaml',
+        'artifacts/design/design-context.md',
+      ],
+    };
+    dependency = 'design-analysis';
+  }
   for (const definition of stageDefinitions) {
     nodes[definition.id] = {
       title: definition.title,
@@ -213,7 +245,7 @@ function createNodes(skills: Record<(typeof executableStages)[number], Installed
       dependsOn: [dependency],
       skill: lockSkill(skills[definition.id]),
       requiresApproval: definition.requiresApproval,
-      status: definition.id === 'clarify' ? 'ready' : 'pending',
+      status: definition.id === 'clarify' && !hasDesign ? 'ready' : 'pending',
       hasResult: false,
       outputs: definition.outputs,
     };

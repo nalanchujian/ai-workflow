@@ -84,4 +84,26 @@ describe('DevelopmentPlanSchema', () => {
       ],
     })).toThrow(/未知开发单元名称/);
   });
+
+  it('accepts direct optional Figma references on a development unit', () => {
+    const plan = DevelopmentPlanSchema.parse({
+      schemaVersion: 'aiw.development-plan/v1',
+      units: [{
+        name: 'development-unit-performance-overview',
+        title: 'Performance overview',
+        goal: '实现设计页面',
+        requirements: ['展示默认状态'],
+        codeScope: ['src/pages/performance/'],
+        steps: ['复用现有组件实现页面'],
+        dependencies: [],
+        designReferences: [{
+          figmaUrl: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292811',
+          nodeId: '9272:292811',
+          purpose: '默认页面',
+        }],
+      }],
+    });
+
+    expect(plan.units[0]?.designReferences).toEqual([expect.objectContaining({ nodeId: '9272:292811' })]);
+  });
 });

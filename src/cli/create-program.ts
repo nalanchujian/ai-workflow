@@ -30,7 +30,8 @@ export function createProgram(deps: CliDependencies): Command {
   aiw init → aiw doctor
 
 日常使用：
-  aiw task init --source "<Lark 地址>"
+  aiw task init --source "<需求地址或文件>"
+  可选设计稿：增加 --design "<带 node-id 的 Figma 地址>"
   aiw task run <task-id> clarify
   AIW 每一步都会输出下一条精准命令，包括 review、approve 或具体节点的 run 命令。
 

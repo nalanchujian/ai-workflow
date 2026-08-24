@@ -4,8 +4,11 @@ import { z } from 'zod';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
 import { DevelopmentPlanSchema } from '../domain/work-breakdown.js';
+import { DesignCatalogSchema, DesignRulesSchema } from '../domain/design.js';
 
 export const agentArtifactProtocolIds = [
+  'design-catalog',
+  'design-rules',
   'fact-register',
   'decision-register',
   'development-plan',
@@ -53,6 +56,33 @@ export function renderAgentArtifactProtocolDescriptor(descriptor: AgentArtifactP
 }
 
 function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtocolContext): AgentArtifactProtocolDescriptor {
+  if (id === 'design-catalog') {
+    const url = 'https://www.figma.com/design/example/File?node-id=1-2';
+    return {
+      id,
+      title: '设计目录',
+      schema: DesignCatalogSchema,
+      example: {
+        schemaVersion: 'aiw.design-catalog/v1',
+        source: { provider: 'figma', url, fileKey: 'example', nodeId: '1:2' },
+        items: [{ figmaUrl: url, nodeId: '1:2', title: '订单列表', kind: 'page', purpose: '订单管理入口', states: ['默认态', '空态'] }],
+      },
+      rules: ['每项必须指向可再次读取的具体 Figma 节点。', '大型设计稿先建立目录，不在单次上下文中展开所有页面。'],
+    };
+  }
+  if (id === 'design-rules') {
+    return {
+      id,
+      title: '设计规则',
+      schema: DesignRulesSchema,
+      example: {
+        schemaVersion: 'aiw.design-rules/v1',
+        rules: [{ category: 'layout', statement: '列表页使用固定内容宽度和双栏筛选布局。', nodeIds: ['1:2'] }],
+        openQuestions: [{ question: '空态是否允许创建订单？', background: '概览图展示了空态但没有交互说明。', impact: '影响空态按钮与权限逻辑。', nodeId: '1:2' }],
+      },
+      rules: ['只记录设计稿可观察到的规则。', '无法确认的交互或业务含义进入 openQuestions。'],
+    };
+  }
   if (id === 'fact-register') {
     return {
       id,
@@ -111,12 +141,14 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
         codeScope: ['src/pages/growth/links/components/custom-metrics/'],
         steps: ['调整指标配置模型', '接入本地持久化'],
         dependencies: [],
+        designReferences: [{ figmaUrl: 'https://www.figma.com/design/example/File?node-id=1-2', nodeId: '1:2', purpose: '主列表布局和状态' }],
       }],
     },
     rules: [
       'name 是开发单元的真实节点名称，必须使用 development-unit-<英文 kebab-case 描述>，例如 development-unit-main-list-export；禁止数字编号和中文名称。',
       'dependencies 只引用同一计划中其他开发单元的 name，不引用 title。',
       '每个开发单元必须自包含，不得引用 FACT-*、DEC-* 或 AC-*。',
+      '有设计稿时，界面相关单元必须只携带与自身直接相关的 designReferences；纯逻辑单元可以为空。',
       '只规划代码开发，不包含验证、测试、验收或证据声明。',
     ],
   };

@@ -38,6 +38,7 @@ describe('TaskInitializer', () => {
     expect(task.repository).toBe('.');
     expect(task.skillProfile.name).toBe('standard-web-feature');
     expect(task.nodes.intake.status).toBe('completed');
+    expect(task.nodes['design-analysis']).toBeUndefined();
     expect(task.nodes.clarify.skill?.name).toBe('requirements-clarification');
     expect(task.nodes.clarify.outputs).toEqual(['artifacts/clarify/fact-register.yaml', 'artifacts/clarify/decision-register.yaml']);
     expect(task.nodes.solution.outputs).toEqual(['artifacts/solution/solution.md']);
@@ -45,6 +46,73 @@ describe('TaskInitializer', () => {
     expect(task.developmentSkill.name).toBe('typescript-web-implementation');
     expect((await store.load('task-20260813-120000-000')).sources.requirements.snapshotPath).toBe('sources/requirements/r1/snapshot.md');
     await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
+  });
+
+  it('registers an optional design-analysis node without reading Figma during task initialization', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    await registry.replace({ skills: allSkills(), profiles: [profile()] });
+    const store = new TaskStore(projectRoot);
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      sourceIntakeFactory: () => ({
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
+      }) as never,
+      taskStoreFactory: () => store,
+      now: () => new Date('2026-08-13T12:00:00.000Z'),
+    });
+
+    const task = await initializer.init({
+      projectRoot,
+      source: 'requirements.md',
+      design: 'https://www.figma.com/design/vcORdd4C9qEqW1YIYfbzl7/Infloww?node-id=9272-292810&m=dev',
+      skillProfile: 'standard-web-feature@1.0.0',
+    });
+
+    expect(task.designInput).toEqual({
+      provider: 'figma',
+      url: 'https://www.figma.com/design/vcORdd4C9qEqW1YIYfbzl7/Infloww?node-id=9272-292810&m=dev',
+      fileKey: 'vcORdd4C9qEqW1YIYfbzl7',
+      nodeId: '9272:292810',
+    });
+    expect(task.nodes['design-analysis']).toMatchObject({
+      phase: 'design',
+      status: 'ready',
+      dependsOn: ['intake'],
+      outputs: [
+        'artifacts/design/design-catalog.yaml',
+        'artifacts/design/design-rules.yaml',
+        'artifacts/design/design-context.md',
+      ],
+    });
+    expect(task.nodes.clarify).toMatchObject({ status: 'pending', dependsOn: ['design-analysis'] });
+  });
+
+  it('keeps profiles without a design skill usable for tasks that do not request design analysis', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    const current = profile();
+    const skills = { ...current.skills };
+    delete skills.design;
+    await registry.replace({ skills: allSkills(), profiles: [{ ...current, skills }] });
+    const store = new TaskStore(projectRoot);
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      sourceIntakeFactory: () => ({
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
+      }) as never,
+      taskStoreFactory: () => store,
+      now: () => new Date('2026-08-13T12:00:00.000Z'),
+    });
+
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' }))
+      .resolves.toMatchObject({ nodes: { clarify: { status: 'ready' } } });
   });
 
   it('resolves same-version skills from the selected workflow profile revision', async () => {
@@ -233,14 +301,14 @@ function profile(): InstalledWorkflowProfile {
   return {
     name: 'standard-web-feature', version: '1.0.0', description: 'Standard web feature workflow', aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
     skills: {
-      clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', development: 'typescript-web-implementation@1.0.0',
+      design: 'figma-design-analysis@1.0.0', clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', development: 'typescript-web-implementation@1.0.0',
     },
   };
 }
 
 function allSkills(): InstalledSkill[] {
   return [
-    ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'development'],
+    ['figma-design-analysis', 'design'], ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'development'],
   ].map(([name, phase]) => ({
     name, version: '1.0.0', description: `${name} skill`, aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', phases: [phase as InstalledSkill['phases'][number]], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash(name),
     methodSources: [{ id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0', revision: 'a'.repeat(40), sha256: hash(`method-${name}`) }],

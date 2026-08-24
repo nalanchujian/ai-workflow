@@ -18,6 +18,26 @@ describe('ContextBuilder', () => {
     expect(manifest.files).toEqual([{ role: 'source', path: 'sources/requirements/current/snapshot.md' }]);
   });
 
+  it('gives design analysis the requirement, captured metadata, and overview screenshot', async () => {
+    const fixture = await setup();
+    fixture.task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
+    fixture.task.nodes['design-analysis'] = {
+      title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: fixture.task.nodes.clarify!.skill,
+      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-catalog.yaml'],
+    };
+    await mkdir(join(fixture.root, 'sources/design/current'), { recursive: true });
+    await writeFile(join(fixture.root, 'sources/design/current/metadata.txt'), '<frame name="Overview" />');
+    await writeFile(join(fixture.root, 'sources/design/current/overview.png'), Buffer.from('png'));
+
+    const manifest = await fixture.builder.build({ task: fixture.task, nodeId: 'design-analysis', includes: [] });
+
+    expect(manifest.files).toEqual([
+      { role: 'source', path: 'sources/requirements/current/snapshot.md' },
+      { role: 'generated', path: 'sources/design/current/metadata.txt' },
+    ]);
+    expect(manifest.images).toEqual([{ path: 'sources/design/current/overview.png' }]);
+  });
+
   it('gives solution only the fact and decision registers', async () => {
     const fixture = await setup();
     const manifest = await fixture.builder.build({ task: fixture.task, nodeId: 'solution', includes: [] });
@@ -26,6 +46,23 @@ describe('ContextBuilder', () => {
       { role: 'artifact', path: 'artifacts/clarify/fact-register.yaml' },
       { role: 'artifact', path: 'artifacts/clarify/decision-register.yaml' },
     ]);
+  });
+
+  it('propagates current design outputs through clarification, solution, and planning', async () => {
+    const fixture = await setup();
+    fixture.task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
+
+    const clarify = await fixture.builder.build({ task: fixture.task, nodeId: 'clarify', includes: [] });
+    const solution = await fixture.builder.build({ task: fixture.task, nodeId: 'solution', includes: [] });
+    const plan = await fixture.builder.build({ task: fixture.task, nodeId: 'plan', includes: [] });
+
+    expect(clarify.files.map((file) => file.path)).toEqual([
+      'sources/requirements/current/snapshot.md',
+      'artifacts/design/design-catalog.yaml',
+      'artifacts/design/design-rules.yaml',
+    ]);
+    expect(solution.files.map((file) => file.path)).toContain('artifacts/design/design-rules.yaml');
+    expect(plan.files.map((file) => file.path)).toContain('artifacts/design/design-catalog.yaml');
   });
 
   it('gives plan only the current solution Markdown', async () => {
@@ -63,6 +100,8 @@ async function setup() {
     'artifacts/clarify/fact-register.yaml': 'schemaVersion: aiw.fact-register/v2\nfacts: []\n',
     'artifacts/clarify/decision-register.yaml': 'schemaVersion: aiw.decision-register/v2\npendingDecisions: []\ncurrentDecisions: []\ndeferredItems: []\n',
     'artifacts/solution/solution.md': '# 技术方案\n',
+    'artifacts/design/design-catalog.yaml': 'schemaVersion: aiw.design-catalog/v1\n',
+    'artifacts/design/design-rules.yaml': 'schemaVersion: aiw.design-rules/v1\n',
     'artifacts/plan/units/development-list.yaml': 'title: 主列表开发\n',
   };
   for (const [path, content] of Object.entries(files)) {

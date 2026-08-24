@@ -60,6 +60,19 @@ describe('CodexAdapter', () => {
     expect(prompt).not.toContain('test-results.yaml');
   });
 
+  it('tells a design-referenced development unit to reread the declared Figma nodes', async () => {
+    const projectRoot = await temporaryDirectory();
+    const runDirectory = join(projectRoot, '.runtime', 'run-development-design');
+    const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
+    const request = runRequest({ projectRoot, runDirectory, phase: 'development', artifacts: ['artifacts/development/development-unit-page/result.md'] });
+    request.context.files[0]!.content = 'designReferences:\n  - nodeId: 1:2\n    figmaUrl: https://www.figma.com/design/example/File?node-id=1-2\n    purpose: 页面布局';
+    await adapter.run(request);
+
+    const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(prompt).toContain('designReferences');
+    expect(prompt).toContain('Figma MCP');
+  });
+
   it('maps missing Codex and timeouts to stable failures', async () => {
     const projectRoot = await temporaryDirectory();
     const missing = new CodexAdapter({ processRunner: { async run() { throw new ExecutableNotFoundError('codex'); } } });
@@ -67,6 +80,20 @@ describe('CodexAdapter', () => {
 
     const timeout = new CodexAdapter({ processRunner: { async run() { return { exitCode: null, signal: 'SIGTERM', stdout: '', stderr: '', timedOut: true }; } } });
     expect(await timeout.run(runRequest({ projectRoot, runDirectory: join(projectRoot, 'timeout'), phase: 'solution', artifacts: ['artifacts/solution/solution.md'] }))).toMatchObject({ status: 'failed', error: { code: 'CODEX_TIMEOUT' } });
+  });
+
+  it('passes declared design screenshots to Codex as image inputs', async () => {
+    const projectRoot = await temporaryDirectory();
+    const runDirectory = join(projectRoot, '.runtime', 'run-design');
+    const calls: Array<{ args: string[] }> = [];
+    const adapter = new CodexAdapter({ processRunner: { async run(input) { calls.push(input); return ok(); } } });
+    const request = runRequest({ projectRoot, runDirectory, phase: 'design', artifacts: ['artifacts/design/design-context.md'] });
+    request.context.images = [{ path: 'sources/design/current/overview.png', absolutePath: join(projectRoot, 'overview.png') }];
+
+    await adapter.run(request);
+
+    expect(calls[0]!.args).toContain('--image');
+    expect(calls[0]!.args).toContain(join(projectRoot, 'overview.png'));
   });
 });
 
@@ -80,6 +107,7 @@ function runRequest(input: { projectRoot: string; runDirectory: string; phase: R
       skill: { name: 'team-skill', version: '0.0.1', content: '按当前阶段完成工作。' },
       methodSources: [{ id: 'superpowers:brainstorming', content: '先理解问题。' }],
       files: [{ role: 'source', path: 'sources/requirements/snapshot.md', content: '# 需求' }],
+      images: [],
     },
   };
 }

@@ -50,6 +50,8 @@ export class ContextBuilder {
     const files = await Promise.all(defaultFiles(input.task, input.nodeId).map((file) => this.load(file, taskDirectory)));
     for (const path of input.includes) files.push(await this.loadAdditional(path, projectRoot));
     const deduplicated = [...new Map(files.map((file) => [`${file.role}:${file.absolutePath}`, file])).values()];
+    const imagePaths = defaultImages(input.task, input.nodeId);
+    await Promise.all(imagePaths.map((path) => resolveInside(taskDirectory, path)));
     const maxTokens = typeof this.deps.maxTokens === 'function'
       ? await this.deps.maxTokens()
       : this.deps.maxTokens ?? DEFAULT_CONTEXT_TOKEN_BUDGET;
@@ -63,6 +65,7 @@ export class ContextBuilder {
       nodeId: input.nodeId,
       skillProfile: input.task.skillProfile,
       files: deduplicated.map(({ role, path }) => ({ role, path })),
+      images: imagePaths.map((path) => ({ path })),
       skill: node.skill,
       budget: budgetFromInputs(maxTokens, budgetInputs),
     });
@@ -122,22 +125,43 @@ interface LoadedContextFile extends ContextFile {
 function defaultFiles(task: Task, nodeId: string): ContextFile[] {
   const node = task.nodes[nodeId];
   if (node === undefined) throw new ContextBuilderError('CONTEXT_INVALID', `未知节点：${nodeId}`);
+  if (node.phase === 'design') {
+    return [
+      ...Object.values(task.sources).map((source) => ({ role: 'source' as const, path: source.snapshotPath })),
+      { role: 'generated', path: 'sources/design/current/metadata.txt' },
+    ];
+  }
   if (node.phase === 'clarify') {
-    return Object.values(task.sources).map((source) => ({ role: 'source', path: source.snapshotPath }));
+    return [
+      ...Object.values(task.sources).map((source) => ({ role: 'source' as const, path: source.snapshotPath })),
+      ...designArtifacts(task),
+    ];
   }
   if (node.phase === 'solution') {
     return [
       { role: 'artifact', path: 'artifacts/clarify/fact-register.yaml' },
       { role: 'artifact', path: 'artifacts/clarify/decision-register.yaml' },
+      ...designArtifacts(task),
     ];
   }
   if (node.phase === 'plan') {
-    return [{ role: 'artifact', path: 'artifacts/solution/solution.md' }];
+    return [{ role: 'artifact', path: 'artifacts/solution/solution.md' }, ...designArtifacts(task)];
   }
   if (node.contextPath === undefined) {
     throw new ContextBuilderError('CONTEXT_INVALID', `开发节点缺少独立上下文：${nodeId}`);
   }
   return [{ role: 'artifact', path: node.contextPath }];
+}
+
+function designArtifacts(task: Task): ContextFile[] {
+  return task.designInput === undefined ? [] : [
+    { role: 'artifact', path: 'artifacts/design/design-catalog.yaml' },
+    { role: 'artifact', path: 'artifacts/design/design-rules.yaml' },
+  ];
+}
+
+function defaultImages(task: Task, nodeId: string): string[] {
+  return task.nodes[nodeId]?.phase === 'design' ? ['sources/design/current/overview.png'] : [];
 }
 
 async function resolveInside(root: string, path: string): Promise<string> {
@@ -166,5 +190,5 @@ function budgetFromInputs(maxTokens: number, inputs: ContextBudgetInput[]) {
 }
 
 function categoryFor(role: ContextFile['role']): ContextBudgetCategory {
-  return role === 'source' ? 'source' : role === 'additional' ? 'additional' : 'task-fact';
+  return role === 'source' ? 'source' : role === 'generated' ? 'generated' : role === 'additional' ? 'additional' : 'task-fact';
 }

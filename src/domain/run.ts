@@ -8,7 +8,7 @@ export const RunModeSchema = z.enum(['dry-run', 'execute']);
 export const RunStatusSchema = z.enum(['succeeded', 'failed', 'unavailable', 'cancelled']);
 
 const RunContextFileSchema = z.object({
-  role: z.enum(['source', 'artifact', 'additional']),
+  role: z.enum(['source', 'artifact', 'generated', 'additional']),
   path: z.string().min(1),
   content: z.string(),
 });
@@ -19,7 +19,7 @@ export const RunRequestSchema = z.object({
   task: z.object({
     id: z.string().min(1),
     nodeId: z.string().min(1),
-    phase: z.enum(['clarify', 'solution', 'plan', 'development']),
+    phase: z.enum(['design', 'clarify', 'solution', 'plan', 'development']),
     projectRoot: z.string().min(1),
   }),
   instruction: z.string().min(1),
@@ -32,6 +32,7 @@ export const RunRequestSchema = z.object({
     skill: z.object({ name: z.string().min(1), version: z.string().min(1), content: z.string().min(1) }),
     methodSources: z.array(z.object({ id: z.string().min(1), content: z.string().min(1) })),
     files: z.array(RunContextFileSchema),
+    images: z.array(z.object({ path: z.string().min(1), absolutePath: z.string().min(1) })).default([]),
   }),
 });
 

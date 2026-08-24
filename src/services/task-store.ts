@@ -133,6 +133,18 @@ export class TaskStore {
     await rename(temporaryPath, absolutePath);
   }
 
+  async replaceBinaryFact(taskId: string, path: string, content: Buffer): Promise<void> {
+    const directory = this.taskDirectory(taskId);
+    const absolutePath = resolve(directory, path);
+    if (this.relativeTaskPath(taskId, absolutePath) !== path) {
+      throw new TaskStoreError('任务事实路径无效');
+    }
+    await mkdir(dirname(absolutePath), { recursive: true });
+    const temporaryPath = `${absolutePath}.tmp`;
+    await writeFile(temporaryPath, content);
+    await rename(temporaryPath, absolutePath);
+  }
+
   /** Removes only declared task facts; callers must never pass business-repository paths. */
   async removeFacts(taskId: string, paths: string[]): Promise<void> {
     for (const path of [...new Set(paths)]) {

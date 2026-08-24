@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
+import { FigmaDesignInputSchema } from './design.js';
+
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const taskIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
-export const PhaseSchema = z.enum(['intake', 'clarify', 'solution', 'plan', 'development']);
+export const PhaseSchema = z.enum(['intake', 'design', 'clarify', 'solution', 'plan', 'development']);
 export const NodeStatusSchema = z.enum([
   'pending', 'ready', 'running', 'awaiting_approval', 'completed', 'failed', 'invalidated', 'cancelled', 'ignored',
 ]);
@@ -89,6 +91,7 @@ const TaskBaseSchema = z.object({
   status: TaskStatusSchema,
   skillProfile: WorkflowProfileLockSchema,
   developmentSkill: SkillLockSchema,
+  designInput: FigmaDesignInputSchema.optional(),
   sources: z.record(z.string().min(1), SourceReferenceSchema),
   nodes: z.record(z.string().min(1), TaskNodeSchema),
   approvalRefs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),

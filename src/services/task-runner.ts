@@ -8,6 +8,7 @@ import type { ContextManifest } from '../domain/context.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { validateDevelopmentResult } from '../domain/development-result.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
+import { DesignCatalogSchema, DesignRulesSchema } from '../domain/design.js';
 import { validateMarkdownArtifactContract } from '../domain/artifact-contracts.js';
 import { outputContractFor } from '../domain/output-contract.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
@@ -22,6 +23,7 @@ import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
 import { transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
+import type { DesignAnalysisInputPreparer } from './design-analysis-input-preparer.js';
 
 export class TaskRunnerError extends Error {
   constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'WORKTREE_DIRTY' | 'RUN_RECOVERED', message: string) {
@@ -43,6 +45,7 @@ export class TaskRunner {
     changeInspector: WorkingTreeStatus;
     adapter: CodexAdapter;
     deliveryWorkspaceManager?: DeliveryWorkspaceManager;
+    designInputPreparer?: DesignAnalysisInputPreparer;
     runtimeRoot: string;
     runIdFactory?: () => string;
     runLock?: TaskRunLock;
@@ -85,6 +88,23 @@ export class TaskRunner {
     const skill = await this.loadLockedSkill(node.skill);
     if (!skill.phases.includes(node.phase)) throw new TaskRunnerError('SKILL_LOCK_INVALID', '已锁定技能与当前节点阶段不兼容');
     const methods = await Promise.all(node.skill.methodSources.map((source) => this.deps.methodSourceResolver.readLocked(source)));
+    const runId = this.deps.runIdFactory?.() ?? randomUUID();
+    const runDirectory = join(this.deps.runtimeRoot, task.id, runId);
+    if (node.phase === 'design') {
+      if (this.deps.designInputPreparer === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', 'Figma 设计连接器尚未配置');
+      try {
+        await this.deps.designInputPreparer.prepare(task);
+      } catch (error) {
+        if (input.dryRun) throw error;
+        const message = error instanceof Error ? error.message : 'Figma 设计输入读取失败';
+        const result = preparationFailure(runId, runDirectory, 'DESIGN_INPUT_UNAVAILABLE', message);
+        await this.deps.taskStore.update(transitionNode(task, input.nodeId, { type: 'start', runId }));
+        await this.persistResult(task.id, runId, result);
+        const current = await this.deps.taskStore.load(task.id);
+        await this.deps.taskStore.update(transitionNode(current, input.nodeId, { type: 'fail', message }));
+        return result;
+      }
+    }
     const manifest = await this.deps.contextBuilder.build({
       task, nodeId: input.nodeId, includes: input.includes, enforceBudget: false,
       budgetInputs: [
@@ -96,8 +116,6 @@ export class TaskRunner {
     await this.assertCommittedInputs(task, manifest);
     if (!input.dryRun) await this.assertBusinessTreeClean();
 
-    const runId = this.deps.runIdFactory?.() ?? randomUUID();
-    const runDirectory = join(this.deps.runtimeRoot, task.id, runId);
     const outputPaths = node.outputs;
     const workspace = input.dryRun || this.deps.deliveryWorkspaceManager === undefined ? undefined : await this.deps.deliveryWorkspaceManager.prepare({
       projectRoot: this.deps.taskStore.projectDirectory(), runtimeRoot: this.deps.runtimeRoot, taskId: task.id, nodeId: input.nodeId, runId,
@@ -136,6 +154,10 @@ export class TaskRunner {
         skill: { name: skill.name, version: skill.version, content: skill.body },
         methodSources: methods.map((method) => ({ id: method.source.id, content: method.content })),
         files: await loadContextFiles(task, this.deps.taskStore, input.manifest),
+        images: input.manifest.images.map((image) => ({
+          path: image.path,
+          absolutePath: join(this.deps.taskStore.taskDirectory(task.id), image.path),
+        })),
       },
     };
     const finalizedManifest = this.deps.contextBuilder.finalizePromptBudget({ manifest: input.manifest, prompt: this.deps.adapter.renderPrompt(request) });
@@ -204,7 +226,7 @@ export class TaskRunner {
 
   private async assertCommittedInputs(task: Task, manifest: ContextManifest): Promise<void> {
     const prefix = `.aiw/tasks/${task.id}/`;
-    const paths = [prefix + 'task.yaml', ...manifest.files.filter((file) => file.role !== 'additional').map((file) => prefix + file.path)];
+    const paths = [prefix + 'task.yaml', ...manifest.files.filter((file) => !['additional', 'generated'].includes(file.role)).map((file) => prefix + file.path)];
     await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths });
   }
 
@@ -241,7 +263,9 @@ async function readAndValidateOutputs(store: TaskStore, taskId: string, phase: T
 
 function validateOutput(path: string, phase: Task['nodes'][string]['phase'], content: string): void {
   try {
-    if (path.endsWith('fact-register.yaml')) FactRegisterSchema.parse(parse(content));
+    if (path.endsWith('design-catalog.yaml')) DesignCatalogSchema.parse(parse(content));
+    else if (path.endsWith('design-rules.yaml')) DesignRulesSchema.parse(parse(content));
+    else if (path.endsWith('fact-register.yaml')) FactRegisterSchema.parse(parse(content));
     else if (path.endsWith('decision-register.yaml')) DecisionRegisterSchema.parse(parse(content));
     else if (path.endsWith('development-plan.yaml')) validateDevelopmentPlan(content);
     else if (phase === 'development') validateDevelopmentResult(content);
@@ -254,6 +278,11 @@ function validateOutput(path: string, phase: Task['nodes'][string]['phase'], con
 function failedResult(request: RunRequest, code: string, message: string): RunResult {
   const now = new Date().toISOString();
   return RunResultSchema.parse({ schemaVersion: 'aiw.run-result/v1', runId: request.runId, status: 'failed', runDirectory: request.runDirectory, startedAt: now, finishedAt: now, artifacts: [], error: { code, message } });
+}
+
+function preparationFailure(runId: string, runDirectory: string, code: string, message: string): RunResult {
+  const now = new Date().toISOString();
+  return RunResultSchema.parse({ schemaVersion: 'aiw.run-result/v1', runId, status: 'failed', runDirectory, startedAt: now, finishedAt: now, artifacts: [], error: { code, message } });
 }
 
 interface ActiveRun { taskId: string; nodeId: string; runId: string; runDirectory: string; controller: AbortController }

@@ -86,4 +86,20 @@ describe('task init command', () => {
       forceNew: true,
     });
   });
+
+  it('forwards an optional Figma design and points the user to the design-analysis node', async () => {
+    let received: unknown;
+    let output = '';
+    const command = createTaskInitCommand({
+      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature', version: '2.0.0' }, nodes: { 'design-analysis': { status: 'ready' } } }; } } as never,
+      defaultSkillProfile: async () => 'standard-web-feature@2.0.0',
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    const design = 'https://www.figma.com/design/vcORdd4C9qEqW1YIYfbzl7/Infloww?node-id=9272-292810&m=dev';
+    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--design', design]);
+
+    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', design, skillProfile: 'standard-web-feature@2.0.0' });
+    expect(output).toContain('aiw task run task-20260813-120000-000 design-analysis');
+  });
 });

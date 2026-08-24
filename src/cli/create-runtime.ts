@@ -10,6 +10,8 @@ import { ShellGitClient } from '../adapters/shell-git-client.js';
 import { StdioMcpClient } from '../adapters/stdio-mcp-client.js';
 import { ContextBuilder } from '../services/context-builder.js';
 import { ConfiguredLarkSourceConnector } from '../services/configured-lark-source-connector.js';
+import { ConfiguredFigmaDesignConnector } from '../services/configured-figma-design-connector.js';
+import { DesignAnalysisInputPreparer } from '../services/design-analysis-input-preparer.js';
 import { DoctorService } from '../services/doctor-service.js';
 import { DefaultWorkflowBootstrapper } from '../services/default-workflow-bootstrapper.js';
 import { LocalConfig } from '../services/local-config.js';
@@ -83,6 +85,13 @@ export function createCliRuntime(input: {
       client: input.ports.mcpClient,
       resolver: input.ports.mcpServerConfigResolver,
     });
+  const designConnector = input.ports.mcpClient === undefined || input.ports.mcpServerConfigResolver === undefined
+    ? undefined
+    : new ConfiguredFigmaDesignConnector({
+      config,
+      client: input.ports.mcpClient,
+      resolver: input.ports.mcpServerConfigResolver,
+    });
   const intake = (root: string) => new SourceIntake({ ...(connector === undefined ? {} : { connectors: [connector] }), network: input.ports.network, projectRoot: root });
   const taskFactGuard = new TaskFactGuard({ repositoryStatus: input.ports.repositoryStatus });
   const initializer = new TaskInitializer({
@@ -124,6 +133,7 @@ export function createCliRuntime(input: {
     changeInspector: input.ports.repositoryStatus,
     adapter: codexAdapter,
     ...(input.ports.deliveryWorkspaceManager === undefined ? {} : { deliveryWorkspaceManager: input.ports.deliveryWorkspaceManager }),
+    ...(designConnector === undefined ? {} : { designInputPreparer: new DesignAnalysisInputPreparer({ taskStore, connector: designConnector }) }),
     runtimeRoot,
     runLock: taskLock,
   });

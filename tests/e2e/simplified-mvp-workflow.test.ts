@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { stringify } from 'yaml';
@@ -12,6 +12,7 @@ import { TaskDecisionService } from '../../src/services/task-decision-service.js
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskRunner } from '../../src/services/task-runner.js';
 import { TaskStore } from '../../src/services/task-store.js';
+import { DesignAnalysisInputPreparer } from '../../src/services/design-analysis-input-preparer.js';
 import { createSevenPhaseTask, createSkillLock } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -42,9 +43,21 @@ describe('simplified MVP workflow', () => {
     expect(task.nodes).not.toHaveProperty('verify');
     expect(task.nodes).not.toHaveProperty('test');
   });
+
+  it('inserts and completes the optional Figma design analysis before clarification', async () => {
+    const fixture = await setup(true);
+
+    const result = await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'design-analysis', dryRun: false, includes: [] });
+    const task = await fixture.store.load(fixture.taskId);
+
+    expect(result.status).toBe('succeeded');
+    expect(task.nodes['design-analysis']?.status).toBe('completed');
+    expect(task.nodes.clarify?.status).toBe('ready');
+    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/design-catalog.yaml'), 'utf8')).resolves.toContain('aiw.design-catalog/v1');
+  });
 });
 
-async function setup() {
+async function setup(withDesign = false) {
   const root = await createTempDirectory('aiw-e2e-simplified-');
   directories.push(root);
   const store = new TaskStore(root);
@@ -55,6 +68,12 @@ async function setup() {
     snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json',
   };
   task.nodes.intake!.outputs = ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'];
+  if (withDesign) {
+    task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
+    task.nodes['design-analysis'] = { title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'), requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-catalog.yaml', 'artifacts/design/design-rules.yaml', 'artifacts/design/design-context.md'] };
+    task.nodes.clarify!.dependsOn = ['design-analysis'];
+    task.nodes.clarify!.status = 'pending';
+  }
   await store.create(task);
   await store.replaceFact(task.id, task.sources.requirements.snapshotPath, '# 需求\n\n增加退款入口和退款表单。\n');
   await store.replaceFact(task.id, task.sources.requirements.metaPath, '{}\n');
@@ -62,7 +81,7 @@ async function setup() {
   const registry = new SkillRegistry(join(root, 'registry.yaml'));
   const registrySource = task.skillProfile.registrySource;
   const methodSource = createSkillLock('unused').methodSources[0]!;
-  const skill = (name: string, phase: 'clarify' | 'solution' | 'plan' | 'development') => ({
+  const skill = (name: string, phase: 'design' | 'clarify' | 'solution' | 'plan' | 'development') => ({
     name, version: '1.0.0', description: name, aiwCompatibility: '>=0.0.1 <1.0.0' as const,
     artifactContract: 'aiw.task-output/v1' as const, phases: [phase], methodSources: [methodSource],
     body: `# ${name}\n\n## 输入\n\n输入。\n\n## 步骤\n\n1. 执行。\n\n## 输出\n\n输出。`,
@@ -71,6 +90,7 @@ async function setup() {
   await registry.replace({
     profiles: [],
     skills: [
+      skill('figma-design-analysis', 'design'),
       skill('requirements-clarification', 'clarify'), skill('technical-solution', 'solution'),
       skill('implementation-planning', 'plan'), skill('typescript-web-implementation', 'development'),
     ],
@@ -80,7 +100,11 @@ async function setup() {
   let runNumber = 0;
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     const stagingRoot = stagingRootFrom(input.stdin, input.cwd);
-    if (input.stdin.includes('澄清阶段只生成事实登记和决策登记')) {
+    if (input.stdin.includes('Figma 元数据和概览截图')) {
+      await write(stagingRoot, 'artifacts/design/design-catalog.yaml', stringify({ schemaVersion: 'aiw.design-catalog/v1', source: task.designInput, items: [{ figmaUrl: task.designInput!.url, nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
+      await write(stagingRoot, 'artifacts/design/design-rules.yaml', stringify({ schemaVersion: 'aiw.design-rules/v1', rules: [{ category: 'layout', statement: '使用单列布局', nodeIds: ['1:2'] }], openQuestions: [] }));
+      await write(stagingRoot, 'artifacts/design/design-context.md', '# 设计上下文\n\n## 设计范围\n\n退款页。\n\n## 页面与状态\n\n默认态。\n\n## 共性规则\n\n单列布局。\n\n## 待确认问题\n\n无。\n');
+    } else if (input.stdin.includes('澄清阶段只生成事实登记和决策登记')) {
       await write(stagingRoot, 'artifacts/clarify/fact-register.yaml', stringify({
         schemaVersion: 'aiw.fact-register/v2',
         facts: [{ statement: '需要增加退款入口和退款表单。', source: { type: 'requirement', path: 'sources/requirements/r1/snapshot.md' } }],
@@ -111,6 +135,10 @@ async function setup() {
     taskStore: store, skillRegistry: registry, methodSourceResolver: new MethodSourceResolver(registry),
     contextBuilder: new ContextBuilder({ taskDirectory: (value) => store.taskDirectory(value.id), projectRoot: () => root, maxTokens: 20_000 }),
     taskFactGuard,
+    ...(withDesign ? { designInputPreparer: new DesignAnalysisInputPreparer({
+      taskStore: store,
+      connector: { supports: () => true, async captureRoot() { return { fileKey: 'file-key', nodeId: '1:2', metadata: '<frame name="退款页" />', screenshot: Buffer.from('png'), capturedAt: '2026-08-24T00:00:00.000Z' }; }, async captureNode() { throw new Error('not used'); } },
+    }) } : {}),
     changeInspector: { async changedPaths() { return []; }, async untrackedPaths() { return []; }, async diff() { return ''; }, async revision() { return { head: 'abc', branch: 'main' }; } },
     deliveryWorkspaceManager: {
       async prepare() {

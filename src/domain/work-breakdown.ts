@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { DesignReferenceSchema } from './design.js';
+
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 const developmentUnitNamePattern = /^development-unit-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
@@ -14,6 +16,7 @@ export const DevelopmentUnitSchema = z.object({
   codeScope: z.array(z.string().regex(relativePathPattern, '代码范围必须是项目内相对路径')).min(1),
   steps: z.array(z.string().min(1)).min(1),
   dependencies: z.array(z.string().min(1)).default([]),
+  designReferences: z.array(DesignReferenceSchema).default([]),
 }).strict();
 
 export const DevelopmentPlanSchema = z.object({

@@ -26,7 +26,12 @@ export class CodexAdapter {
     try {
       const execution = await this.deps.processRunner.run({
         command: this.deps.codexBin ?? process.env.AIW_CODEX_BIN ?? 'codex',
-        args: ['exec', '--cd', request.task.projectRoot, '--approve-for-me', '--output-last-message', join(request.runDirectory, 'last-message.md'), '-'],
+        args: [
+          'exec', '--cd', request.task.projectRoot, '--approve-for-me',
+          '--output-last-message', join(request.runDirectory, 'last-message.md'),
+          ...request.context.images.flatMap((image) => ['--image', image.absolutePath]),
+          '-',
+        ],
         cwd: request.task.projectRoot,
         stdin: context,
         timeoutMs: this.deps.executionTimeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS,
@@ -82,6 +87,9 @@ function renderContext(request: RunRequest): string {
 function phaseProtocol(request: RunRequest): string {
   const markdown = markdownArtifactContractFor(request.artifacts);
   const protocolContext = { taskId: request.task.id, nodeId: request.task.nodeId, phase: request.task.phase, evidencePath: request.context.files[0]?.path ?? 'source', testProfile: '', testEvidenceType: 'unit' as const };
+  if (request.task.phase === 'design') {
+    return `先根据 Figma 元数据和概览截图建立页面/区域目录，再按需要使用 Figma MCP 深入读取代表性节点。输出设计目录、设计规则和简体中文设计上下文；不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-catalog', protocolContext)}\n\n${renderAgentArtifactProtocol('design-rules', protocolContext)}\n\n${markdown}`;
+  }
   if (request.task.phase === 'clarify') {
     return [
       '澄清阶段只生成事实登记和决策登记。事实只记录来源中明确存在的内容；不确定内容进入待决策事项。每个待决策事项只解决一个独立业务结论，并提供一至两个“本期继续”方案。不要生成验收标准、AC、跨文件 ID 或 Handoff。',
@@ -93,7 +101,7 @@ function phaseProtocol(request: RunRequest): string {
   if (request.task.phase === 'plan') {
     return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
   }
-  return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
+  return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；如果单元上下文包含 designReferences，必须先通过 Figma MCP 读取其中声明的具体节点和截图，再进行页面实现；不要自行展开无关设计节点。不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
 }
 
 function outputReceipt(request: RunRequest, taskRoot: string): string {
@@ -115,6 +123,7 @@ function runtimeRequestSummary(request: RunRequest): object {
       skill: { name: request.context.skill.name, version: request.context.skill.version },
       methodSources: request.context.methodSources.map((source) => ({ id: source.id })),
       files: request.context.files.map((file) => ({ role: file.role, path: file.path })),
+      images: request.context.images.map((image) => ({ path: image.path })),
     },
   };
 }

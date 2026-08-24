@@ -19,7 +19,7 @@ aiw doctor --project <其他业务仓库>
 ## 日常任务
 
 ```bash
-aiw task init --project <业务仓库> --source <地址或文件> [--section <标题>] [--force-new]
+aiw task init --project <业务仓库> --source <地址或文件> [--section <标题>] [--design <Figma URL>] [--force-new]
 aiw task run <task-id> <node-name> [--dry-run] [--include <项目内路径>]
 aiw task review <task-id>
 aiw task approve <task-id> plan --note <说明>
@@ -27,7 +27,7 @@ aiw task ignore <task-id> <development-unit-name> --note <原因>
 aiw task status <task-id>
 ```
 
-- `task init`：固化来源并创建任务。默认拒绝相同来源的重复未完成任务。
+- `task init`：固化来源并创建任务。`--design` 只登记带 `node-id` 的 Figma 地址并增加可选设计节点；默认拒绝相同来源的重复未完成任务。
 - `task run`：执行 CLI 指定的需求、方案、计划或开发节点。
 - `task review`：逐项确认需求澄清产生的业务决策。
 - `task approve`：批准开发计划和开发单元划分。

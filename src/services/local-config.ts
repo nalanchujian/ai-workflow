@@ -24,6 +24,15 @@ const LocalConfigSchema = z.object({
       tool: z.string().min(1),
       useUAT: z.boolean(),
     }).optional(),
+    figma: z.object({
+      configSource: z.object({ kind: z.literal('codex-toml'), path: z.string().min(1) }),
+      server: z.string().min(1),
+      tools: z.object({
+        metadata: z.string().min(1),
+        screenshot: z.string().min(1),
+        designContext: z.string().min(1),
+      }).strict(),
+    }).strict().optional(),
   }).default({}),
   workflow: DefaultWorkflowSchema.optional(),
   context: z.object({
@@ -33,6 +42,7 @@ const LocalConfigSchema = z.object({
 
 export type LocalConfigDocument = z.infer<typeof LocalConfigSchema>;
 export type LocalLarkConnectorProfile = NonNullable<LocalConfigDocument['connectors']['lark']>;
+export type LocalFigmaConnectorProfile = NonNullable<LocalConfigDocument['connectors']['figma']>;
 
 export class LocalConfig {
   constructor(private readonly path: string) {}
@@ -42,6 +52,15 @@ export class LocalConfig {
     if (profile === undefined) {
       throw new Error('Lark Connector is unavailable');
     }
+    return {
+      ...profile,
+      configSource: { ...profile.configSource, path: expandHome(profile.configSource.path) },
+    };
+  }
+
+  async figmaConnector(): Promise<LocalFigmaConnectorProfile> {
+    const profile = (await this.read()).connectors.figma;
+    if (profile === undefined) throw new Error('Figma Connector is unavailable');
     return {
       ...profile,
       configSource: { ...profile.configSource, path: expandHome(profile.configSource.path) },
