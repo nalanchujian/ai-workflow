@@ -20,8 +20,8 @@ describe('task init command', () => {
     expect(output).toContain('工作流：standard-web-feature@1.0.0');
     expect(output).toContain('下一步：');
     expect(output).toContain('git add .aiw && git commit -m "chore(aiw): initialize task"');
-    expect(output).toContain('aiw task continue task-20260813-120000-000');
-    expect(output).not.toContain('aiw task run task-20260813-120000-000 clarify');
+    expect(output).toContain('aiw task run task-20260813-120000-000 clarify');
+    expect(output).not.toContain('aiw task continue');
     expect(output).not.toContain('"taskId"');
   });
 

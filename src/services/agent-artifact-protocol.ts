@@ -104,6 +104,7 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
     example: {
       schemaVersion: 'aiw.development-plan/v1',
       units: [{
+        name: 'development-unit-main-list-metrics',
         title: '主列表指标配置',
         goal: '支持调整并保存主列表指标。',
         requirements: ['支持调整指标顺序', '支持保存用户配置'],
@@ -113,6 +114,8 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
       }],
     },
     rules: [
+      'name 是开发单元的真实节点名称，必须使用 development-unit-<英文 kebab-case 描述>，例如 development-unit-main-list-export；禁止数字编号和中文名称。',
+      'dependencies 只引用同一计划中其他开发单元的 name，不引用 title。',
       '每个开发单元必须自包含，不得引用 FACT-*、DEC-* 或 AC-*。',
       '只规划代码开发，不包含验证、测试、验收或证据声明。',
     ],

@@ -34,18 +34,38 @@ describe('TaskStateCommands', () => {
     await fixture.store.replaceFact(task.id, 'artifacts/plan/development-plan.yaml', stringify({
       schemaVersion: 'aiw.development-plan/v1',
       units: [
-        { title: '退款入口', goal: '增加退款入口', requirements: ['展示入口'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] },
-        { title: '退款表单', goal: '提交退款申请', requirements: ['填写原因'], codeScope: ['src/refund-form'], steps: ['实现表单'], dependencies: ['退款入口'] },
+        { name: 'development-unit-refund-entry', title: '退款入口', goal: '增加退款入口', requirements: ['展示入口'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] },
+        { name: 'development-unit-refund-form', title: '退款表单', goal: '提交退款申请', requirements: ['填写原因'], codeScope: ['src/refund-form'], steps: ['实现表单'], dependencies: ['development-unit-refund-entry'] },
       ],
     }));
 
     const approved = await fixture.commands.approve(task.id, 'plan', { note: '通过' });
 
+    expect(approved.status).toBe('active');
     expect(approved.nodes.plan?.status).toBe('completed');
-    expect(approved.nodes['development-unit-1']).toMatchObject({ phase: 'development', status: 'ready' });
-    expect(approved.nodes['development-unit-2']).toMatchObject({ phase: 'development', status: 'pending', dependsOn: ['development-unit-1'] });
+    expect(approved.nodes['development-unit-refund-entry']).toMatchObject({ phase: 'development', status: 'ready' });
+    expect(approved.nodes['development-unit-refund-form']).toMatchObject({ phase: 'development', status: 'pending', dependsOn: ['development-unit-refund-entry'] });
     expect(approved.nodes).not.toHaveProperty('verify');
     expect(approved.nodes).not.toHaveProperty('test');
+  });
+
+  it('ignores a failed leaf development unit and records the operator reason', async () => {
+    const fixture = await createFixture();
+    const task = await fixture.store.load('refund-123');
+    task.nodes.clarify!.status = 'completed'; task.nodes.solution!.status = 'completed'; task.nodes.plan!.status = 'completed';
+    task.nodes['development-unit-external-page'] = {
+      title: '外部应用开发', phase: 'development', dependsOn: ['plan'], skill: task.developmentSkill,
+      requiresApproval: false, status: 'failed', hasResult: false,
+      outputs: ['artifacts/development/development-unit-external-page/result.md'], generatedFromPlan: true,
+      contextPath: 'artifacts/plan/units/development-unit-external-page.yaml',
+    };
+    await fixture.store.update(task);
+
+    const ignored = await fixture.commands.ignore(task.id, 'development-unit-external-page', { note: '不属于当前仓库' });
+
+    expect(ignored.status).toBe('completed');
+    expect(ignored.nodes['development-unit-external-page']?.status).toBe('ignored');
+    expect(ignored.events.at(-1)).toMatchObject({ type: 'ignore', note: '不属于当前仓库', actor: 'developer' });
   });
 });
 
@@ -67,7 +87,7 @@ describe('task state command guidance', () => {
     await command.parseAsync(['review', 'refund-123'], { from: 'user' });
 
     const commitIndex = output.indexOf('git add .aiw && git commit');
-    const runIndex = output.indexOf('aiw task continue refund-123');
+    const runIndex = output.indexOf('aiw task run refund-123 solution');
     expect(commitIndex).toBeGreaterThan(-1);
     expect(runIndex).toBeGreaterThan(commitIndex);
   });
@@ -76,7 +96,7 @@ describe('task state command guidance', () => {
     let output = '';
     const command = createTaskStateCommand({
       commands: {
-        async approve() { return taskWithReadyNode('development-unit-1'); },
+        async approve() { return taskWithReadyNode('development-unit-refund-entry'); },
         async uncommittedTaskPaths() { return []; },
       } as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
@@ -85,14 +105,15 @@ describe('task state command guidance', () => {
     await command.parseAsync(['approve', 'refund-123', 'plan', '--note', '通过'], { from: 'user' });
 
     expect(output).not.toContain('git add .aiw && git commit');
-    expect(output).toContain('aiw task continue refund-123');
+    expect(output).toContain('aiw task run refund-123 development-unit-refund-entry');
+    expect(output).not.toContain('aiw task continue');
   });
 
   it('instructs the user to commit plan approval before running a development unit', async () => {
     let output = '';
     const command = createTaskStateCommand({
       commands: {
-        async approve() { return taskWithReadyNode('development-unit-1'); },
+        async approve() { return taskWithReadyNode('development-unit-refund-entry'); },
         async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/approvals/plan.yaml']; },
       } as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
@@ -101,9 +122,48 @@ describe('task state command guidance', () => {
     await command.parseAsync(['approve', 'refund-123', 'plan', '--note', '通过'], { from: 'user' });
 
     const commitIndex = output.indexOf('git add .aiw && git commit');
-    const runIndex = output.indexOf('aiw task continue refund-123');
+    const runIndex = output.indexOf('aiw task run refund-123 development-unit-refund-entry');
     expect(commitIndex).toBeGreaterThan(-1);
     expect(runIndex).toBeGreaterThan(commitIndex);
+  });
+
+  it('shows the exact failed node command when a retry is available', async () => {
+    let output = '';
+    const failed = taskWithReadyNode('solution');
+    failed.nodes.solution!.status = 'failed';
+    const command = createTaskStateCommand({
+      commands: {
+        async status() { return failed; },
+        async uncommittedTaskPaths() { return []; },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['status', 'refund-123'], { from: 'user' });
+
+    expect(output).toContain('aiw task run refund-123 solution');
+    expect(output).not.toContain('aiw task continue');
+  });
+
+  it('shows ignored development progress and only asks the user to commit the task fact', async () => {
+    let output = '';
+    const ignored = taskWithReadyNode('development-unit-external-page');
+    ignored.nodes['development-unit-external-page']!.status = 'ignored';
+    ignored.status = 'completed';
+    const command = createTaskStateCommand({
+      commands: {
+        async ignore() { return ignored; },
+        async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/task.yaml']; },
+      } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['ignore', 'refund-123', 'development-unit-external-page', '--note', '不属于当前仓库'], { from: 'user' });
+
+    expect(output).toContain('「development-unit-external-page」开发单元已忽略');
+    expect(output).toContain('已忽略 1');
+    expect(output).toContain('git add .aiw && git commit');
+    expect(output).not.toContain('aiw task run refund-123 development-unit-external-page');
   });
 });
 

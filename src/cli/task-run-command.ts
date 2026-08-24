@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 
 import type { TaskRunner } from '../services/task-runner.js';
-import type { TaskStateCommands } from './task-state-commands.js';
+import { workflowNextSteps, type TaskStateCommands } from './task-state-commands.js';
 import { writeCommandResult } from './output.js';
 import { TerminalProgressReporter, type ProgressReporter } from './progress-reporter.js';
 
@@ -11,7 +11,7 @@ export function createTaskRunCommand(deps: { runner: TaskRunner; taskState: Task
   return new Command('run')
     .description('运行任务节点')
     .argument('<task-id>')
-    .argument('<node-id>')
+    .argument('<node-name>', '主干节点名或 development-unit-<英文语义名>')
     .option('--project <path>', '业务仓库根目录；默认当前目录')
     .option('--dry-run', '仅生成本机运行上下文，不调用 Codex')
     .option('--include <path>', '额外注入项目内文件', collect, [])
@@ -80,13 +80,10 @@ async function nextStepsForRun(
   const uncommitted = await taskState.uncommittedTaskPaths(taskId);
   const businessPaths = await taskState.runBusinessPaths(taskId, runId);
   const commit = commitSteps(uncommitted, businessPaths, nodeId, resultStatus);
-
-  if (resultStatus !== 'succeeded') {
-    return [...commit, `aiw task continue ${taskId}`];
-  }
-
   if (task.status === 'completed') return commit.length === 0 ? undefined : commit;
-  return [...commit, `aiw task continue ${taskId}`];
+  const workflow = workflowNextSteps(task) ?? [];
+  const result = [...commit, ...workflow];
+  return result.length === 0 ? undefined : result;
 }
 
 function commitSteps(uncommitted: string[], businessPaths: string[], nodeId: string, resultStatus: string): string[] {

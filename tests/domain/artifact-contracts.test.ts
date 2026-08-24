@@ -4,7 +4,7 @@ import { validateMarkdownArtifactContract } from '../../src/domain/artifact-cont
 
 describe('Markdown artifact contracts', () => {
   it('rejects a development result that omits required development sections', () => {
-    expect(() => validateMarkdownArtifactContract('artifacts/development/development-unit-1/result.md', '# 开发结果\n\n## 完成的代码修改\n\n完成页面。\n'))
+    expect(() => validateMarkdownArtifactContract('artifacts/development/development-unit-main-list/result.md', '# 开发结果\n\n## 完成的代码修改\n\n完成页面。\n'))
       .toThrow('缺少章节「## 变更文件」「## 未解决问题」「## 已知风险」');
   });
 

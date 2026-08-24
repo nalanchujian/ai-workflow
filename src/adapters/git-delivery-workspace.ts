@@ -14,7 +14,6 @@ const businessPathspec = [
   '.',
   ':(exclude).aiw',
   ':(exclude).aiw/**',
-  ':(exclude)node_modules',
 ];
 
 export class DeliveryWorkspaceError extends Error {
@@ -47,8 +46,8 @@ export class GitDeliveryWorkspaceManager implements DeliveryWorkspaceManager {
     await runGitProcess(projectRoot, ['worktree', 'prune']);
     await mkdir(dirname(workspaceRoot), { recursive: true });
     await runGitProcess(projectRoot, ['worktree', 'add', '--detach', workspaceRoot, sourceHead]);
-    await linkNodeModules(projectRoot, workspaceRoot);
-    return new GitDeliveryWorkspace(projectRoot, workspaceRoot, sourceHead);
+    const linkedNodeModules = await linkNodeModules(projectRoot, workspaceRoot);
+    return new GitDeliveryWorkspace(projectRoot, workspaceRoot, sourceHead, linkedNodeModules);
   }
 }
 
@@ -62,6 +61,7 @@ class GitDeliveryWorkspace implements DeliveryWorkspace {
     private readonly sourceProjectRoot: string,
     workspaceRoot: string,
     readonly sourceHead: string,
+    private readonly linkedNodeModules: boolean,
   ) {
     this.projectRoot = workspaceRoot;
   }
@@ -72,6 +72,9 @@ class GitDeliveryWorkspace implements DeliveryWorkspace {
     const workspaceHead = (await runGitProcess(this.projectRoot, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
     if (workspaceHead !== this.sourceHead) {
       throw new DeliveryWorkspaceError('隔离执行区 Git 历史已变化，不能发布业务改动');
+    }
+    if (this.linkedNodeModules) {
+      await rm(join(this.projectRoot, 'node_modules'), { force: true });
     }
     await runGitProcess(this.projectRoot, ['add', '-A', '--', ...businessPathspec]);
     const [patchResult, pathsResult] = await Promise.all([
@@ -129,14 +132,16 @@ class GitDeliveryWorkspace implements DeliveryWorkspace {
   }
 }
 
-async function linkNodeModules(sourceRoot: string, workspaceRoot: string): Promise<void> {
+async function linkNodeModules(sourceRoot: string, workspaceRoot: string): Promise<boolean> {
   const source = join(sourceRoot, 'node_modules');
   try {
     await access(source);
     await symlink(source, join(workspaceRoot, 'node_modules'), 'dir');
+    return true;
   } catch {
     // A project without installed dependencies remains valid. Its configured
     // health check or test command will report the missing runtime explicitly.
+    return false;
   }
 }
 

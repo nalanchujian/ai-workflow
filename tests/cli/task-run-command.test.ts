@@ -32,7 +32,8 @@ describe('task run command', () => {
     expect(output).toContain('「clarify」节点已完成');
     expect(output).toContain('运行 ID：run-1');
     expect(output).toContain('下一步：');
-    expect(output).toContain('aiw task continue refund-123');
+    expect(output).toContain('aiw task review refund-123');
+    expect(output).not.toContain('aiw task continue');
     expect(output).not.toContain('aiw task status refund-123');
     expect(output).not.toContain('"runId"');
   });

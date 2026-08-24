@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { parse, stringify } from 'yaml';
 
 import { TaskSchema, type Task } from '../domain/task.js';
+import { deriveTaskStatus } from './task-state-machine.js';
 
 export class TaskStoreError extends Error {
   constructor(message: string) {
@@ -56,7 +57,8 @@ export class TaskStore {
   async load(taskId: string): Promise<Task> {
     const taskPath = join(this.taskDirectory(taskId), 'task.yaml');
     try {
-      return TaskSchema.parse(parse(await readFile(taskPath, 'utf8')));
+      const task = TaskSchema.parse(parse(await readFile(taskPath, 'utf8')));
+      return TaskSchema.parse(deriveTaskStatus(task));
     } catch (error) {
       if (error instanceof TaskStoreError) {
         throw error;

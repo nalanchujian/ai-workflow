@@ -26,6 +26,18 @@ describe('TaskStore', () => {
     expect(loaded.nodes.clarify.status).toBe('ready');
   });
 
+  it('derives the current task status when the stored aggregate status is stale', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-store-');
+    directories.push(projectRoot);
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    task.status = 'completed';
+
+    await store.create(task);
+
+    await expect(store.load(task.id)).resolves.toMatchObject({ status: 'active' });
+  });
+
   it('removes only requested facts inside the task directory', async () => {
     const projectRoot = await createTempDirectory('aiw-task-store-');
     directories.push(projectRoot);

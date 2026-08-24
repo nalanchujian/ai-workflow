@@ -6,7 +6,7 @@ const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
 export const PhaseSchema = z.enum(['intake', 'clarify', 'solution', 'plan', 'development']);
 export const NodeStatusSchema = z.enum([
-  'pending', 'ready', 'running', 'awaiting_approval', 'completed', 'failed', 'invalidated', 'cancelled',
+  'pending', 'ready', 'running', 'awaiting_approval', 'completed', 'failed', 'invalidated', 'cancelled', 'ignored',
 ]);
 export const TaskStatusSchema = z.enum(['active', 'blocked', 'completed', 'cancelled']);
 export const SourceKindSchema = z.enum(['local-file', 'public-url', 'connected-document']);
@@ -70,7 +70,7 @@ export const TaskNodeSchema = z.object({
 }).strict();
 
 export const TaskEventSchema = z.object({
-  type: z.enum(['evaluate', 'start', 'succeed', 'approve', 'fail', 'cancel', 'invalidate', 'materialize_development']),
+  type: z.enum(['evaluate', 'start', 'succeed', 'approve', 'fail', 'cancel', 'ignore', 'invalidate', 'materialize_development']),
   nodeId: z.string().min(1).optional(),
   at: z.string().datetime(),
   note: z.string().optional(),

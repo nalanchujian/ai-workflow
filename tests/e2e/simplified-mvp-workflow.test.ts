@@ -28,14 +28,14 @@ describe('simplified MVP workflow', () => {
     await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'plan', dryRun: false, includes: [] });
     let task = await fixture.commands.approve(fixture.taskId, 'plan', { note: '计划确认' });
 
-    expect(task.nodes['development-unit-1']?.status).toBe('ready');
-    expect(task.nodes['development-unit-2']).toMatchObject({ status: 'pending', dependsOn: ['development-unit-1'] });
+    expect(task.nodes['development-unit-refund-entry']?.status).toBe('ready');
+    expect(task.nodes['development-unit-refund-form']).toMatchObject({ status: 'pending', dependsOn: ['development-unit-refund-entry'] });
 
-    await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'development-unit-1', dryRun: false, includes: [] });
+    await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'development-unit-refund-entry', dryRun: false, includes: [] });
     task = await fixture.store.load(fixture.taskId);
-    expect(task.nodes['development-unit-2']?.status).toBe('ready');
+    expect(task.nodes['development-unit-refund-form']?.status).toBe('ready');
 
-    await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'development-unit-2', dryRun: false, includes: [] });
+    await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'development-unit-refund-form', dryRun: false, includes: [] });
     task = await fixture.store.load(fixture.taskId);
     expect(task.status).toBe('completed');
     expect(Object.values(task.nodes).filter((node) => node.phase === 'development').every((node) => node.status === 'completed')).toBe(true);
@@ -92,8 +92,8 @@ async function setup() {
       await write(stagingRoot, 'artifacts/plan/development-plan.yaml', stringify({
         schemaVersion: 'aiw.development-plan/v1',
         units: [
-          { title: '退款入口', goal: '增加退款入口', requirements: ['展示入口'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] },
-          { title: '退款表单', goal: '增加退款表单', requirements: ['提交原因'], codeScope: ['src/refund-form'], steps: ['实现表单'], dependencies: ['退款入口'] },
+          { name: 'development-unit-refund-entry', title: '退款入口', goal: '增加退款入口', requirements: ['展示入口'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] },
+          { name: 'development-unit-refund-form', title: '退款表单', goal: '增加退款表单', requirements: ['提交原因'], codeScope: ['src/refund-form'], steps: ['实现表单'], dependencies: ['development-unit-refund-entry'] },
         ],
       }));
     } else {

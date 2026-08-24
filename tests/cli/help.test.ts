@@ -22,8 +22,9 @@ describe('aiw CLI help', () => {
     expect(result.stdout).toContain('aiw init → aiw doctor');
     expect(result.stdout).toContain('日常使用：');
     expect(result.stdout).toContain('aiw task init --source "<Lark 地址>"');
-    expect(result.stdout).toContain('aiw task continue <task-id>');
-    expect(result.stdout).toContain('日常推进只需重复执行 task continue');
+    expect(result.stdout).toContain('aiw task run <task-id> clarify');
+    expect(result.stdout).toContain('AIW 每一步都会输出下一条精准命令');
+    expect(result.stdout).not.toContain('task continue');
     expect(result.stdout).not.toContain('AI 提出疑问时使用 aiw task decision');
     expect(result.stdout).toContain('高级与例外场景：');
     expect(result.stdout).toContain('aiw history --help');
@@ -37,11 +38,12 @@ describe('aiw CLI help', () => {
     task?.outputHelp();
 
     expect(output).toContain('init');
-    expect(output).toContain('continue');
+    expect(output).toMatch(/^ {2}run\s+/m);
+    expect(output).toMatch(/^ {2}review\s+/m);
+    expect(output).toMatch(/^ {2}approve\s+/m);
     expect(output).toContain('status');
     expect(output).toContain('高级与例外命令：');
-    expect(output).toContain('task run');
-    expect(output.indexOf('continue')).toBeLessThan(output.indexOf('高级与例外命令：'));
+    expect(output).not.toContain('task continue');
   });
 
 });

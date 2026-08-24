@@ -8,8 +8,9 @@
 
 ```bash
 aiw init
-aiw doctor --project <业务仓库>
-aiw doctor --project <业务仓库> --source <文档地址>
+aiw doctor
+aiw doctor --source <文档地址>
+aiw doctor --project <其他业务仓库>
 ```
 
 - `init`：创建或补全安全的本机配置，安装默认技能包并发现可用文档连接器。
@@ -19,22 +20,27 @@ aiw doctor --project <业务仓库> --source <文档地址>
 
 ```bash
 aiw task init --project <业务仓库> --source <地址或文件> [--section <标题>] [--force-new]
-aiw task continue <task-id>
+aiw task run <task-id> <node-name> [--dry-run] [--include <项目内路径>]
+aiw task review <task-id>
+aiw task approve <task-id> plan --note <说明>
+aiw task ignore <task-id> <development-unit-name> --note <原因>
 aiw task status <task-id>
 ```
 
 - `task init`：固化来源并创建任务。默认拒绝相同来源的重复未完成任务。
-- `task continue`：日常统一入口。自动进入需求确认，提示计划审批，或执行下一个可执行节点。
+- `task run`：执行 CLI 指定的需求、方案、计划或开发节点。
+- `task review`：逐项确认需求澄清产生的业务决策。
+- `task approve`：批准开发计划和开发单元划分。
+- `task ignore`：将不属于当前仓库或当前任务范围、且没有未完成下游依赖的开发单元标记为已忽略。
 - `task status`：查看主干、开发单元和汇总开发进度。
+
+每个命令完成后，CLI 都会直接输出下一条精准命令；用户无需自行推断节点 ID。
 
 MVP 推荐始终先 `cd` 到业务仓库再执行任务命令。
 
 ## 高级和例外
 
 ```bash
-aiw task run <task-id> <node-id> [--dry-run] [--include <项目内路径>]
-aiw task review <task-id>
-aiw task approve <task-id> plan --note <说明>
 aiw task source refresh <task-id> requirements
 aiw task cancel <task-id> <node-id> --note <原因>
 aiw skills install <git-url> [--ref <ref>]
@@ -46,7 +52,6 @@ aiw history prune --older-than 30d
 aiw history prune --older-than 30d --apply
 ```
 
-- `task run/review/approve`：直接操作指定节点，普通用户优先使用 `task continue`。
 - `task source refresh`：重新读取需求来源，内容变化后使相关下游节点重新执行。
 - `cancel`：请求安全停止正在运行的节点。
 - `skills`：维护团队技能包和默认模板，普通用户通常不需要。

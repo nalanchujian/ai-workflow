@@ -21,7 +21,9 @@ describe('public npm distribution metadata', () => {
     expect(packageJson.bin).toEqual({ aiw: './dist/cli.js' });
     expect(packageJson.files).toEqual(['dist', 'README.md']);
     expect(packageJson.publishConfig).toEqual({ access: 'public', registry: 'https://registry.npmjs.org' });
-    expect(packageJson.scripts.build).toBe('node scripts/clean-dist.mjs && tsc --project tsconfig.build.json');
+    expect(packageJson.scripts.build).toBe(
+      'node scripts/clean-dist.mjs && tsc --project tsconfig.build.json && node scripts/make-cli-executable.mjs',
+    );
     expect(packageJson.scripts.prepublishOnly).toBe('pnpm lint && pnpm typecheck && pnpm test && pnpm build');
     expect(packageJson.scripts['pack:check']).toBe('pnpm build && npm pack --dry-run');
     expect(packageJson.scripts['publish:public']).toBe('node scripts/assert-release-ready.mjs && npm publish --access public --registry=https://registry.npmjs.org && node scripts/commit-published-package.mjs');

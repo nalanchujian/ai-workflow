@@ -15,7 +15,9 @@ describe('development work planner', () => {
   it('reads the current development plan without acceptance or verification mappings', async () => {
     const fixture = await setup();
     const plan = await readDevelopmentPlan(fixture.task, fixture.store);
-    expect(plan.units.map((unit) => unit.title)).toEqual(['主列表指标配置', '主列表导出']);
+    expect(plan.units.map((unit) => unit.name)).toEqual([
+      'development-unit-main-list-metrics', 'development-unit-main-list-export',
+    ]);
   });
 
   it('materializes independent development nodes and unit YAML files', async () => {
@@ -23,21 +25,21 @@ describe('development work planner', () => {
     const materialized = await materializeDevelopmentWork(fixture.task, fixture.store);
 
     expect(Object.keys(materialized.task.nodes)).toEqual(expect.arrayContaining([
-      'development-unit-1', 'development-unit-2',
+      'development-unit-main-list-metrics', 'development-unit-main-list-export',
     ]));
-    expect(materialized.task.nodes['development-unit-1']).toMatchObject({
+    expect(materialized.task.nodes['development-unit-main-list-metrics']).toMatchObject({
       phase: 'development', dependsOn: ['plan'], requiresApproval: false, status: 'ready', generatedFromPlan: true,
     });
-    expect(await readFile(join(fixture.store.taskDirectory(fixture.task.id), 'artifacts/plan/units/development-unit-1.yaml'), 'utf8'))
-      .toContain('schemaVersion: aiw.development-unit/v1');
+    expect(await readFile(join(fixture.store.taskDirectory(fixture.task.id), 'artifacts/plan/units/development-unit-main-list-metrics.yaml'), 'utf8'))
+      .toContain('name: development-unit-main-list-metrics');
   });
 
   it('turns declared unit dependencies into executable node dependencies', async () => {
-    const fixture = await setup({ secondDependencies: ['主列表指标配置'] });
+    const fixture = await setup({ secondDependencies: ['development-unit-main-list-metrics'] });
     const materialized = await materializeDevelopmentWork(fixture.task, fixture.store);
 
-    expect(materialized.task.nodes['development-unit-2']).toMatchObject({
-      dependsOn: ['development-unit-1'], status: 'pending',
+    expect(materialized.task.nodes['development-unit-main-list-export']).toMatchObject({
+      dependsOn: ['development-unit-main-list-metrics'], status: 'pending',
     });
   });
 
@@ -64,28 +66,31 @@ describe('development work planner', () => {
     expect(() => validateDevelopmentPlan([
       'schemaVersion: aiw.development-plan/v1',
       'units:',
-      '  - title: A',
+      '  - name: development-unit-a',
+      '    title: A',
       '    goal: A',
       '    requirements: [A]',
       '    codeScope: [src/a]',
       '    steps: [A]',
-      '    dependencies: [B]',
+      '    dependencies: [development-unit-b]',
     ].join('\n'))).toThrow(/未知开发单元/);
     expect(() => validateDevelopmentPlan([
       'schemaVersion: aiw.development-plan/v1',
       'units:',
-      '  - title: A',
+      '  - name: development-unit-a',
+      '    title: A',
       '    goal: A',
       '    requirements: [A]',
       '    codeScope: [src/a]',
       '    steps: [A]',
-      '    dependencies: [B]',
-      '  - title: B',
+      '    dependencies: [development-unit-b]',
+      '  - name: development-unit-b',
+      '    title: B',
       '    goal: B',
       '    requirements: [B]',
       '    codeScope: [src/b]',
       '    steps: [B]',
-      '    dependencies: [A]',
+      '    dependencies: [development-unit-a]',
     ].join('\n'))).toThrow(/依赖不能形成循环/);
   });
 });
@@ -104,13 +109,15 @@ async function setup(options: { secondDependencies?: string[] } = {}) {
   await writeFile(join(store.taskDirectory(task.id), 'artifacts/plan/development-plan.yaml'), [
     'schemaVersion: aiw.development-plan/v1',
     'units:',
-    '  - title: 主列表指标配置',
+    '  - name: development-unit-main-list-metrics',
+    '    title: 主列表指标配置',
     '    goal: 支持调整并保存主列表指标。',
     '    requirements: [支持调整指标顺序]',
     '    codeScope: [src/pages/growth/links/components/custom-metrics/]',
     '    steps: [调整指标配置模型]',
     '    dependencies: []',
-    '  - title: 主列表导出',
+    '  - name: development-unit-main-list-export',
+    '    title: 主列表导出',
     '    goal: 根据当前选择组装主列表导出参数。',
     '    requirements: [支持当前可见字段]',
     '    codeScope: [src/pages/growth/links/components/export/]',

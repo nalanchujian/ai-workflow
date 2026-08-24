@@ -41,18 +41,18 @@ describe('TaskRunner', () => {
     const fixture = await createFixture('development');
     const task = await fixture.store.load('refund-123');
     task.nodes.clarify!.status = 'completed'; task.nodes.solution!.status = 'completed'; task.nodes.plan!.status = 'completed';
-    task.nodes['development-unit-1'] = {
+    task.nodes['development-unit-refund-entry'] = {
       title: '实现退款入口', phase: 'development', dependsOn: ['plan'], skill: createSkillLock('typescript-web-implementation'),
-      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/development/development-unit-1/result.md'],
-      contextPath: 'artifacts/plan/units/development-unit-1.yaml', generatedFromPlan: true,
+      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/development/development-unit-refund-entry/result.md'],
+      contextPath: 'artifacts/plan/units/development-unit-refund-entry.yaml', generatedFromPlan: true,
     };
     await fixture.store.update(task);
-    await fixture.store.replaceFact(task.id, 'artifacts/plan/units/development-unit-1.yaml', stringify({ schemaVersion: 'aiw.development-unit/v1', title: '退款入口', goal: '增加入口', requirements: ['可见'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] }));
+    await fixture.store.replaceFact(task.id, 'artifacts/plan/units/development-unit-refund-entry.yaml', stringify({ schemaVersion: 'aiw.development-unit/v1', name: 'development-unit-refund-entry', title: '退款入口', goal: '增加入口', requirements: ['可见'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] }));
 
-    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'development-unit-1', dryRun: false, includes: [] });
+    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'development-unit-refund-entry', dryRun: false, includes: [] });
 
     expect(result.status).toBe('succeeded');
-    expect((await fixture.store.load(task.id)).nodes['development-unit-1']?.status).toBe('completed');
+    expect((await fixture.store.load(task.id)).nodes['development-unit-refund-entry']?.status).toBe('completed');
     expect(fixture.prompts.at(-1)).toContain('只完成当前业务单元的代码开发');
     expect(fixture.prompts.at(-1)).not.toContain('acceptance-results');
   });
@@ -61,18 +61,18 @@ describe('TaskRunner', () => {
     const fixture = await createFixture('development-no-changes');
     const task = await fixture.store.load('refund-123');
     task.nodes.clarify!.status = 'completed'; task.nodes.solution!.status = 'completed'; task.nodes.plan!.status = 'completed';
-    task.nodes['development-unit-1'] = {
+    task.nodes['development-unit-refund-entry'] = {
       title: '实现退款入口', phase: 'development', dependsOn: ['plan'], skill: createSkillLock('typescript-web-implementation'),
-      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/development/development-unit-1/result.md'],
-      contextPath: 'artifacts/plan/units/development-unit-1.yaml', generatedFromPlan: true,
+      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/development/development-unit-refund-entry/result.md'],
+      contextPath: 'artifacts/plan/units/development-unit-refund-entry.yaml', generatedFromPlan: true,
     };
     await fixture.store.update(task);
-    await fixture.store.replaceFact(task.id, 'artifacts/plan/units/development-unit-1.yaml', stringify({ schemaVersion: 'aiw.development-unit/v1', title: '退款入口', goal: '增加入口', requirements: ['可见'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] }));
+    await fixture.store.replaceFact(task.id, 'artifacts/plan/units/development-unit-refund-entry.yaml', stringify({ schemaVersion: 'aiw.development-unit/v1', name: 'development-unit-refund-entry', title: '退款入口', goal: '增加入口', requirements: ['可见'], codeScope: ['src/refund'], steps: ['实现入口'], dependencies: [] }));
 
-    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'development-unit-1', dryRun: false, includes: [] });
+    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'development-unit-refund-entry', dryRun: false, includes: [] });
 
     expect(result).toMatchObject({ status: 'failed', error: { code: 'ARTIFACT_INVALID', message: '开发节点未产生任何业务代码变更' } });
-    expect((await fixture.store.load(task.id)).nodes['development-unit-1']?.status).toBe('failed');
+    expect((await fixture.store.load(task.id)).nodes['development-unit-refund-entry']?.status).toBe('failed');
   });
 
   it('keeps dry-run side-effect free and still produces an inspectable context', async () => {
@@ -113,7 +113,7 @@ async function createFixture(mode: 'clarify' | 'missing-decision' | 'development
     prompts.push(input.stdin);
     const taskRoot = join(input.cwd, '.aiw/tasks/refund-123/runs/run-1/staging');
     if (mode === 'development' || mode === 'development-no-changes') {
-      const path = join(taskRoot, 'artifacts/development/development-unit-1/result.md'); await mkdir(dirname(path), { recursive: true });
+      const path = join(taskRoot, 'artifacts/development/development-unit-refund-entry/result.md'); await mkdir(dirname(path), { recursive: true });
       await writeFile(path, '# 开发结果\n\n## 完成的代码修改\n\n已实现退款入口。\n\n## 变更文件\n\n- src/refund.ts\n\n## 未解决问题\n\n无。\n\n## 已知风险\n\n无。\n');
     } else {
       const fact = join(taskRoot, 'artifacts/clarify/fact-register.yaml'); await mkdir(dirname(fact), { recursive: true });

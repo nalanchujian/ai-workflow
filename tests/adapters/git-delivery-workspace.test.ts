@@ -136,7 +136,7 @@ async function createRepository(): Promise<{ projectRoot: string; runtimeRoot: s
   await mkdir(join(projectRoot, 'src'), { recursive: true });
   await mkdir(join(projectRoot, 'node_modules'), { recursive: true });
   await writeFile(join(projectRoot, 'node_modules', 'fixture.txt'), 'dependency fixture\n', 'utf8');
-  await writeFile(join(projectRoot, '.gitignore'), 'node_modules/\n', 'utf8');
+  await writeFile(join(projectRoot, '.gitignore'), 'node_modules\n', 'utf8');
   await writeFile(join(projectRoot, 'src', 'feature.ts'), 'export const value = 1;\n', 'utf8');
   await writeFile(join(projectRoot, 'README.md'), '# fixture\n', 'utf8');
   await git(projectRoot, ['init']);

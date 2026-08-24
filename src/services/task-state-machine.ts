@@ -78,6 +78,24 @@ export function invalidateDependents(task: Task, upstreamNodeId: string, reason:
   return TaskSchema.parse(deriveTaskStatus(next));
 }
 
+export function ignoreDevelopmentNode(task: Task, nodeId: string, note: string, actor: string): Task {
+  const next = TaskSchema.parse(task);
+  const node = getNode(next, nodeId);
+  if (node.phase !== 'development') throw new TaskTransitionError('只能忽略开发单元');
+  if (node.status === 'running') throw new TaskTransitionError('运行中的开发单元不能忽略，请先取消运行');
+  if (node.status === 'completed') throw new TaskTransitionError('已完成的开发单元不能忽略');
+  if (node.status === 'ignored') throw new TaskTransitionError('开发单元已经被忽略');
+  const unfinished = downstreamNodeIds(next, nodeId)
+    .filter((id) => !['completed', 'ignored'].includes(next.nodes[id]?.status ?? 'pending'));
+  if (unfinished.length > 0) {
+    throw new TaskTransitionError(`仍有未完成的下游开发单元：${unfinished.join('、')}`);
+  }
+  node.status = 'ignored';
+  node.hasResult = false;
+  addEvent(next, 'ignore', nodeId, { note, actor });
+  return TaskSchema.parse(deriveTaskStatus(next));
+}
+
 export function invalidateNodeAndDependents(task: Task, nodeId: string, reason: string): Task {
   const next = TaskSchema.parse(task);
   const affected = [nodeId, ...downstreamNodeIds(next, nodeId)];
@@ -182,7 +200,7 @@ function addEvent(
 
 export function deriveTaskStatus(task: Task): Task {
   const nodes = Object.values(task.nodes);
-  if (nodes.length > 0 && nodes.every((node) => node.status === 'completed')) {
+  if (nodes.length > 0 && nodes.every((node) => ['completed', 'ignored'].includes(node.status))) {
     task.status = 'completed';
     return task;
   }

@@ -10,6 +10,7 @@ import {
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
 import { formatSchemaDiagnostics } from '../domain/schema-diagnostics.js';
 import { TaskStore } from './task-store.js';
+import { deriveTaskStatus } from './task-state-machine.js';
 
 export class DevelopmentPlanError extends Error {
   constructor(message: string) {
@@ -45,20 +46,19 @@ export async function materializeDevelopmentWork(task: Task, taskStore: TaskStor
     if (node.generatedFromPlan === true) delete next.nodes[nodeId];
   }
 
-  const nodeIdsByTitle = new Map(plan.units.map((unit, index) => [unit.title, `development-unit-${index + 1}`]));
-  for (const [index, unit] of plan.units.entries()) {
-    const nodeId = `development-unit-${index + 1}`;
+  for (const unit of plan.units) {
+    const nodeId = unit.name;
     const contextPath = `artifacts/plan/units/${nodeId}.yaml`;
     const outputPath = `artifacts/development/${nodeId}/result.md`;
     const context = DevelopmentUnitContextSchema.parse({ schemaVersion: 'aiw.development-unit/v1', ...unit });
     await taskStore.replaceFact(task.id, contextPath, stringify(context, { lineWidth: 0 }));
     const dependencies = unit.dependencies.length === 0
       ? ['plan']
-      : unit.dependencies.map((title) => nodeIdsByTitle.get(title)!);
+      : unit.dependencies;
     next.nodes[nodeId] = developmentNode(next, unit.title, contextPath, outputPath, dependencies);
   }
   next.events.push({ type: 'materialize_development', nodeId: 'plan', at: new Date().toISOString(), note: `已生成 ${plan.units.length} 个开发单元` });
-  return { task: TaskSchema.parse(next) };
+  return { task: TaskSchema.parse(deriveTaskStatus(next)) };
 }
 
 function developmentNode(task: Task, title: string, contextPath: string, outputPath: string, dependencies: string[]): TaskNode {

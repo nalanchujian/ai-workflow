@@ -40,16 +40,16 @@
 npm install -g @nalanchujian/aiw
 cd <业务仓库>
 aiw init
-aiw doctor --project .
+aiw doctor
 
 aiw task init --project . --source "<需求文档地址或本地文件>"
 git add .aiw && git commit -m "chore(aiw): initialize task"
 
-# 后续只需重复执行；按 CLI 提示提交任务记录或批准开发计划
-aiw task continue <task-id>
+# 执行 CLI 输出的下一条精准命令
+aiw task run <task-id> clarify
 ```
 
-`task continue` 会按当前状态进入需求确认、提示计划审批，或运行下一个可执行节点。任务事实位于业务仓库 `.aiw/`，运行日志和临时 worktree 位于本机 `~/.aiw/runtime/`。
+每一步都会直接显示下一条 `review`、`approve` 或具体节点的 `run` 命令。任务事实位于业务仓库 `.aiw/`，运行日志和临时 worktree 位于本机 `~/.aiw/runtime/`。
 
 ## 本地开发
 

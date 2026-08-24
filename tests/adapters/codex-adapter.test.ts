@@ -40,6 +40,8 @@ describe('CodexAdapter', () => {
     const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(prompt).toContain('<artifact-protocol id="development-plan"');
     expect(prompt).toContain('不规划测试、验证或验收');
+    expect(prompt).toContain('development-unit-<英文 kebab-case 描述>');
+    expect(prompt).toContain('dependencies 只引用同一计划中其他开发单元的 name');
     expect(prompt).toContain('codeScope');
     expect(prompt).not.toContain('acceptanceCoverage');
     expect(prompt).not.toContain('testPlan');
@@ -49,7 +51,7 @@ describe('CodexAdapter', () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.runtime', 'run-development');
     const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
-    await adapter.run(runRequest({ projectRoot, runDirectory, phase: 'development', artifacts: ['artifacts/development/development-unit-1/result.md'] }));
+    await adapter.run(runRequest({ projectRoot, runDirectory, phase: 'development', artifacts: ['artifacts/development/development-unit-refund-entry/result.md'] }));
 
     const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(prompt).toContain('只完成当前业务单元的代码开发');
@@ -71,7 +73,7 @@ describe('CodexAdapter', () => {
 function runRequest(input: { projectRoot: string; runDirectory: string; phase: RunRequest['task']['phase']; artifacts: string[] }): RunRequest {
   return {
     schemaVersion: 'aiw.run/v3', runId: 'run-1',
-    task: { id: 'task-1', nodeId: input.phase === 'development' ? 'development-unit-1' : input.phase, phase: input.phase, projectRoot: input.projectRoot },
+    task: { id: 'task-1', nodeId: input.phase === 'development' ? 'development-unit-refund-entry' : input.phase, phase: input.phase, projectRoot: input.projectRoot },
     instruction: '完成当前节点。', contextManifestPath: '.aiw/tasks/task-1/runs/run-1/context-manifest.json', runDirectory: input.runDirectory,
     mode: 'execute', artifacts: input.artifacts, outputContract: outputContractFor('run-1', input.artifacts),
     context: {

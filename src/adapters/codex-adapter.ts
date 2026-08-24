@@ -91,7 +91,7 @@ function phaseProtocol(request: RunRequest): string {
   }
   if (request.task.phase === 'solution') return `根据已确认事实、当前决策和延期事项生成技术方案。延期事项不属于本次方案范围。不要发明验收编号或跨节点映射。${markdown}`;
   if (request.task.phase === 'plan') {
-    return `把已批准技术方案拆成可独立开发的业务单元。计划只描述开发目标、代码范围、步骤和单元依赖；不规划测试、验证或验收，也不生成跨节点 ID。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
+    return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
   }
   return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
 }

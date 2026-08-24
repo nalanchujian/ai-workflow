@@ -10,7 +10,7 @@ import { TaskCancellationService } from '../services/task-cancellation-service.j
 import { TaskDecisionService, type ClarifyDecisionSelection } from '../services/task-decision-service.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
 import type { TaskRunLock } from '../services/task-run-lock.js';
-import { transitionNode } from '../services/task-state-machine.js';
+import { ignoreDevelopmentNode, transitionNode } from '../services/task-state-machine.js';
 import { TaskStore } from '../services/task-store.js';
 import { writeCommandResult } from './output.js';
 import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js';
@@ -72,6 +72,19 @@ export class TaskStateCommands {
     return this.deps.cancellation.request({ taskId, nodeId, note });
   }
 
+  async ignore(taskId: string, nodeId: string, options: { actor?: string; note: string }): Promise<Task> {
+    return this.locked(taskId, async () => {
+      const task = await this.deps.taskStore.load(taskId);
+      await this.deps.taskFactGuard.assertCommitted({
+        task,
+        projectRoot: this.deps.taskStore.projectDirectory(),
+        paths: [`.aiw/tasks/${task.id}/task.yaml`],
+      });
+      const actor = await this.deps.taskFactGuard.actor(options.actor);
+      return this.deps.taskStore.update(ignoreDevelopmentNode(task, nodeId, options.note, actor));
+    });
+  }
+
   async uncommittedTaskPaths(taskId: string): Promise<string[]> {
     const task = await this.deps.taskStore.load(taskId);
     const paths = [
@@ -117,6 +130,12 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     const task = await deps.commands.approve(taskId, nodeId, options);
     writeCommandResult(task, command, deps.stdout, { headline: `「${nodeId}」节点已批准`, nextSteps: await nextStepsForTask(deps.commands, task, `approve ${nodeId}`) });
   }));
+  root.addCommand(new Command('ignore').description('忽略不属于当前任务范围的开发单元').argument('<task-id>').argument('<development-unit-name>', 'development-unit-<英文语义名>').requiredOption('--note <text>', '忽略原因').action(async (taskId: string, nodeId: string, options: { note: string }, command: Command) => {
+    const task = await deps.commands.ignore(taskId, nodeId, options);
+    writeCommandResult(task, command, deps.stdout, { ...statusOutput(task, await nextStepsForTask(deps.commands, task, `ignore ${nodeId}`)),
+      headline: `「${nodeId}」开发单元已忽略`,
+    });
+  }));
   root.addCommand(new Command('cancel').description('例外：取消正在运行的节点').argument('<task-id>').argument('<node-id>').requiredOption('--note <text>', '取消原因').action(async (taskId: string, nodeId: string, options: { note: string }, command: Command) => {
     const result = await deps.commands.cancel(taskId, nodeId, options.note);
     writeCommandResult(result, command, deps.stdout, { headline: '已请求取消当前运行' });
@@ -157,7 +176,7 @@ async function askChoice(prompter: ReviewPrompter, prompt: string, max: number):
 function statusOutput(task: Task, guidance: string[] | undefined) {
   const development = Object.values(task.nodes).filter((node) => node.phase === 'development');
   const developmentLines = development.length === 0 ? [] : [
-    `总计 ${development.length} 个：已完成 ${development.filter((node) => node.status === 'completed').length}，可执行 ${development.filter((node) => node.status === 'ready').length}，执行中 ${development.filter((node) => node.status === 'running').length}，失败 ${development.filter((node) => node.status === 'failed').length}，待开始 ${development.filter((node) => ['pending', 'invalidated'].includes(node.status)).length}`,
+    `总计 ${development.length} 个：已完成 ${development.filter((node) => node.status === 'completed').length}，已忽略 ${development.filter((node) => node.status === 'ignored').length}，可执行 ${development.filter((node) => node.status === 'ready').length}，执行中 ${development.filter((node) => node.status === 'running').length}，失败 ${development.filter((node) => node.status === 'failed').length}，待开始 ${development.filter((node) => ['pending', 'invalidated'].includes(node.status)).length}`,
   ];
   return {
     headline: '任务状态',
@@ -180,11 +199,19 @@ export async function nextStepsForTask(commands: Pick<TaskStateCommands, 'uncomm
   return result.length === 0 ? undefined : result;
 }
 
-function workflowNextSteps(task: Task): string[] | undefined {
+export function workflowNextSteps(task: Task): string[] | undefined {
   if (task.status === 'completed' || task.status === 'cancelled') return undefined;
-  const actionable = Object.values(task.nodes).some((node) => ['ready', 'failed', 'awaiting_approval'].includes(node.status));
-  return actionable ? [`aiw task continue ${task.id}`] : undefined;
+  if (task.nodes.clarify?.status === 'awaiting_approval') return [`aiw task review ${task.id}`];
+  const approvals = Object.entries(task.nodes)
+    .filter(([, node]) => node.status === 'awaiting_approval')
+    .map(([nodeId]) => `aiw task approve ${task.id} ${nodeId} --note "<审批说明>"`);
+  if (approvals.length > 0) return approvals;
+  const runnable = Object.entries(task.nodes)
+    .filter(([, node]) => ['ready', 'failed'].includes(node.status)
+      && node.dependsOn.every((dependency) => task.nodes[dependency]?.status === 'completed'))
+    .map(([nodeId]) => `aiw task run ${task.id} ${nodeId}`);
+  return runnable.length === 0 ? undefined : runnable;
 }
 
-function nodeStatusLabel(status: string): string { return ({ pending: '待开始', ready: '可执行', running: '执行中', awaiting_approval: '待确认', completed: '已完成', failed: '失败', invalidated: '需重新执行', cancelled: '已取消' } as Record<string, string>)[status] ?? status; }
+function nodeStatusLabel(status: string): string { return ({ pending: '待开始', ready: '可执行', running: '执行中', awaiting_approval: '待确认', completed: '已完成', failed: '失败', invalidated: '需重新执行', cancelled: '已取消', ignored: '已忽略' } as Record<string, string>)[status] ?? status; }
 function taskStatusLabel(status: string): string { return ({ active: '进行中', blocked: '等待处理', completed: '开发完成', cancelled: '已取消' } as Record<string, string>)[status] ?? status; }
