@@ -67,7 +67,7 @@ describe('task state command guidance', () => {
     await command.parseAsync(['review', 'refund-123'], { from: 'user' });
 
     const commitIndex = output.indexOf('git add .aiw && git commit');
-    const runIndex = output.indexOf('aiw task run refund-123 solution');
+    const runIndex = output.indexOf('aiw task continue refund-123');
     expect(commitIndex).toBeGreaterThan(-1);
     expect(runIndex).toBeGreaterThan(commitIndex);
   });
@@ -85,7 +85,7 @@ describe('task state command guidance', () => {
     await command.parseAsync(['approve', 'refund-123', 'plan', '--note', '通过'], { from: 'user' });
 
     expect(output).not.toContain('git add .aiw && git commit');
-    expect(output).toContain('aiw task run refund-123 development-unit-1');
+    expect(output).toContain('aiw task continue refund-123');
   });
 
   it('instructs the user to commit plan approval before running a development unit', async () => {
@@ -101,7 +101,7 @@ describe('task state command guidance', () => {
     await command.parseAsync(['approve', 'refund-123', 'plan', '--note', '通过'], { from: 'user' });
 
     const commitIndex = output.indexOf('git add .aiw && git commit');
-    const runIndex = output.indexOf('aiw task run refund-123 development-unit-1');
+    const runIndex = output.indexOf('aiw task continue refund-123');
     expect(commitIndex).toBeGreaterThan(-1);
     expect(runIndex).toBeGreaterThan(commitIndex);
   });

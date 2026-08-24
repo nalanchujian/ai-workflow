@@ -45,24 +45,11 @@ aiw doctor --project .
 aiw task init --project . --source "<需求文档地址或本地文件>"
 git add .aiw && git commit -m "chore(aiw): initialize task"
 
-aiw task run <task-id> clarify
-git add .aiw && git commit -m "chore(aiw): record clarify result"
-aiw task review <task-id>
-git add .aiw && git commit -m "chore(aiw): review clarify"
-
-aiw task run <task-id> solution
-git add .aiw && git commit -m "chore(aiw): record solution result"
-
-aiw task run <task-id> plan
-git add .aiw && git commit -m "chore(aiw): record plan result"
-aiw task approve <task-id> plan --note "计划确认"
-git add .aiw && git commit -m "chore(aiw): approve plan"
-
-aiw task status <task-id>
-# 按状态页执行一个或多个 development-unit-* 节点
+# 后续只需重复执行；按 CLI 提示提交任务记录或批准开发计划
+aiw task continue <task-id>
 ```
 
-每次命令完成后，以 CLI 输出的下一步为准。任务事实位于业务仓库 `.aiw/`，运行日志和临时 worktree 位于本机 `~/.aiw/runtime/`。
+`task continue` 会按当前状态进入需求确认、提示计划审批，或运行下一个可执行节点。任务事实位于业务仓库 `.aiw/`，运行日志和临时 worktree 位于本机 `~/.aiw/runtime/`。
 
 ## 本地开发
 
@@ -81,7 +68,7 @@ cd /Users/j/ai-workflow
 pnpm build
 pnpm pack
 npm uninstall -g @nalanchujian/aiw
-npm install -g /Users/j/ai-workflow/nalanchujian-aiw-0.0.1.tgz
+npm install -g /Users/j/ai-workflow/nalanchujian-aiw-0.0.2.tgz
 hash -r
 aiw -V
 ```

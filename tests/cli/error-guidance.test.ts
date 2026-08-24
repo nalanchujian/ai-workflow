@@ -9,10 +9,34 @@ describe('CLI error guidance', () => {
       ['task', 'run', 'refund-123', 'plan'],
     );
 
-    expect(output).toContain('aiw: 任务事实尚未提交：.aiw/tasks/refund-123/task.yaml');
-    expect(output).toContain('1. git add .aiw');
-    expect(output).toContain('2. git commit -m "chore(aiw): record task facts"');
-    expect(output).toContain('3. aiw task run refund-123 plan');
+    expect(output).toContain('操作未完成');
+    expect(output).toContain('原因：任务记录尚未提交，暂时不能继续。');
+    expect(output).not.toContain('.aiw/tasks/refund-123/task.yaml');
+    expect(output).toContain('1. git add .aiw && git commit -m "chore(aiw): record task facts"');
+    expect(output).toContain('2. aiw task run refund-123 plan');
+  });
+
+  it('hides schema internals and gives an actionable recovery step', () => {
+    const output = renderCliError(
+      new Error('[{"code":"invalid_type","path":["units",0,"title"],"message":"Invalid input"}]'),
+      ['task', 'run', 'refund-123', 'plan'],
+    );
+
+    expect(output).toContain('原因：节点产物格式不符合 AIW 要求。');
+    expect(output).not.toContain('invalid_type');
+    expect(output).toContain('aiw doctor --project .');
+  });
+
+  it('returns structured errors only when json output is explicitly requested', () => {
+    const output = renderCliError(new Error('配置无效'), ['--json', 'doctor']);
+    const parsed = JSON.parse(output) as { status: string; error: { message: string } };
+
+    expect(parsed).toEqual({
+      schemaVersion: 'aiw.error/v1',
+      status: 'failed',
+      error: { message: '配置无效' },
+      nextSteps: [],
+    });
   });
 
   it('guides users to inspect a dirty business worktree before retrying', () => {
