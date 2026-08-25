@@ -83,9 +83,7 @@ describe('TaskInitializer', () => {
       status: 'ready',
       dependsOn: ['intake'],
       outputs: [
-        'artifacts/design/design-catalog.yaml',
-        'artifacts/design/design-rules.yaml',
-        'artifacts/design/design-context.md',
+        'artifacts/design/design-assets.yaml',
       ],
     });
     expect(task.nodes.clarify).toMatchObject({ status: 'pending', dependsOn: ['design-analysis'] });

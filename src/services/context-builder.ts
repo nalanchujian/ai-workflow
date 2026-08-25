@@ -1,5 +1,6 @@
 import { readFile, realpath } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
+import { parse } from 'yaml';
 
 import {
   DEFAULT_CONTEXT_TOKEN_BUDGET,
@@ -9,6 +10,7 @@ import {
   type ContextManifest,
 } from '../domain/context.js';
 import type { Task } from '../domain/task.js';
+import { DevelopmentUnitContextSchema } from '../domain/work-breakdown.js';
 
 export class ContextBuilderError extends Error {
   constructor(
@@ -50,7 +52,7 @@ export class ContextBuilder {
     const files = await Promise.all(defaultFiles(input.task, input.nodeId).map((file) => this.load(file, taskDirectory)));
     for (const path of input.includes) files.push(await this.loadAdditional(path, projectRoot));
     const deduplicated = [...new Map(files.map((file) => [`${file.role}:${file.absolutePath}`, file])).values()];
-    const imagePaths = defaultImages();
+    const imagePaths = imagesForNode(input.task, input.nodeId, deduplicated);
     await Promise.all(imagePaths.map((path) => resolveInside(taskDirectory, path)));
     const maxTokens = typeof this.deps.maxTokens === 'function'
       ? await this.deps.maxTokens()
@@ -152,12 +154,17 @@ function defaultFiles(task: Task, nodeId: string): ContextFile[] {
 
 function designArtifacts(task: Task): ContextFile[] {
   return task.designInput === undefined ? [] : [
-    { role: 'artifact', path: 'artifacts/design/design-catalog.yaml' },
-    { role: 'artifact', path: 'artifacts/design/design-rules.yaml' },
+    { role: 'artifact', path: 'artifacts/design/design-assets.yaml' },
   ];
 }
 
-function defaultImages(): string[] { return []; }
+function imagesForNode(task: Task, nodeId: string, files: LoadedContextFile[]): string[] {
+  if (task.nodes[nodeId]?.phase !== 'development') return [];
+  const context = files.find((file) => file.path === task.nodes[nodeId]?.contextPath);
+  if (context === undefined) return [];
+  const parsed = DevelopmentUnitContextSchema.parse(parse(context.content));
+  return [...new Set(parsed.designReferences.map((reference) => reference.imagePath))];
+}
 
 async function resolveInside(root: string, path: string): Promise<string> {
   const resolvedRoot = await realpath(root).catch(() => resolve(root));

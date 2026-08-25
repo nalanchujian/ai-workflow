@@ -1,5 +1,4 @@
 const contracts: Array<{ matches: (path: string) => boolean; label: string; headings: string[] }> = [
-  { matches: (path) => path.endsWith('/design-context.md'), label: '设计上下文', headings: ['设计范围', '页面与状态', '共性规则', '待确认问题'] },
   { matches: (path) => path.endsWith('/solution.md'), label: '技术方案', headings: ['方案结论', '架构与接口影响', '风险与待决事项'] },
   { matches: (path) => path.endsWith('/result.md'), label: '开发结果', headings: ['完成的代码修改', '变更文件', '未解决问题', '已知风险'] },
 ];

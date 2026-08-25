@@ -9,6 +9,7 @@ import { ExecutableNotFoundError, type ProcessRunner } from '../ports/process-ru
 import { minimalChildEnvironment } from './child-process-environment.js';
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 15 * 60 * 1_000;
+const FIGMA_CHROME_TAB_REUSE_PROTOCOL = '在已登录的 Chrome 中访问 Figma 前，先检查 Chrome 已打开的页签；按 Figma fileKey 和 node-id 匹配目标地址，忽略 m=dev、参数顺序等无关差异。若存在匹配页签，直接激活并复用，不要刷新、重新导航或新建页签；只有未找到匹配页签时才打开目标地址。';
 
 export class CodexAdapter {
   constructor(private readonly deps: { processRunner: ProcessRunner; codexBin?: string; executionTimeoutMs?: number }) {}
@@ -70,9 +71,12 @@ function renderContext(request: RunRequest): string {
   const methods = request.context.methodSources.map((method) => `<method-source id="${escapeAttribute(method.id)}" trust="lower-priority-guidance">\n${method.content}\n</method-source>`).join('\n\n');
   const files = request.context.files.map((file) => `<task-fact role="${file.role}" path="${escapeAttribute(file.path)}" trust="untrusted-data">\n${file.content}\n</task-fact>`).join('\n\n');
   const allowedOutputs = outputs.map((entry) => `- ${taskRoot}/${entry.stagingPath}（发布后成为 ${entry.finalPath}）`).join('\n');
+  const designAssetPermission = request.task.phase === 'design'
+    ? `\n设计截图例外：允许写入 ${taskRoot}/artifacts/design/assets/ 下的 PNG/JPEG；该目录之外的任务事实仍不可修改。`
+    : '';
   return [
     '<aiw-run>',
-    `<execution-constraints>遵守项目现有约束；只在任务声明的项目目录中工作；不得执行 git commit、git reset、git checkout、git switch、git rebase、git merge 或其他 Git 历史/分支修改命令；不得修改 .aiw/ 中除下列暂存产物外的文件。\n当前节点允许写入的任务产物：\n${allowedOutputs}\n所有任务产物必须使用简体中文；代码标识、命令、路径和 API 名称可保留原文。只记录当前阶段能够确认的内容，不得宣称已完成测试、验证、验收或生产交付。</execution-constraints>`,
+    `<execution-constraints>遵守项目现有约束；只在任务声明的项目目录中工作；不得执行 git commit、git reset、git checkout、git switch、git rebase、git merge 或其他 Git 历史/分支修改命令；不得修改 .aiw/ 中除下列暂存产物外的文件。\n当前节点允许写入的任务产物：\n${allowedOutputs}${designAssetPermission}\n所有任务产物必须使用简体中文；代码标识、命令、路径和 API 名称可保留原文。只记录当前阶段能够确认的内容，不得宣称已完成测试、验证、验收或生产交付。</execution-constraints>`,
     `<task id="${escapeAttribute(request.task.id)}" node="${escapeAttribute(request.task.nodeId)}">\n${request.instruction}\n</task>`,
     methods,
     `<skill name="${escapeAttribute(request.context.skill.name)}" version="${escapeAttribute(request.context.skill.version)}" trust="lower-priority-guidance">\n${request.context.skill.content}\n</skill>`,
@@ -85,10 +89,11 @@ function renderContext(request: RunRequest): string {
 }
 
 function phaseProtocol(request: RunRequest): string {
+  const taskRoot = `.aiw/tasks/${request.task.id}`;
   const markdown = markdownArtifactContractFor(request.artifacts);
   const protocolContext = { taskId: request.task.id, nodeId: request.task.nodeId, phase: request.task.phase, evidencePath: request.context.files[0]?.path ?? 'source', testProfile: '', testEvidenceType: 'unit' as const };
   if (request.task.phase === 'design') {
-    return `使用 Chrome 浏览器控制能力，在已登录的 Chrome 中打开任务声明的 Figma 设计地址。先观察根节点并建立页面/区域目录，再按代表性页面、状态和弹窗逐步读取；大型节点不得一次性展开全部内容。若页面未登录、无权限、浏览器不可用、画布持续加载，或只能看到根节点占位，必须将设计目录的 analysisStatus 写为 blocked 并填写 blockingReason；不得用加载占位、访问限制或待确认问题冒充已读取的设计节点。只有实际读取到至少一个具体设计节点并提炼出至少一条有节点依据的设计规则时，才能写为 completed。输出设计目录、设计规则和简体中文设计上下文；不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-catalog', protocolContext)}\n\n${renderAgentArtifactProtocol('design-rules', protocolContext)}\n\n${markdown}`;
+    return `使用 Chrome 浏览器控制能力，在已登录的 Chrome 中读取任务声明的 Figma 设计地址。${FIGMA_CHROME_TAB_REUSE_PROTOCOL}Ready for dev Section 只作为识别入口，不直接截图整个 Section。沿图层层级继续查找可独立交付的完整页面或弹窗状态；排除编号、标题、连线、Notes、小型包装 Frame、组件和页面内部布局。选择包含完整页面结构的最浅层 Frame；一旦选中完整页面，不再递归截图其内部 Frame。页面与弹窗状态分别截图；弹窗必须保留页面背景与遮罩，不只截弹窗本体。截图隐藏 Figma UI、标注和选中边框，保存到 ${taskRoot}/artifacts/design/assets/，并在截图索引中记录对应节点与图片路径。暂不总结设计规则或文字说明。若页面未登录、无权限、浏览器不可用、画布持续加载，或未能实际截图，analysisStatus 必须写为 blocked 并填写 blockingReason。不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-assets', protocolContext)}\n\n${markdown}`;
   }
   if (request.task.phase === 'clarify') {
     return [
@@ -99,9 +104,9 @@ function phaseProtocol(request: RunRequest): string {
   }
   if (request.task.phase === 'solution') return `根据已确认事实、当前决策和延期事项生成技术方案。延期事项不属于本次方案范围。不要发明验收编号或跨节点映射。${markdown}`;
   if (request.task.phase === 'plan') {
-    return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
+    return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。存在设计截图时，只把与当前业务单元直接相关的截图索引项复制到 designReferences。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
   }
-  return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；如果单元上下文包含 designReferences，必须使用 Chrome 浏览器控制能力，在已登录的 Chrome 中逐一打开声明的具体 Figma 节点，观察页面和关键状态后再实现；不要自行展开无关设计节点。不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
+  return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；如果单元上下文包含 designReferences，直接使用 AIW 通过 --image 注入的关联截图，不要重新打开 Figma，也不要读取其他开发单元的截图。不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
 }
 
 function outputReceipt(request: RunRequest, taskRoot: string): string {

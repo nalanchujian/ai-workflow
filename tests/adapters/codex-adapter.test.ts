@@ -60,7 +60,7 @@ describe('CodexAdapter', () => {
     expect(prompt).not.toContain('test-results.yaml');
   });
 
-  it('tells a design-referenced development unit to reread the declared Figma nodes', async () => {
+  it('tells a design-referenced development unit to use only its injected screenshots', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.runtime', 'run-development-design');
     const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
@@ -70,7 +70,8 @@ describe('CodexAdapter', () => {
 
     const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(prompt).toContain('designReferences');
-    expect(prompt).toContain('已登录的 Chrome');
+    expect(prompt).toContain('通过 --image 注入的关联截图');
+    expect(prompt).toContain('不要重新打开 Figma');
     expect(prompt).not.toContain('Figma MCP');
   });
 
@@ -78,7 +79,7 @@ describe('CodexAdapter', () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.runtime', 'run-design-browser');
     const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
-    const request = runRequest({ projectRoot, runDirectory, phase: 'design', artifacts: ['artifacts/design/design-context.md'] });
+    const request = runRequest({ projectRoot, runDirectory, phase: 'design', artifacts: ['artifacts/design/design-assets.yaml'] });
     request.instruction = '分析设计稿\nFigma 设计地址：https://www.figma.com/design/example/File?node-id=1-2';
 
     await adapter.run(request);
@@ -87,6 +88,15 @@ describe('CodexAdapter', () => {
     expect(prompt).toContain('https://www.figma.com/design/example/File?node-id=1-2');
     expect(prompt).toContain('已登录的 Chrome');
     expect(prompt).toContain('使用 Chrome 浏览器控制能力');
+    expect(prompt).toContain('先检查 Chrome 已打开的页签');
+    expect(prompt).toContain('Figma fileKey 和 node-id');
+    expect(prompt).toContain('直接激活并复用');
+    expect(prompt).toContain('不要刷新、重新导航或新建页签');
+    expect(prompt).toContain('Ready for dev Section 只作为识别入口');
+    expect(prompt).toContain('排除编号、标题、连线、Notes');
+    expect(prompt).toContain('页面与弹窗状态分别截图');
+    expect(prompt).toContain('artifacts/design/assets/');
+    expect(prompt).not.toContain('输出设计规则');
     expect(prompt).not.toContain('Figma MCP');
   });
 

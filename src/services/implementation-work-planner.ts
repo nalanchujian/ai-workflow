@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 
+import { DesignAssetsSchema, type DesignAssets } from '../domain/design.js';
 import {
   DevelopmentPlanSchema,
   DevelopmentUnitContextSchema,
@@ -41,6 +42,8 @@ export function validateDevelopmentPlan(content: string): void {
 
 export async function materializeDevelopmentWork(task: Task, taskStore: TaskStore): Promise<{ task: Task }> {
   const plan = await readDevelopmentPlan(task, taskStore);
+  const designAssets = task.designInput === undefined ? undefined : await readDesignAssets(task, taskStore);
+  assertDesignReferences(plan, designAssets);
   const next = TaskSchema.parse(task);
   for (const [nodeId, node] of Object.entries(next.nodes)) {
     if (node.generatedFromPlan === true) delete next.nodes[nodeId];
@@ -59,6 +62,27 @@ export async function materializeDevelopmentWork(task: Task, taskStore: TaskStor
   }
   next.events.push({ type: 'materialize_development', nodeId: 'plan', at: new Date().toISOString(), note: `已生成 ${plan.units.length} 个开发单元` });
   return { task: TaskSchema.parse(deriveTaskStatus(next)) };
+}
+
+async function readDesignAssets(task: Task, taskStore: TaskStore): Promise<DesignAssets> {
+  try {
+    return DesignAssetsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), 'artifacts/design/design-assets.yaml'), 'utf8')));
+  } catch (error) {
+    throw new DevelopmentPlanError(`无法读取设计截图索引：${error instanceof Error ? error.message : '格式无效'}`);
+  }
+}
+
+function assertDesignReferences(plan: DevelopmentPlan, design: DesignAssets | undefined): void {
+  const assets = new Map((design?.assets ?? []).map((asset) => [asset.id, asset]));
+  for (const unit of plan.units) {
+    for (const reference of unit.designReferences) {
+      const asset = assets.get(reference.assetId);
+      if (asset === undefined) throw new DevelopmentPlanError(`开发单元 ${unit.name} 引用的设计截图索引中不存在：${reference.assetId}`);
+      if (asset.nodeId !== reference.nodeId || asset.figmaUrl !== reference.figmaUrl || asset.imagePath !== reference.imagePath) {
+        throw new DevelopmentPlanError(`开发单元 ${unit.name} 的设计截图引用与索引不一致：${reference.assetId}`);
+      }
+    }
+  }
 }
 
 function developmentNode(task: Task, title: string, contextPath: string, outputPath: string, dependencies: string[]): TaskNode {

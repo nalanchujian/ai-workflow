@@ -23,7 +23,7 @@ describe('ContextBuilder', () => {
     fixture.task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
     fixture.task.nodes['design-analysis'] = {
       title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: fixture.task.nodes.clarify!.skill,
-      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-catalog.yaml'],
+      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-assets.yaml'],
     };
     const manifest = await fixture.builder.build({ task: fixture.task, nodeId: 'design-analysis', includes: [] });
 
@@ -41,7 +41,7 @@ describe('ContextBuilder', () => {
     ]);
   });
 
-  it('propagates current design outputs through clarification, solution, and planning', async () => {
+  it('propagates the minimal screenshot index through clarification, solution, and planning', async () => {
     const fixture = await setup();
     fixture.task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
 
@@ -51,11 +51,10 @@ describe('ContextBuilder', () => {
 
     expect(clarify.files.map((file) => file.path)).toEqual([
       'sources/requirements/current/snapshot.md',
-      'artifacts/design/design-catalog.yaml',
-      'artifacts/design/design-rules.yaml',
+      'artifacts/design/design-assets.yaml',
     ]);
-    expect(solution.files.map((file) => file.path)).toContain('artifacts/design/design-rules.yaml');
-    expect(plan.files.map((file) => file.path)).toContain('artifacts/design/design-catalog.yaml');
+    expect(solution.files.map((file) => file.path)).toContain('artifacts/design/design-assets.yaml');
+    expect(plan.files.map((file) => file.path)).toContain('artifacts/design/design-assets.yaml');
   });
 
   it('gives plan only the current solution Markdown', async () => {
@@ -78,6 +77,28 @@ describe('ContextBuilder', () => {
     expect(manifest.files).toEqual([{ role: 'artifact', path: 'artifacts/plan/units/development-list.yaml' }]);
   });
 
+  it('injects only the screenshots assigned to the current development unit', async () => {
+    const fixture = await setup();
+    fixture.task.nodes['development-list'] = {
+      title: '主列表开发', phase: 'development', dependsOn: ['plan'], skill: fixture.task.developmentSkill,
+      requiresApproval: false, status: 'ready', hasResult: false,
+      outputs: ['artifacts/development/development-list/result.md'], contextPath: 'artifacts/plan/units/development-list.yaml', generatedFromPlan: true,
+    };
+    await writeFile(join(fixture.root, 'artifacts/plan/units/development-list.yaml'), [
+      'schemaVersion: aiw.development-unit/v1', 'name: development-unit-main-list', 'title: 主列表', 'goal: 实现主列表',
+      'requirements: [展示列表]', 'codeScope: [src/list]', 'steps: [实现页面]', 'dependencies: []', 'designReferences:',
+      '  - assetId: tracking-links-page', '    figmaUrl: https://www.figma.com/design/file-key/File?node-id=1-2',
+      '    nodeId: "1:2"', '    imagePath: artifacts/design/assets/tracking-links-page.png', '    purpose: 主列表页面',
+    ].join('\n'));
+    await mkdir(join(fixture.root, 'artifacts/design/assets'), { recursive: true });
+    await writeFile(join(fixture.root, 'artifacts/design/assets/tracking-links-page.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+    await writeFile(join(fixture.root, 'artifacts/design/assets/unrelated-dialog.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+
+    const manifest = await fixture.builder.build({ task: fixture.task, nodeId: 'development-list', includes: [] });
+
+    expect(manifest.images).toEqual([{ path: 'artifacts/design/assets/tracking-links-page.png' }]);
+  });
+
   it('rejects additional files outside the project root', async () => {
     const fixture = await setup();
     await expect(fixture.builder.build({ task: fixture.task, nodeId: 'clarify', includes: ['../secret.md'] }))
@@ -93,9 +114,8 @@ async function setup() {
     'artifacts/clarify/fact-register.yaml': 'schemaVersion: aiw.fact-register/v2\nfacts: []\n',
     'artifacts/clarify/decision-register.yaml': 'schemaVersion: aiw.decision-register/v2\npendingDecisions: []\ncurrentDecisions: []\ndeferredItems: []\n',
     'artifacts/solution/solution.md': '# 技术方案\n',
-    'artifacts/design/design-catalog.yaml': 'schemaVersion: aiw.design-catalog/v2\nanalysisStatus: completed\n',
-    'artifacts/design/design-rules.yaml': 'schemaVersion: aiw.design-rules/v1\n',
-    'artifacts/plan/units/development-list.yaml': 'title: 主列表开发\n',
+    'artifacts/design/design-assets.yaml': 'schemaVersion: aiw.design-assets/v1\nanalysisStatus: completed\n',
+    'artifacts/plan/units/development-list.yaml': 'schemaVersion: aiw.development-unit/v1\nname: development-unit-main-list\ntitle: 主列表开发\ngoal: 实现主列表\nrequirements: [展示列表]\ncodeScope: [src/list]\nsteps: [实现页面]\ndependencies: []\ndesignReferences: []\n',
   };
   for (const [path, content] of Object.entries(files)) {
     await mkdir(join(root, path, '..'), { recursive: true });

@@ -229,9 +229,7 @@ function createNodes(skills: ResolvedSkills, hasDesign: boolean): Record<string,
       status: 'ready',
       hasResult: false,
       outputs: [
-        'artifacts/design/design-catalog.yaml',
-        'artifacts/design/design-rules.yaml',
-        'artifacts/design/design-context.md',
+        'artifacts/design/design-assets.yaml',
       ],
     };
     dependency = 'design-analysis';

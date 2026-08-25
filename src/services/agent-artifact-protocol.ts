@@ -4,11 +4,10 @@ import { z } from 'zod';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
 import { DevelopmentPlanSchema } from '../domain/work-breakdown.js';
-import { DesignCatalogSchema, DesignRulesSchema } from '../domain/design.js';
+import { DesignAssetsSchema } from '../domain/design.js';
 
 export const agentArtifactProtocolIds = [
-  'design-catalog',
-  'design-rules',
+  'design-assets',
   'fact-register',
   'decision-register',
   'development-plan',
@@ -56,37 +55,23 @@ export function renderAgentArtifactProtocolDescriptor(descriptor: AgentArtifactP
 }
 
 function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtocolContext): AgentArtifactProtocolDescriptor {
-  if (id === 'design-catalog') {
+  if (id === 'design-assets') {
     const url = 'https://www.figma.com/design/example/File?node-id=1-2';
     return {
       id,
-      title: '设计目录',
-      schema: DesignCatalogSchema,
+      title: '设计截图索引',
+      schema: DesignAssetsSchema,
       example: {
-        schemaVersion: 'aiw.design-catalog/v2',
+        schemaVersion: 'aiw.design-assets/v1',
         analysisStatus: 'completed',
         source: { provider: 'figma', url, fileKey: 'example', nodeId: '1:2' },
-        items: [{ figmaUrl: url, nodeId: '1:2', title: '订单列表', kind: 'page', purpose: '订单管理入口', states: ['默认态', '空态'] }],
+        assets: [{ id: 'order-list-page', figmaUrl: url, nodeId: '1:2', sectionNodeId: '1:1', title: '订单列表', kind: 'page', imagePath: 'artifacts/design/assets/order-list-page.png' }],
       },
       rules: [
-        '只有实际读取到具体页面、区域、弹窗、组件或状态节点时，analysisStatus 才能是 completed。',
+        '只有实际截取到至少一个完整页面或弹窗状态时，analysisStatus 才能是 completed。',
         '页面未登录、无权限、浏览器不可用、画布持续加载或只看到根节点占位时，analysisStatus 必须是 blocked，并填写 blockingReason。',
-        '每项必须指向可再次读取的具体 Figma 节点。',
-        '大型设计稿先建立目录，不在单次上下文中展开所有页面。',
+        '每项必须记录具体 Figma 节点以及对应的本地图片路径。',
       ],
-    };
-  }
-  if (id === 'design-rules') {
-    return {
-      id,
-      title: '设计规则',
-      schema: DesignRulesSchema,
-      example: {
-        schemaVersion: 'aiw.design-rules/v1',
-        rules: [{ category: 'layout', statement: '列表页使用固定内容宽度和双栏筛选布局。', nodeIds: ['1:2'] }],
-        openQuestions: [{ question: '空态是否允许创建订单？', background: '概览图展示了空态但没有交互说明。', impact: '影响空态按钮与权限逻辑。', nodeId: '1:2' }],
-      },
-      rules: ['只记录设计稿可观察到的规则。', '无法确认的交互或业务含义进入 openQuestions。'],
     };
   }
   if (id === 'fact-register') {
@@ -147,7 +132,7 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
         codeScope: ['src/pages/growth/links/components/custom-metrics/'],
         steps: ['调整指标配置模型', '接入本地持久化'],
         dependencies: [],
-        designReferences: [{ figmaUrl: 'https://www.figma.com/design/example/File?node-id=1-2', nodeId: '1:2', purpose: '主列表布局和状态' }],
+        designReferences: [{ assetId: 'main-list-page', figmaUrl: 'https://www.figma.com/design/example/File?node-id=1-2', nodeId: '1:2', imagePath: 'artifacts/design/assets/main-list-page.png', purpose: '主列表布局和状态' }],
       }],
     },
     rules: [

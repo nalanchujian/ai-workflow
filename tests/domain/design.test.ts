@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DesignCatalogSchema,
-  DesignRulesSchema,
+  DesignAssetsSchema,
   FigmaDesignInputSchema,
   parseFigmaDesignUrl,
 } from '../../src/domain/design.js';
@@ -14,7 +13,7 @@ describe('design contracts', () => {
     expect(parseFigmaDesignUrl('https://www.figma.com/design/file-key/file-name')).toBeUndefined();
   });
 
-  it('accepts a Figma root input and scoped child-node catalog', () => {
+  it('accepts only delivery-level page and dialog screenshots from a Ready for dev section', () => {
     const source = FigmaDesignInputSchema.parse({
       provider: 'figma',
       url: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292810',
@@ -22,19 +21,20 @@ describe('design contracts', () => {
       nodeId: '9272:292810',
     });
 
-    expect(DesignCatalogSchema.parse({
-      schemaVersion: 'aiw.design-catalog/v2',
+    expect(DesignAssetsSchema.parse({
+      schemaVersion: 'aiw.design-assets/v1',
       analysisStatus: 'completed',
       source,
-      items: [{
+      assets: [{
+        id: 'tracking-links-page',
         figmaUrl: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292811',
         nodeId: '9272:292811',
+        sectionNodeId: '9272:292810',
         title: 'Performance overview',
         kind: 'page',
-        purpose: '默认页面和筛选状态',
-        states: ['default', 'loading'],
+        imagePath: 'artifacts/design/assets/tracking-links-page.png',
       }],
-    })).toMatchObject({ items: [{ nodeId: '9272:292811' }] });
+    })).toMatchObject({ assets: [{ nodeId: '9272:292811' }] });
   });
 
   it('requires a blocking reason when the browser cannot read the design', () => {
@@ -45,34 +45,32 @@ describe('design contracts', () => {
       nodeId: '9272:292810',
     });
 
-    expect(DesignCatalogSchema.parse({
-      schemaVersion: 'aiw.design-catalog/v2',
+    expect(DesignAssetsSchema.parse({
+      schemaVersion: 'aiw.design-assets/v1',
       analysisStatus: 'blocked',
       blockingReason: 'Figma 画布与图层持续停留在加载占位。',
       source,
-      items: [],
-    })).toMatchObject({ analysisStatus: 'blocked', items: [] });
+      assets: [],
+    })).toMatchObject({ analysisStatus: 'blocked', assets: [] });
 
-    expect(() => DesignCatalogSchema.parse({
-      schemaVersion: 'aiw.design-catalog/v2',
+    expect(() => DesignAssetsSchema.parse({
+      schemaVersion: 'aiw.design-assets/v1',
       analysisStatus: 'blocked',
       source,
-      items: [],
+      assets: [],
     })).toThrow();
   });
 
-  it('keeps shared rules and unresolved design questions separate', () => {
-    const rules = DesignRulesSchema.parse({
-      schemaVersion: 'aiw.design-rules/v1',
-      rules: [{ category: 'interaction', statement: '切换时保留当前筛选。', nodeIds: ['9272:292811'] }],
-      openQuestions: [{
-        question: '空状态是否显示引导按钮？',
-        background: '设计稿同时出现两种空状态。',
-        impact: '影响页面交互和文案。',
-        nodeId: '9272:292811',
-      }],
+  it('rejects internal wrapper nodes and screenshot paths outside the design asset directory', () => {
+    const source = FigmaDesignInputSchema.parse({
+      provider: 'figma', url: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292810',
+      fileKey: 'file-key', nodeId: '9272:292810',
     });
-
-    expect(rules).toMatchObject({ rules: [{ category: 'interaction' }], openQuestions: [{ nodeId: '9272:292811' }] });
+    const asset = {
+      id: 'number-badge', figmaUrl: source.url, nodeId: '9272:292811', sectionNodeId: source.nodeId,
+      title: 'Frame 1321319155', kind: 'component', imagePath: 'artifacts/design/assets/number-badge.png',
+    };
+    expect(() => DesignAssetsSchema.parse({ schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source, assets: [asset] })).toThrow();
+    expect(() => DesignAssetsSchema.parse({ schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source, assets: [{ ...asset, kind: 'page', imagePath: '../number-badge.png' }] })).toThrow();
   });
 });

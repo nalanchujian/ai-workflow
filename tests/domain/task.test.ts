@@ -46,9 +46,7 @@ describe('TaskSchema', () => {
       skill: createSevenPhaseTask().nodes.clarify!.skill,
       requiresApproval: false, status: 'ready', hasResult: false,
       outputs: [
-        'artifacts/design/design-catalog.yaml',
-        'artifacts/design/design-rules.yaml',
-        'artifacts/design/design-context.md',
+        'artifacts/design/design-assets.yaml',
       ],
     };
     task.nodes.clarify!.dependsOn = ['design-analysis'];

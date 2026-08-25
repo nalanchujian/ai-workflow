@@ -8,7 +8,7 @@ import type { ContextManifest } from '../domain/context.js';
 import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { validateDevelopmentResult } from '../domain/development-result.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
-import { DesignCatalogSchema, DesignRulesSchema } from '../domain/design.js';
+import { DesignAssetsSchema } from '../domain/design.js';
 import { validateMarkdownArtifactContract } from '../domain/artifact-contracts.js';
 import { outputContractFor } from '../domain/output-contract.js';
 import { RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
@@ -170,7 +170,7 @@ export class TaskRunner {
       let finalResult = adapterResult;
       if (adapterResult.status === 'succeeded') {
         try {
-          const contents = await readAndValidateOutputs(executionStore, task.id, node.phase, outputContract.entries);
+          const outputs = await readAndValidateOutputs(executionStore, task.id, node.phase, outputContract.entries);
           const businessPaths = (await this.deps.changeInspector.changedPaths({ projectRoot: executionRoot })).filter((path) => path !== '.aiw' && !path.startsWith('.aiw/'));
           if (node.phase !== 'development' && businessPaths.length > 0) throw new TaskRunnerError('ARTIFACT_INVALID', `非开发节点不允许修改业务代码：${businessPaths.join(', ')}`);
           const publication = node.phase === 'development' ? await workspace?.publish() : undefined;
@@ -178,8 +178,9 @@ export class TaskRunner {
           if (node.phase === 'development' && changedPaths.length === 0) {
             throw new TaskRunnerError('ARTIFACT_INVALID', '开发节点未产生任何业务代码变更');
           }
-          for (const entry of outputContract.entries) await this.deps.taskStore.replaceFact(task.id, entry.finalPath, contents.get(entry.finalPath)!);
-          const artifacts: OutputRecord[] = outputPaths.map((path) => ({ path }));
+          for (const entry of outputContract.entries) await this.deps.taskStore.replaceFact(task.id, entry.finalPath, outputs.contents.get(entry.finalPath)!);
+          for (const asset of outputs.binaryFacts) await this.deps.taskStore.replaceBinaryFact(task.id, asset.path, asset.content);
+          const artifacts: OutputRecord[] = [...outputPaths, ...outputs.binaryFacts.map((asset) => asset.path)].map((path) => ({ path }));
           await this.deps.taskStore.replaceFact(task.id, `runs/${runId}/change-evidence.json`, JSON.stringify({
             schemaVersion: 'aiw.change-evidence/v1', nodeId, runId, changedPaths,
           }, null, 2) + '\n');
@@ -233,7 +234,7 @@ async function loadContextFiles(task: Task, store: TaskStore, manifest: ContextM
   })));
 }
 
-async function readAndValidateOutputs(store: TaskStore, taskId: string, phase: Task['nodes'][string]['phase'], entries: Array<{ finalPath: string; stagingPath: string }>): Promise<Map<string, string>> {
+async function readAndValidateOutputs(store: TaskStore, taskId: string, phase: Task['nodes'][string]['phase'], entries: Array<{ finalPath: string; stagingPath: string }>): Promise<{ contents: Map<string, string>; binaryFacts: Array<{ path: string; content: Buffer }> }> {
   const contents = new Map<string, string>();
   for (const entry of entries) {
     let content: string;
@@ -243,35 +244,33 @@ async function readAndValidateOutputs(store: TaskStore, taskId: string, phase: T
     validateOutput(entry.finalPath, phase, content);
     contents.set(entry.finalPath, content);
   }
-  if (phase === 'design') validateDesignAnalysis(contents);
-  return contents;
+  const binaryFacts = phase === 'design' ? await validateDesignAnalysis(store, taskId, contents) : [];
+  return { contents, binaryFacts };
 }
 
-function validateDesignAnalysis(contents: Map<string, string>): void {
-  const catalogContent = [...contents].find(([path]) => path.endsWith('design-catalog.yaml'))?.[1];
-  const rulesContent = [...contents].find(([path]) => path.endsWith('design-rules.yaml'))?.[1];
-  if (catalogContent === undefined || rulesContent === undefined) return;
+async function validateDesignAnalysis(store: TaskStore, taskId: string, contents: Map<string, string>): Promise<Array<{ path: string; content: Buffer }>> {
+  const assetsContent = [...contents].find(([path]) => path.endsWith('design-assets.yaml'))?.[1];
+  if (assetsContent === undefined) return [];
+  const design = DesignAssetsSchema.parse(parse(assetsContent));
+  if (design.analysisStatus === 'blocked') throw new TaskRunnerError('ARTIFACT_INVALID', `设计稿读取受阻：${design.blockingReason!}`);
+  if (design.assets.length === 0) throw new TaskRunnerError('ARTIFACT_INVALID', '设计分析未生成可用的页面或弹窗截图');
+  return Promise.all(design.assets.map(async (asset) => {
+    let content: Buffer;
+    try { content = await readFile(join(store.taskDirectory(taskId), asset.imagePath)); }
+    catch { throw new TaskRunnerError('ARTIFACT_MISSING', `设计截图不存在：${asset.imagePath}`); }
+    if (!isSupportedDesignImage(content, asset.imagePath)) throw new TaskRunnerError('ARTIFACT_INVALID', `设计截图格式无效：${asset.imagePath}`);
+    return { path: asset.imagePath, content };
+  }));
+}
 
-  const catalog = DesignCatalogSchema.parse(parse(catalogContent));
-  if (catalog.analysisStatus === 'blocked') {
-    throw new TaskRunnerError('ARTIFACT_INVALID', `设计稿读取受阻：${catalog.blockingReason!}`);
-  }
-
-  const concreteItems = catalog.items.filter((item) => item.kind !== 'other');
-  if (concreteItems.length === 0) {
-    throw new TaskRunnerError('ARTIFACT_INVALID', '设计分析未读取到具体页面、区域、弹窗、组件或状态节点');
-  }
-
-  const rules = DesignRulesSchema.parse(parse(rulesContent));
-  if (rules.rules.length === 0 || rules.rules.some((rule) => rule.nodeIds.length === 0)) {
-    throw new TaskRunnerError('ARTIFACT_INVALID', '设计分析必须包含至少一条有具体 Figma 节点依据的设计规则');
-  }
+function isSupportedDesignImage(content: Buffer, path: string): boolean {
+  if (path.toLowerCase().endsWith('.png')) return content.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+  return content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff;
 }
 
 function validateOutput(path: string, phase: Task['nodes'][string]['phase'], content: string): void {
   try {
-    if (path.endsWith('design-catalog.yaml')) DesignCatalogSchema.parse(parse(content));
-    else if (path.endsWith('design-rules.yaml')) DesignRulesSchema.parse(parse(content));
+    if (path.endsWith('design-assets.yaml')) DesignAssetsSchema.parse(parse(content));
     else if (path.endsWith('fact-register.yaml')) FactRegisterSchema.parse(parse(content));
     else if (path.endsWith('decision-register.yaml')) DecisionRegisterSchema.parse(parse(content));
     else if (path.endsWith('development-plan.yaml')) validateDevelopmentPlan(content);

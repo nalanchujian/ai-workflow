@@ -52,7 +52,8 @@ describe('simplified MVP workflow', () => {
     expect(result.status).toBe('succeeded');
     expect(task.nodes['design-analysis']?.status).toBe('completed');
     expect(task.nodes.clarify?.status).toBe('ready');
-    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/design-catalog.yaml'), 'utf8')).resolves.toContain('aiw.design-catalog/v2');
+    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/design-assets.yaml'), 'utf8')).resolves.toContain('aiw.design-assets/v1');
+    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/assets/refund-page.png'))).resolves.toBeInstanceOf(Buffer);
   });
 });
 
@@ -69,7 +70,7 @@ async function setup(withDesign = false) {
   task.nodes.intake!.outputs = ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'];
   if (withDesign) {
     task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
-    task.nodes['design-analysis'] = { title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'), requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-catalog.yaml', 'artifacts/design/design-rules.yaml', 'artifacts/design/design-context.md'] };
+    task.nodes['design-analysis'] = { title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'), requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-assets.yaml'] };
     task.nodes.clarify!.dependsOn = ['design-analysis'];
     task.nodes.clarify!.status = 'pending';
   }
@@ -99,10 +100,10 @@ async function setup(withDesign = false) {
   let runNumber = 0;
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     const stagingRoot = stagingRootFrom(input.stdin, input.cwd);
-    if (input.stdin.includes('<artifact-protocol id="design-catalog"')) {
-      await write(stagingRoot, 'artifacts/design/design-catalog.yaml', stringify({ schemaVersion: 'aiw.design-catalog/v2', analysisStatus: 'completed', source: task.designInput, items: [{ figmaUrl: task.designInput!.url, nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
-      await write(stagingRoot, 'artifacts/design/design-rules.yaml', stringify({ schemaVersion: 'aiw.design-rules/v1', rules: [{ category: 'layout', statement: '使用单列布局', nodeIds: ['1:2'] }], openQuestions: [] }));
-      await write(stagingRoot, 'artifacts/design/design-context.md', '# 设计上下文\n\n## 设计范围\n\n退款页。\n\n## 页面与状态\n\n默认态。\n\n## 共性规则\n\n单列布局。\n\n## 待确认问题\n\n无。\n');
+    if (input.stdin.includes('<artifact-protocol id="design-assets"')) {
+      await write(stagingRoot, 'artifacts/design/design-assets.yaml', stringify({ schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source: task.designInput, assets: [{ id: 'refund-page', figmaUrl: task.designInput!.url, nodeId: '1:2', sectionNodeId: '1:1', title: '退款页', kind: 'page', imagePath: 'artifacts/design/assets/refund-page.png' }] }));
+      await mkdir(join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets'), { recursive: true });
+      await writeFile(join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets/refund-page.png'), Buffer.from('89504e470d0a1a0a00000000', 'hex'));
     } else if (input.stdin.includes('澄清阶段只生成事实登记和决策登记')) {
       await write(stagingRoot, 'artifacts/clarify/fact-register.yaml', stringify({
         schemaVersion: 'aiw.fact-register/v2',

@@ -35,7 +35,7 @@ describe('TaskRunner', () => {
     task.nodes['design-analysis'] = {
       title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'),
       requiresApproval: false, status: 'ready', hasResult: false,
-      outputs: ['artifacts/design/design-catalog.yaml', 'artifacts/design/design-rules.yaml', 'artifacts/design/design-context.md'],
+      outputs: ['artifacts/design/design-assets.yaml'],
     };
     task.nodes.clarify!.dependsOn = ['design-analysis'];
     task.nodes.clarify!.status = 'pending';
@@ -47,6 +47,7 @@ describe('TaskRunner', () => {
     expect((await fixture.store.load(task.id)).nodes['design-analysis']?.status).toBe('completed');
     expect(fixture.prompts.at(-1)).toContain('Figma 设计地址：https://www.figma.com/design/file-key/File?node-id=1-2');
     expect(fixture.prompts.at(-1)).toContain('已登录的 Chrome');
+    expect(fixture.prompts.at(-1)).toContain('Ready for dev Section 只作为识别入口');
     expect(fixture.prompts.at(-1)).not.toContain('Figma MCP');
   });
 
@@ -57,7 +58,7 @@ describe('TaskRunner', () => {
     task.nodes['design-analysis'] = {
       title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'),
       requiresApproval: false, status: 'ready', hasResult: false,
-      outputs: ['artifacts/design/design-catalog.yaml', 'artifacts/design/design-rules.yaml', 'artifacts/design/design-context.md'],
+      outputs: ['artifacts/design/design-assets.yaml'],
     };
     task.nodes.clarify!.dependsOn = ['design-analysis'];
     task.nodes.clarify!.status = 'pending';
@@ -81,7 +82,7 @@ describe('TaskRunner', () => {
     task.nodes['design-analysis'] = {
       title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'),
       requiresApproval: false, status: 'ready', hasResult: false,
-      outputs: ['artifacts/design/design-catalog.yaml', 'artifacts/design/design-rules.yaml', 'artifacts/design/design-context.md'],
+      outputs: ['artifacts/design/design-assets.yaml'],
     };
     task.nodes.clarify!.dependsOn = ['design-analysis'];
     task.nodes.clarify!.status = 'pending';
@@ -91,8 +92,9 @@ describe('TaskRunner', () => {
 
     expect(result).toMatchObject({
       status: 'failed',
-      error: { code: 'ARTIFACT_INVALID', message: '设计分析未读取到具体页面、区域、弹窗、组件或状态节点' },
+      error: { code: 'ARTIFACT_INVALID' },
     });
+    expect(result.error?.message).toContain('至少一张页面或弹窗截图');
     expect((await fixture.store.load(task.id)).nodes.clarify?.status).toBe('pending');
   });
 
@@ -183,15 +185,14 @@ async function createFixture(mode: 'design' | 'design-blocked' | 'design-placeho
     const taskRoot = join(input.cwd, '.aiw/tasks/refund-123/runs/run-1/staging');
     if (mode === 'design' || mode === 'design-blocked' || mode === 'design-placeholder') {
       const directory = join(taskRoot, 'artifacts/design'); await mkdir(directory, { recursive: true });
-      await writeFile(join(directory, 'design-catalog.yaml'), stringify(mode === 'design-blocked'
-        ? { schemaVersion: 'aiw.design-catalog/v2', analysisStatus: 'blocked', blockingReason: 'Figma 画布与图层持续停留在加载占位。', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, items: [] }
-        : { schemaVersion: 'aiw.design-catalog/v2', analysisStatus: 'completed', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, items: mode === 'design-placeholder'
-          ? [{ figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', title: '根节点', kind: 'other', purpose: '加载占位', states: ['加载占位'] }]
-          : [{ figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
-      await writeFile(join(directory, 'design-rules.yaml'), stringify({ schemaVersion: 'aiw.design-rules/v1', rules: mode === 'design' ? [{ category: 'layout', statement: '采用单列布局', nodeIds: ['1:2'] }] : [], openQuestions: [] }));
-      await writeFile(join(directory, 'design-context.md'), mode !== 'design'
-        ? '# 设计上下文\n\n## 设计范围\n\nFigma 画布未能读取。\n\n## 页面与状态\n\n无。\n\n## 共性规则\n\n无。\n\n## 待确认问题\n\n重新连接浏览器后重试。\n'
-        : '# 设计上下文\n\n## 设计范围\n\n退款页。\n\n## 页面与状态\n\n默认态。\n\n## 共性规则\n\n单列布局。\n\n## 待确认问题\n\n无。\n');
+      await writeFile(join(directory, 'design-assets.yaml'), stringify(mode === 'design-blocked'
+        ? { schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'blocked', blockingReason: 'Figma 画布与图层持续停留在加载占位。', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, assets: [] }
+        : { schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, assets: mode === 'design-placeholder' ? [] : [{ id: 'refund-page', figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', sectionNodeId: '1:1', title: '退款页', kind: 'page', imagePath: 'artifacts/design/assets/refund-page.png' }] }));
+      if (mode === 'design') {
+        const assetDirectory = join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets');
+        await mkdir(assetDirectory, { recursive: true });
+        await writeFile(join(assetDirectory, 'refund-page.png'), Buffer.from('89504e470d0a1a0a00000000', 'hex'));
+      }
     } else if (mode === 'development' || mode === 'development-no-changes') {
       const path = join(taskRoot, 'artifacts/development/development-unit-refund-entry/result.md'); await mkdir(dirname(path), { recursive: true });
       await writeFile(path, '# 开发结果\n\n## 完成的代码修改\n\n已实现退款入口。\n\n## 变更文件\n\n- src/refund.ts\n\n## 未解决问题\n\n无。\n\n## 已知风险\n\n无。\n');

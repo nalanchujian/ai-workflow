@@ -20,29 +20,32 @@ export function parseFigmaDesignUrl(input: string): { fileKey: string; nodeId: s
 }
 
 export const DesignReferenceSchema = z.object({
+  assetId: z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, '设计截图 ID 必须使用英文 kebab-case'),
   figmaUrl: z.string().url(),
   nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
+  imagePath: z.string().regex(/^artifacts\/design\/assets\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i, '设计截图必须位于 artifacts/design/assets/'),
   purpose: z.string().min(1),
 }).strict();
 
-const DesignCatalogItemSchema = z.object({
+const DesignAssetSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, '设计截图 ID 必须使用英文 kebab-case'),
   figmaUrl: z.string().url(),
   nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
+  sectionNodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
   title: z.string().min(1),
-  kind: z.enum(['page', 'frame', 'dialog', 'component', 'state', 'other']),
-  purpose: z.string().min(1),
-  states: z.array(z.string().min(1)).default([]),
+  kind: z.enum(['page', 'dialog', 'drawer', 'popover', 'state']),
+  imagePath: z.string().regex(/^artifacts\/design\/assets\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i, '设计截图必须位于 artifacts/design/assets/'),
 }).strict();
 
-export const DesignCatalogSchema = z.object({
-  schemaVersion: z.literal('aiw.design-catalog/v2'),
+export const DesignAssetsSchema = z.object({
+  schemaVersion: z.literal('aiw.design-assets/v1'),
   source: FigmaDesignInputSchema,
   analysisStatus: z.enum(['completed', 'blocked']),
   blockingReason: z.string().min(1).optional(),
-  items: z.array(DesignCatalogItemSchema).default([]),
+  assets: z.array(DesignAssetSchema).default([]),
 }).strict().superRefine((catalog, context) => {
-  if (catalog.analysisStatus === 'completed' && catalog.items.length === 0) {
-    context.addIssue({ code: 'custom', path: ['items'], message: '设计分析完成时必须包含至少一个具体设计节点' });
+  if (catalog.analysisStatus === 'completed' && catalog.assets.length === 0) {
+    context.addIssue({ code: 'custom', path: ['assets'], message: '设计分析完成时必须包含至少一张页面或弹窗截图' });
   }
   if (catalog.analysisStatus === 'blocked' && catalog.blockingReason === undefined) {
     context.addIssue({ code: 'custom', path: ['blockingReason'], message: '设计读取受阻时必须说明阻塞原因' });
@@ -50,24 +53,12 @@ export const DesignCatalogSchema = z.object({
   if (catalog.analysisStatus === 'completed' && catalog.blockingReason !== undefined) {
     context.addIssue({ code: 'custom', path: ['blockingReason'], message: '设计分析完成时不能同时声明阻塞原因' });
   }
+  const ids = new Set(catalog.assets.map((asset) => asset.id));
+  if (ids.size !== catalog.assets.length) context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图 ID 必须唯一' });
+  const paths = new Set(catalog.assets.map((asset) => asset.imagePath));
+  if (paths.size !== catalog.assets.length) context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图路径必须唯一' });
 });
-
-export const DesignRulesSchema = z.object({
-  schemaVersion: z.literal('aiw.design-rules/v1'),
-  rules: z.array(z.object({
-    category: z.enum(['layout', 'component', 'interaction', 'content', 'state']),
-    statement: z.string().min(1),
-    nodeIds: z.array(z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID')).default([]),
-  }).strict()),
-  openQuestions: z.array(z.object({
-    question: z.string().min(1),
-    background: z.string().min(1),
-    impact: z.string().min(1),
-    nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID').optional(),
-  }).strict()),
-}).strict();
 
 export type FigmaDesignInput = z.infer<typeof FigmaDesignInputSchema>;
 export type DesignReference = z.infer<typeof DesignReferenceSchema>;
-export type DesignCatalog = z.infer<typeof DesignCatalogSchema>;
-export type DesignRules = z.infer<typeof DesignRulesSchema>;
+export type DesignAssets = z.infer<typeof DesignAssetsSchema>;

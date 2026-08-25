@@ -97,13 +97,15 @@ describe('DevelopmentPlanSchema', () => {
         steps: ['复用现有组件实现页面'],
         dependencies: [],
         designReferences: [{
+          assetId: 'performance-overview-page',
           figmaUrl: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292811',
           nodeId: '9272:292811',
+          imagePath: 'artifacts/design/assets/performance-overview-page.png',
           purpose: '默认页面',
         }],
       }],
     });
 
-    expect(plan.units[0]?.designReferences).toEqual([expect.objectContaining({ nodeId: '9272:292811' })]);
+    expect(plan.units[0]?.designReferences).toEqual([expect.objectContaining({ assetId: 'performance-overview-page', nodeId: '9272:292811' })]);
   });
 });

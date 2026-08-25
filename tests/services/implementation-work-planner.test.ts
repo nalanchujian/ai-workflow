@@ -57,6 +57,29 @@ describe('development work planner', () => {
     expect(Object.keys(materialized.task.nodes).some((id) => id.endsWith('-r2'))).toBe(false);
   });
 
+  it('rejects a development unit that references a screenshot outside the current design index', async () => {
+    const fixture = await setup();
+    fixture.task.designInput = {
+      provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-1', fileKey: 'file-key', nodeId: '1:1',
+    };
+    await fixture.store.replaceFact(fixture.task.id, 'artifacts/design/design-assets.yaml', [
+      'schemaVersion: aiw.design-assets/v1', 'analysisStatus: completed', 'source:', '  provider: figma',
+      '  url: https://www.figma.com/design/file-key/File?node-id=1-1', '  fileKey: file-key', '  nodeId: "1:1"',
+      'assets:', '  - id: main-page', '    figmaUrl: https://www.figma.com/design/file-key/File?node-id=1-2',
+      '    nodeId: "1:2"', '    sectionNodeId: "1:1"', '    title: 主页面', '    kind: page',
+      '    imagePath: artifacts/design/assets/main-page.png',
+    ].join('\n'));
+    await fixture.store.replaceFact(fixture.task.id, 'artifacts/plan/development-plan.yaml', [
+      'schemaVersion: aiw.development-plan/v1', 'units:', '  - name: development-unit-main-page', '    title: 主页面',
+      '    goal: 实现页面', '    requirements: [展示页面]', '    codeScope: [src/page]', '    steps: [实现页面]',
+      '    dependencies: []', '    designReferences:', '      - assetId: unrelated-dialog',
+      '        figmaUrl: https://www.figma.com/design/file-key/File?node-id=1-3', '        nodeId: "1:3"',
+      '        imagePath: artifacts/design/assets/unrelated-dialog.png', '        purpose: 弹窗',
+    ].join('\n'));
+
+    await expect(materializeDevelopmentWork(fixture.task, fixture.store)).rejects.toThrow(/设计截图索引中不存在/);
+  });
+
   it('rejects old work-breakdown fields', () => {
     expect(() => validateDevelopmentPlan('schemaVersion: aiw.work-breakdown/v2\nunits: []\nacceptanceCoverage: []\n'))
       .toThrow(/开发计划格式无效/);
