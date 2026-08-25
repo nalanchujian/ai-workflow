@@ -36,7 +36,6 @@ export const SkillLockSchema = z.object({
 
 export const WorkflowProfileLockSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9-]*$/),
-  version: z.string().regex(/^\d+\.\d+\.\d+$/),
   registrySource: RegistrySourceSchema,
   sha256: z.string().regex(sha256Pattern, '必须是 SHA-256 哈希'),
 }).strict();

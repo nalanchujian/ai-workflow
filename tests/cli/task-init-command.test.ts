@@ -7,17 +7,18 @@ describe('task init command', () => {
     let received: unknown;
     let output = '';
     const command = createTaskInitCommand({
-      initializer: { async init(input: { projectRoot: string; source: string; skillProfile: string }) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature', version: '1.0.0' }, nodes: {} }; } } as never,
-      defaultSkillProfile: async () => 'standard-web-feature@2.0.0',
+      initializer: { async init(input: { projectRoot: string; source: string; skillProfile: string }) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature' }, nodes: {} }; } } as never,
+      defaultSkillProfile: async () => 'standard-web-feature',
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });
 
-    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--skill-profile', 'standard-web-feature@1.0.0']);
+    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--skill-profile', 'standard-web-feature']);
 
-    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', skillProfile: 'standard-web-feature@1.0.0' });
+    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', skillProfile: 'standard-web-feature' });
     expect(output).toContain('任务已创建');
     expect(output).toContain('任务 ID：task-20260813-120000-000');
-    expect(output).toContain('工作流：standard-web-feature@1.0.0');
+    expect(output).toContain('工作流：standard-web-feature');
+    expect(output).not.toContain('standard-web-feature@');
     expect(output).toContain('下一步：');
     expect(output).toContain('git add .aiw && git commit -m "chore(aiw): initialize task"');
     expect(output).toContain('aiw task run task-20260813-120000-000 clarify');
@@ -28,34 +29,34 @@ describe('task init command', () => {
   it('rejects a manually supplied task ID', async () => {
     const command = createTaskInitCommand({
       initializer: { async init() { throw new Error('不应调用初始化器'); } } as never,
-      defaultSkillProfile: async () => 'standard-web-feature@2.0.0',
+      defaultSkillProfile: async () => 'standard-web-feature',
       stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
     });
     command.configureOutput({ writeErr() {} });
     command.exitOverride();
 
-    await expect(command.parseAsync(['node', 'init', 'manual-id', '--project', '/repo', '--source', '/repo/requirements.md', '--skill-profile', 'standard-web-feature@1.0.0']))
+    await expect(command.parseAsync(['node', 'init', 'manual-id', '--project', '/repo', '--source', '/repo/requirements.md', '--skill-profile', 'standard-web-feature']))
       .rejects.toMatchObject({ code: 'commander.excessArguments' });
   });
 
   it('uses the local default profile when the caller omits the override', async () => {
     let received: unknown;
     const command = createTaskInitCommand({
-      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature', version: '2.0.0' }, nodes: {} }; } } as never,
-      defaultSkillProfile: async () => 'standard-web-feature@2.0.0',
+      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature' }, nodes: {} }; } } as never,
+      defaultSkillProfile: async () => 'standard-web-feature',
       stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
     });
 
     await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md']);
 
-    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', skillProfile: 'standard-web-feature@2.0.0' });
+    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', skillProfile: 'standard-web-feature' });
   });
 
   it('forwards a generic document section selector without exposing its connector', async () => {
     let received: unknown;
     const command = createTaskInitCommand({
-      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature', version: '2.0.0' }, nodes: {} }; } } as never,
-      defaultSkillProfile: async () => 'standard-web-feature@2.0.0',
+      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature' }, nodes: {} }; } } as never,
+      defaultSkillProfile: async () => 'standard-web-feature',
       stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
     });
 
@@ -65,15 +66,15 @@ describe('task init command', () => {
       projectRoot: '/repo',
       source: 'https://acme.larksuite.com/docx/doccn123',
       section: '订单退款流程',
-      skillProfile: 'standard-web-feature@2.0.0',
+      skillProfile: 'standard-web-feature',
     });
   });
 
   it('forwards force-new only when the caller explicitly requests another task', async () => {
     let received: unknown;
     const command = createTaskInitCommand({
-      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature', version: '2.0.0' }, nodes: {} }; } } as never,
-      defaultSkillProfile: async () => 'standard-web-feature@2.0.0',
+      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature' }, nodes: {} }; } } as never,
+      defaultSkillProfile: async () => 'standard-web-feature',
       stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
     });
 
@@ -82,7 +83,7 @@ describe('task init command', () => {
     expect(received).toEqual({
       projectRoot: '/repo',
       source: '/repo/requirements.md',
-      skillProfile: 'standard-web-feature@2.0.0',
+      skillProfile: 'standard-web-feature',
       forceNew: true,
     });
   });
@@ -91,15 +92,15 @@ describe('task init command', () => {
     let received: unknown;
     let output = '';
     const command = createTaskInitCommand({
-      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature', version: '2.0.0' }, nodes: { 'design-analysis': { status: 'ready' } } }; } } as never,
-      defaultSkillProfile: async () => 'standard-web-feature@2.0.0',
+      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature' }, nodes: { 'design-analysis': { status: 'ready' } } }; } } as never,
+      defaultSkillProfile: async () => 'standard-web-feature',
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });
 
     const design = 'https://www.figma.com/design/vcORdd4C9qEqW1YIYfbzl7/Infloww?node-id=9272-292810&m=dev';
     await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--design', design]);
 
-    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', design, skillProfile: 'standard-web-feature@2.0.0' });
+    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', design, skillProfile: 'standard-web-feature' });
     expect(output).toContain('aiw task run task-20260813-120000-000 design-analysis');
   });
 });

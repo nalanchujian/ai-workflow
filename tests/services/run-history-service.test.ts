@@ -68,7 +68,7 @@ async function createRunFixture(directories: string[], runId: string) {
   }), 'utf8');
   await writeFile(join(sharedDirectory, 'context-manifest.json'), JSON.stringify({
     schemaVersion: 'aiw.context/v2', taskId: 'refund-123', nodeId: 'clarify',
-    skillProfile: { name: 'standard-web-feature', version: '1.0.0', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash },
+    skillProfile: { name: 'standard-web-feature', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash },
     files: [{ role: 'artifact', path: 'artifacts/clarify/fact-register.yaml' }, { role: 'source', path: 'sources/requirements/r1/snapshot.md' }],
     skill: { name: 'requirements-clarification', version: '1.0.0', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash, methodSources: [] },
     budget: {

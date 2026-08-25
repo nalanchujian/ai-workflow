@@ -12,7 +12,7 @@ const DefaultWorkflowSchema = z.object({
     url: z.string().url(),
     ref: z.string().min(1),
   }).strict(),
-  defaultProfile: z.string().min(1),
+  defaultProfile: z.string().regex(/^[a-z][a-z0-9-]*$/, '默认工作流只允许使用模板名称'),
 }).strict();
 
 const LocalConfigSchema = z.object({

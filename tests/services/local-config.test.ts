@@ -31,21 +31,37 @@ workflow:
   defaultSkillSource:
     url: https://github.com/nalanchujian/ai-workflow-skills.git
     ref: v2.0.0
-  defaultProfile: standard-web-feature@2.0.0
+  defaultProfile: standard-web-feature
 `);
     const config = new LocalConfig(configPath);
 
     await expect(config.defaultWorkflow()).resolves.toEqual({
       defaultSkillSource: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' },
-      defaultProfile: 'standard-web-feature@2.0.0',
+      defaultProfile: 'standard-web-feature',
     });
 
-    await config.updateDefaultWorkflow({ ref: 'v2.1.0', profile: 'standard-web-feature@2.1.0' });
+    await config.updateDefaultWorkflow({ ref: 'v2.1.0', profile: 'standard-web-feature' });
 
     await expect(config.defaultWorkflow()).resolves.toEqual({
       defaultSkillSource: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.1.0' },
-      defaultProfile: 'standard-web-feature@2.1.0',
+      defaultProfile: 'standard-web-feature',
     });
+  });
+
+  it('rejects versioned workflow profile references', async () => {
+    const directory = await createTempDirectory('aiw-local-config-');
+    directories.push(directory);
+    const configPath = join(directory, 'config.yaml');
+    await writeFile(configPath, `schemaVersion: aiw.local/v1
+connectors: {}
+workflow:
+  defaultSkillSource:
+    url: https://github.com/nalanchujian/ai-workflow-skills.git
+    ref: v2.0.0
+  defaultProfile: standard-web-feature@2.0.0
+`);
+
+    await expect(new LocalConfig(configPath).read()).rejects.toBeDefined();
   });
 
   it('uses the default context budget when omitted and reads an explicit override', async () => {

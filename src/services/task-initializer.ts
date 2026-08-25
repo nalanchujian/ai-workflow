@@ -37,8 +37,7 @@ export class TaskInitializer {
     }
     const id = taskIdAt(this.deps.now?.() ?? new Date());
     assertTaskId(id);
-    const [profileName, profileVersion] = parseReference(input.skillProfile, '工作流模板');
-    const profile = await this.deps.registry.findProfile(profileName, profileVersion);
+    const profile = await this.deps.registry.findProfile(input.skillProfile);
     if (profile === undefined) {
       throw new Error('工作流模板不存在');
     }
@@ -70,7 +69,6 @@ export class TaskInitializer {
         status: 'active',
         skillProfile: {
           name: profile.name,
-          version: profile.version,
           registrySource: profile.registrySource,
           sha256: profile.sha256,
         },

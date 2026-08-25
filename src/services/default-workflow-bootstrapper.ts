@@ -24,14 +24,13 @@ export class DefaultWorkflowBootstrapper {
   async init(input: { connectorServer?: string } = {}): Promise<DefaultWorkflowBootstrapResult> {
     const initialized = await this.deps.initializer.init();
     const workflow = await this.deps.config.defaultWorkflow();
-    const [name, version] = splitProfileReference(workflow.defaultProfile);
     let installed: Awaited<ReturnType<SkillInstaller['install']>>;
     try {
       installed = await this.deps.installer.install({ ...workflow.defaultSkillSource });
     } catch (error) {
       throw new Error(`默认工作流安装失败；配置已保留在 ${initialized.configPath}；修复后重新运行 aiw init`, { cause: error });
     }
-    const profile = installed.profiles.find((candidate) => candidate.name === name && candidate.version === version);
+    const profile = installed.profiles.find((candidate) => candidate.name === workflow.defaultProfile);
     if (profile === undefined) {
       throw new Error(`默认技能包未提供工作流模板：${workflow.defaultProfile}`);
     }
@@ -56,12 +55,4 @@ export class DefaultWorkflowBootstrapper {
       return { ...result, connector: { status: 'unavailable' } };
     }
   }
-}
-
-function splitProfileReference(reference: string): [string, string] {
-  const separator = reference.lastIndexOf('@');
-  if (separator <= 0 || separator === reference.length - 1) {
-    throw new Error(`默认工作流模板格式无效：${reference}`);
-  }
-  return [reference.slice(0, separator), reference.slice(separator + 1)];
 }

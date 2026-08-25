@@ -85,9 +85,9 @@ export class SkillRegistry {
     return oneOrUndefined(matches, `已锁定技能引用不唯一：${lock.name}@${lock.version}`);
   }
 
-  async findProfile(name: string, version?: string): Promise<InstalledWorkflowProfile | undefined> {
-    const matches = (await this.listProfiles()).filter((profile) => profile.name === name && (version === undefined || profile.version === version));
-    return oneOrUndefined(matches, `工作流模板引用不唯一：${name}${version === undefined ? '' : `@${version}`}`);
+  async findProfile(name: string): Promise<InstalledWorkflowProfile | undefined> {
+    const matches = (await this.listProfiles()).filter((profile) => profile.name === name);
+    return oneOrUndefined(matches, `工作流模板引用不唯一：${name}`);
   }
 
   async findMethod(source: InstalledBundledMethod['source']): Promise<InstalledBundledMethod | undefined> {

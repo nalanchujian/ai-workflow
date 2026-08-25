@@ -23,7 +23,7 @@ export function createSevenPhaseTask(): Task {
     repository: '.',
     status: 'active',
     skillProfile: {
-      name: 'standard-web-feature', version: '1.0.0',
+      name: 'standard-web-feature',
       registrySource: { url: 'git@example.test/agent-skills.git', revision: 'a1b2c3d4' },
       sha256: 'c'.repeat(64),
     },

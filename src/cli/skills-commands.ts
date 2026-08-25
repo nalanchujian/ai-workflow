@@ -21,12 +21,12 @@ export function createSkillsCommand(deps: { installer: SkillInstaller; registry:
         operation: () => deps.installer.install({ url, ...(options.ref === undefined ? {} : { ref: options.ref }) }),
       });
       const skills = result.skills.map((skill) => ({ name: skill.name, version: skill.version }));
-      const profiles = result.profiles.map((profile) => ({ name: profile.name, version: profile.version }));
+      const profiles = result.profiles.map((profile) => ({ name: profile.name }));
       writeCommandResult({ skills, profiles }, command, deps.stdout, {
         headline: '团队技能包已安装',
         sections: [
           { title: '可用技能', lines: skills.map((skill) => `${skill.name}@${skill.version}`) },
-          { title: '工作流模板', lines: profiles.map((profile) => `${profile.name}@${profile.version}`) },
+          { title: '工作流模板', lines: profiles.map((profile) => profile.name) },
         ],
         nextSteps: ['aiw skills profiles list'],
       });
@@ -44,12 +44,11 @@ export function createSkillsCommand(deps: { installer: SkillInstaller; registry:
         operation: async () => {
           const workflow = await deps.config.defaultWorkflow();
           const result = await deps.installer.install({ url: workflow.defaultSkillSource.url, ref: options.ref });
-          const profileName = workflow.defaultProfile.split('@', 1)[0];
-          const profile = result.profiles.find((candidate) => candidate.name === profileName);
+          const profile = result.profiles.find((candidate) => candidate.name === workflow.defaultProfile);
           if (profile === undefined) {
             throw new Error(`更新的技能包未提供当前默认工作流：${workflow.defaultProfile}`);
           }
-          const config = await deps.config.updateDefaultWorkflow({ ref: options.ref, profile: `${profile.name}@${profile.version}` });
+          const config = await deps.config.updateDefaultWorkflow({ ref: options.ref, profile: profile.name });
           return { config, result };
         },
       });
@@ -57,7 +56,7 @@ export function createSkillsCommand(deps: { installer: SkillInstaller; registry:
         defaultProfile: updated.config.defaultProfile,
         defaultSkillSource: updated.config.defaultSkillSource,
         skills: updated.result.skills.map((skill) => ({ name: skill.name, version: skill.version })),
-        profiles: updated.result.profiles.map((profile) => ({ name: profile.name, version: profile.version })),
+        profiles: updated.result.profiles.map((profile) => ({ name: profile.name })),
       };
       writeCommandResult(output, command, deps.stdout, {
         headline: '默认工作流已更新',
@@ -65,7 +64,7 @@ export function createSkillsCommand(deps: { installer: SkillInstaller; registry:
           { label: '默认工作流', value: output.defaultProfile },
           { label: '技能包版本', value: updated.config.defaultSkillSource.ref },
         ],
-        sections: [{ title: '可用模板', lines: output.profiles.map((profile) => `${profile.name}@${profile.version}`) }],
+        sections: [{ title: '可用模板', lines: output.profiles.map((profile) => profile.name) }],
         nextSteps: ['后续新建任务会使用该默认工作流。'],
       });
     }));
@@ -86,7 +85,7 @@ export function createSkillsCommand(deps: { installer: SkillInstaller; registry:
       const profiles = await deps.registry.listProfiles();
       writeCommandResult(profiles, command, deps.stdout, {
         headline: profiles.length === 0 ? '尚未安装工作流模板' : `已安装 ${profiles.length} 个工作流模板`,
-        sections: profiles.length === 0 ? undefined : [{ title: '工作流模板', lines: profiles.map((profile) => `${profile.name}@${profile.version}：${profile.description}`) }],
+        sections: profiles.length === 0 ? undefined : [{ title: '工作流模板', lines: profiles.map((profile) => `${profile.name}：${profile.description}`) }],
         nextSteps: profiles.length === 0 ? ['aiw init'] : undefined,
       });
     }));

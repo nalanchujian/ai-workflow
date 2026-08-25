@@ -9,6 +9,13 @@ describe('TaskSchema', () => {
     expect(TaskSchema.parse(task)).toMatchObject({ schemaVersion: 'aiw.task/v3', status: 'active' });
   });
 
+  it('rejects a workflow profile lock with an independent profile version', () => {
+    const task = createSevenPhaseTask();
+    (task.skillProfile as { version?: string }).version = '1.0.0';
+
+    expect(() => TaskSchema.parse(task)).toThrow(/Unrecognized key/);
+  });
+
   it('rejects a task graph with a dependency cycle', () => {
     const task = createSevenPhaseTask();
     task.nodes.solution!.dependsOn = ['plan'];

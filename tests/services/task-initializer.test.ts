@@ -32,7 +32,7 @@ describe('TaskInitializer', () => {
       now: () => new Date('2026-08-13T12:00:00.000Z'),
     });
 
-    const task = await initializer.init({ projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature@1.0.0' });
+    const task = await initializer.init({ projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature' });
 
     expect(task.id).toBe('task-20260813-120000-000');
     expect(task.repository).toBe('.');
@@ -69,7 +69,7 @@ describe('TaskInitializer', () => {
       projectRoot,
       source: 'requirements.md',
       design: 'https://www.figma.com/design/vcORdd4C9qEqW1YIYfbzl7/Infloww?node-id=9272-292810&m=dev',
-      skillProfile: 'standard-web-feature@1.0.0',
+      skillProfile: 'standard-web-feature',
     });
 
     expect(task.designInput).toEqual({
@@ -111,11 +111,11 @@ describe('TaskInitializer', () => {
       now: () => new Date('2026-08-13T12:00:00.000Z'),
     });
 
-    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' }))
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature' }))
       .resolves.toMatchObject({ nodes: { clarify: { status: 'ready' } } });
   });
 
-  it('resolves same-version skills from the selected workflow profile revision', async () => {
+  it('resolves skills from the selected workflow profile revision', async () => {
     const projectRoot = await createTempDirectory('aiw-task-init-');
     directories.push(projectRoot);
     const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
@@ -127,11 +127,10 @@ describe('TaskInitializer', () => {
     }));
     const selectedProfile = {
       ...profile(),
-      version: '3.0.0',
       registrySource: selectedSource,
       sha256: hash('selected-profile'),
     };
-    await registry.replace({ skills: [...allSkills(), ...selectedSkills], profiles: [profile(), selectedProfile] });
+    await registry.replace({ skills: selectedSkills, profiles: [selectedProfile] });
     const store = new TaskStore(projectRoot);
     const initializer = new TaskInitializer({
       registry,
@@ -144,7 +143,7 @@ describe('TaskInitializer', () => {
       now: () => new Date('2026-08-13T12:00:00.000Z'),
     });
 
-    const task = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@3.0.0' });
+    const task = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature' });
 
     expect(task.developmentSkill.registrySource).toEqual(selectedSource);
     expect(task.developmentSkill.sha256).toBe(hash('selected-typescript-web-implementation'));
@@ -172,9 +171,9 @@ describe('TaskInitializer', () => {
       now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
     });
 
-    await initializer.init({ projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature@1.0.0' });
+    await initializer.init({ projectRoot, source: join(projectRoot, 'requirements.md'), skillProfile: 'standard-web-feature' });
 
-    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' }))
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature' }))
       .rejects.toThrow('已存在相同需求的未完成任务：task-20260813-120000-000');
     expect(sourceReads).toBe(1);
   });
@@ -197,8 +196,8 @@ describe('TaskInitializer', () => {
       now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
     });
 
-    await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' });
-    const task = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0', forceNew: true });
+    await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature' });
+    const task = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature', forceNew: true });
 
     expect(task.id).toBe('task-20260813-120000-001');
   });
@@ -221,13 +220,13 @@ describe('TaskInitializer', () => {
       now: () => new Date(Date.parse('2026-08-13T12:00:00.000Z') + milliseconds++),
     });
 
-    const earlier = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' });
+    const earlier = await initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature' });
     for (const node of Object.values(earlier.nodes)) {
       node.status = 'completed';
     }
     await store.update(earlier);
 
-    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' }))
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature' }))
       .resolves.toMatchObject({ id: 'task-20260813-120000-001' });
   });
 
@@ -237,7 +236,7 @@ describe('TaskInitializer', () => {
     const store = new TaskStore(projectRoot);
     const initializer = new TaskInitializer({ registry: new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml')), projectRepository: { async assertProjectReady() {} }, sourceIntakeFactory: () => ({} as never), taskStoreFactory: () => store, now: () => new Date('2026-08-13T12:00:00.000Z') });
 
-    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'missing@1.0.0' })).rejects.toThrow('工作流模板不存在');
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'missing' })).rejects.toThrow('工作流模板不存在');
     await expect(readFile(join(store.taskDirectory('task-20260813-120000-000'), 'task.yaml'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
@@ -258,7 +257,7 @@ describe('TaskInitializer', () => {
       now: () => new Date('2026-08-13T12:00:00.000Z'),
     });
 
-    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature@1.0.0' })).rejects.toThrow('不是 Git 工作树');
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', skillProfile: 'standard-web-feature' })).rejects.toThrow('不是 Git 工作树');
     expect(sourceRead).toBe(false);
     await expect(access(store.taskDirectory('task-20260813-120000-000'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(join(projectRoot, '.aiw', 'config.yaml'))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -290,7 +289,7 @@ describe('TaskInitializer', () => {
       projectRoot,
       source: 'https://jphmzyvzr43.jp.larksuite.com/docx/doccn123',
       section: '二期 (V2.3)',
-      skillProfile: 'standard-web-feature@1.0.0',
+      skillProfile: 'standard-web-feature',
     });
 
     expect(sourceInput).toEqual({ sourceId: 'requirements', value: 'https://jphmzyvzr43.jp.larksuite.com/docx/doccn123', section: '二期 (V2.3)', revision: 1 });
@@ -299,7 +298,7 @@ describe('TaskInitializer', () => {
 
 function profile(): InstalledWorkflowProfile {
   return {
-    name: 'standard-web-feature', version: '1.0.0', description: 'Standard web feature workflow', aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
+    name: 'standard-web-feature', description: 'Standard web feature workflow', aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
     skills: {
       design: 'figma-design-analysis@1.0.0', clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', development: 'typescript-web-implementation@1.0.0',
     },
