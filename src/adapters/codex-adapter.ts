@@ -88,7 +88,7 @@ function phaseProtocol(request: RunRequest): string {
   const markdown = markdownArtifactContractFor(request.artifacts);
   const protocolContext = { taskId: request.task.id, nodeId: request.task.nodeId, phase: request.task.phase, evidencePath: request.context.files[0]?.path ?? 'source', testProfile: '', testEvidenceType: 'unit' as const };
   if (request.task.phase === 'design') {
-    return `使用 Chrome 浏览器控制能力，在已登录的 Chrome 中打开任务声明的 Figma 设计地址。先观察根节点并建立页面/区域目录，再按代表性页面、状态和弹窗逐步读取；大型节点不得一次性展开全部内容。若页面未登录、无权限或浏览器不可用，明确失败原因，不得猜测设计内容。输出设计目录、设计规则和简体中文设计上下文；不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-catalog', protocolContext)}\n\n${renderAgentArtifactProtocol('design-rules', protocolContext)}\n\n${markdown}`;
+    return `使用 Chrome 浏览器控制能力，在已登录的 Chrome 中打开任务声明的 Figma 设计地址。先观察根节点并建立页面/区域目录，再按代表性页面、状态和弹窗逐步读取；大型节点不得一次性展开全部内容。若页面未登录、无权限、浏览器不可用、画布持续加载，或只能看到根节点占位，必须将设计目录的 analysisStatus 写为 blocked 并填写 blockingReason；不得用加载占位、访问限制或待确认问题冒充已读取的设计节点。只有实际读取到至少一个具体设计节点并提炼出至少一条有节点依据的设计规则时，才能写为 completed。输出设计目录、设计规则和简体中文设计上下文；不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-catalog', protocolContext)}\n\n${renderAgentArtifactProtocol('design-rules', protocolContext)}\n\n${markdown}`;
   }
   if (request.task.phase === 'clarify') {
     return [

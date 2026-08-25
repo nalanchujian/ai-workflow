@@ -50,6 +50,52 @@ describe('TaskRunner', () => {
     expect(fixture.prompts.at(-1)).not.toContain('Figma MCP');
   });
 
+  it('fails design analysis and keeps clarification pending when browser reading is blocked', async () => {
+    const fixture = await createFixture('design-blocked');
+    const task = await fixture.store.load('refund-123');
+    task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
+    task.nodes['design-analysis'] = {
+      title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'),
+      requiresApproval: false, status: 'ready', hasResult: false,
+      outputs: ['artifacts/design/design-catalog.yaml', 'artifacts/design/design-rules.yaml', 'artifacts/design/design-context.md'],
+    };
+    task.nodes.clarify!.dependsOn = ['design-analysis'];
+    task.nodes.clarify!.status = 'pending';
+    await fixture.store.update(task);
+
+    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'design-analysis', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { code: 'ARTIFACT_INVALID', message: '设计稿读取受阻：Figma 画布与图层持续停留在加载占位。' },
+    });
+    const failedTask = await fixture.store.load(task.id);
+    expect(failedTask.nodes['design-analysis']?.status).toBe('failed');
+    expect(failedTask.nodes.clarify?.status).toBe('pending');
+  });
+
+  it('rejects a completed design analysis made only from a loading placeholder', async () => {
+    const fixture = await createFixture('design-placeholder');
+    const task = await fixture.store.load('refund-123');
+    task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
+    task.nodes['design-analysis'] = {
+      title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'),
+      requiresApproval: false, status: 'ready', hasResult: false,
+      outputs: ['artifacts/design/design-catalog.yaml', 'artifacts/design/design-rules.yaml', 'artifacts/design/design-context.md'],
+    };
+    task.nodes.clarify!.dependsOn = ['design-analysis'];
+    task.nodes.clarify!.status = 'pending';
+    await fixture.store.update(task);
+
+    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'design-analysis', dryRun: false, includes: [] });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { code: 'ARTIFACT_INVALID', message: '设计分析未读取到具体页面、区域、弹窗、组件或状态节点' },
+    });
+    expect((await fixture.store.load(task.id)).nodes.clarify?.status).toBe('pending');
+  });
+
   it('fails when the agent omits a declared artifact', async () => {
     const fixture = await createFixture('missing-decision');
 
@@ -107,7 +153,7 @@ describe('TaskRunner', () => {
   });
 });
 
-async function createFixture(mode: 'design' | 'clarify' | 'missing-decision' | 'development' | 'development-no-changes') {
+async function createFixture(mode: 'design' | 'design-blocked' | 'design-placeholder' | 'clarify' | 'missing-decision' | 'development' | 'development-no-changes') {
   const root = await createTempDirectory('aiw-runner-'); directories.push(root);
   const runtimeRoot = join(root, '.runtime');
   const store = new TaskStore(root);
@@ -135,11 +181,17 @@ async function createFixture(mode: 'design' | 'clarify' | 'missing-decision' | '
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     prompts.push(input.stdin);
     const taskRoot = join(input.cwd, '.aiw/tasks/refund-123/runs/run-1/staging');
-    if (mode === 'design') {
+    if (mode === 'design' || mode === 'design-blocked' || mode === 'design-placeholder') {
       const directory = join(taskRoot, 'artifacts/design'); await mkdir(directory, { recursive: true });
-      await writeFile(join(directory, 'design-catalog.yaml'), stringify({ schemaVersion: 'aiw.design-catalog/v1', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, items: [{ figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
-      await writeFile(join(directory, 'design-rules.yaml'), stringify({ schemaVersion: 'aiw.design-rules/v1', rules: [{ category: 'layout', statement: '采用单列布局', nodeIds: ['1:2'] }], openQuestions: [] }));
-      await writeFile(join(directory, 'design-context.md'), '# 设计上下文\n\n## 设计范围\n\n退款页。\n\n## 页面与状态\n\n默认态。\n\n## 共性规则\n\n单列布局。\n\n## 待确认问题\n\n无。\n');
+      await writeFile(join(directory, 'design-catalog.yaml'), stringify(mode === 'design-blocked'
+        ? { schemaVersion: 'aiw.design-catalog/v2', analysisStatus: 'blocked', blockingReason: 'Figma 画布与图层持续停留在加载占位。', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, items: [] }
+        : { schemaVersion: 'aiw.design-catalog/v2', analysisStatus: 'completed', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, items: mode === 'design-placeholder'
+          ? [{ figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', title: '根节点', kind: 'other', purpose: '加载占位', states: ['加载占位'] }]
+          : [{ figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
+      await writeFile(join(directory, 'design-rules.yaml'), stringify({ schemaVersion: 'aiw.design-rules/v1', rules: mode === 'design' ? [{ category: 'layout', statement: '采用单列布局', nodeIds: ['1:2'] }] : [], openQuestions: [] }));
+      await writeFile(join(directory, 'design-context.md'), mode !== 'design'
+        ? '# 设计上下文\n\n## 设计范围\n\nFigma 画布未能读取。\n\n## 页面与状态\n\n无。\n\n## 共性规则\n\n无。\n\n## 待确认问题\n\n重新连接浏览器后重试。\n'
+        : '# 设计上下文\n\n## 设计范围\n\n退款页。\n\n## 页面与状态\n\n默认态。\n\n## 共性规则\n\n单列布局。\n\n## 待确认问题\n\n无。\n');
     } else if (mode === 'development' || mode === 'development-no-changes') {
       const path = join(taskRoot, 'artifacts/development/development-unit-refund-entry/result.md'); await mkdir(dirname(path), { recursive: true });
       await writeFile(path, '# 开发结果\n\n## 完成的代码修改\n\n已实现退款入口。\n\n## 变更文件\n\n- src/refund.ts\n\n## 未解决问题\n\n无。\n\n## 已知风险\n\n无。\n');

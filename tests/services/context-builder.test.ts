@@ -93,7 +93,7 @@ async function setup() {
     'artifacts/clarify/fact-register.yaml': 'schemaVersion: aiw.fact-register/v2\nfacts: []\n',
     'artifacts/clarify/decision-register.yaml': 'schemaVersion: aiw.decision-register/v2\npendingDecisions: []\ncurrentDecisions: []\ndeferredItems: []\n',
     'artifacts/solution/solution.md': '# 技术方案\n',
-    'artifacts/design/design-catalog.yaml': 'schemaVersion: aiw.design-catalog/v1\n',
+    'artifacts/design/design-catalog.yaml': 'schemaVersion: aiw.design-catalog/v2\nanalysisStatus: completed\n',
     'artifacts/design/design-rules.yaml': 'schemaVersion: aiw.design-rules/v1\n',
     'artifacts/plan/units/development-list.yaml': 'title: 主列表开发\n',
   };

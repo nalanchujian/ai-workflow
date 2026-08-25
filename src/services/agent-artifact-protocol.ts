@@ -63,11 +63,17 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
       title: '设计目录',
       schema: DesignCatalogSchema,
       example: {
-        schemaVersion: 'aiw.design-catalog/v1',
+        schemaVersion: 'aiw.design-catalog/v2',
+        analysisStatus: 'completed',
         source: { provider: 'figma', url, fileKey: 'example', nodeId: '1:2' },
         items: [{ figmaUrl: url, nodeId: '1:2', title: '订单列表', kind: 'page', purpose: '订单管理入口', states: ['默认态', '空态'] }],
       },
-      rules: ['每项必须指向可再次读取的具体 Figma 节点。', '大型设计稿先建立目录，不在单次上下文中展开所有页面。'],
+      rules: [
+        '只有实际读取到具体页面、区域、弹窗、组件或状态节点时，analysisStatus 才能是 completed。',
+        '页面未登录、无权限、浏览器不可用、画布持续加载或只看到根节点占位时，analysisStatus 必须是 blocked，并填写 blockingReason。',
+        '每项必须指向可再次读取的具体 Figma 节点。',
+        '大型设计稿先建立目录，不在单次上下文中展开所有页面。',
+      ],
     };
   }
   if (id === 'design-rules') {

@@ -52,7 +52,7 @@ describe('simplified MVP workflow', () => {
     expect(result.status).toBe('succeeded');
     expect(task.nodes['design-analysis']?.status).toBe('completed');
     expect(task.nodes.clarify?.status).toBe('ready');
-    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/design-catalog.yaml'), 'utf8')).resolves.toContain('aiw.design-catalog/v1');
+    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/design-catalog.yaml'), 'utf8')).resolves.toContain('aiw.design-catalog/v2');
   });
 });
 
@@ -100,7 +100,7 @@ async function setup(withDesign = false) {
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     const stagingRoot = stagingRootFrom(input.stdin, input.cwd);
     if (input.stdin.includes('<artifact-protocol id="design-catalog"')) {
-      await write(stagingRoot, 'artifacts/design/design-catalog.yaml', stringify({ schemaVersion: 'aiw.design-catalog/v1', source: task.designInput, items: [{ figmaUrl: task.designInput!.url, nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
+      await write(stagingRoot, 'artifacts/design/design-catalog.yaml', stringify({ schemaVersion: 'aiw.design-catalog/v2', analysisStatus: 'completed', source: task.designInput, items: [{ figmaUrl: task.designInput!.url, nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
       await write(stagingRoot, 'artifacts/design/design-rules.yaml', stringify({ schemaVersion: 'aiw.design-rules/v1', rules: [{ category: 'layout', statement: '使用单列布局', nodeIds: ['1:2'] }], openQuestions: [] }));
       await write(stagingRoot, 'artifacts/design/design-context.md', '# 设计上下文\n\n## 设计范围\n\n退款页。\n\n## 页面与状态\n\n默认态。\n\n## 共性规则\n\n单列布局。\n\n## 待确认问题\n\n无。\n');
     } else if (input.stdin.includes('澄清阶段只生成事实登记和决策登记')) {

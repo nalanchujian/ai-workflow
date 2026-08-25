@@ -243,7 +243,29 @@ async function readAndValidateOutputs(store: TaskStore, taskId: string, phase: T
     validateOutput(entry.finalPath, phase, content);
     contents.set(entry.finalPath, content);
   }
+  if (phase === 'design') validateDesignAnalysis(contents);
   return contents;
+}
+
+function validateDesignAnalysis(contents: Map<string, string>): void {
+  const catalogContent = [...contents].find(([path]) => path.endsWith('design-catalog.yaml'))?.[1];
+  const rulesContent = [...contents].find(([path]) => path.endsWith('design-rules.yaml'))?.[1];
+  if (catalogContent === undefined || rulesContent === undefined) return;
+
+  const catalog = DesignCatalogSchema.parse(parse(catalogContent));
+  if (catalog.analysisStatus === 'blocked') {
+    throw new TaskRunnerError('ARTIFACT_INVALID', `设计稿读取受阻：${catalog.blockingReason!}`);
+  }
+
+  const concreteItems = catalog.items.filter((item) => item.kind !== 'other');
+  if (concreteItems.length === 0) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', '设计分析未读取到具体页面、区域、弹窗、组件或状态节点');
+  }
+
+  const rules = DesignRulesSchema.parse(parse(rulesContent));
+  if (rules.rules.length === 0 || rules.rules.some((rule) => rule.nodeIds.length === 0)) {
+    throw new TaskRunnerError('ARTIFACT_INVALID', '设计分析必须包含至少一条有具体 Figma 节点依据的设计规则');
+  }
 }
 
 function validateOutput(path: string, phase: Task['nodes'][string]['phase'], content: string): void {

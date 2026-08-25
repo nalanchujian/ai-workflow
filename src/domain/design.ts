@@ -25,18 +25,32 @@ export const DesignReferenceSchema = z.object({
   purpose: z.string().min(1),
 }).strict();
 
-export const DesignCatalogSchema = z.object({
-  schemaVersion: z.literal('aiw.design-catalog/v1'),
-  source: FigmaDesignInputSchema,
-  items: z.array(z.object({
-    figmaUrl: z.string().url(),
-    nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
-    title: z.string().min(1),
-    kind: z.enum(['page', 'frame', 'dialog', 'component', 'state', 'other']),
-    purpose: z.string().min(1),
-    states: z.array(z.string().min(1)).default([]),
-  }).strict()).min(1),
+const DesignCatalogItemSchema = z.object({
+  figmaUrl: z.string().url(),
+  nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
+  title: z.string().min(1),
+  kind: z.enum(['page', 'frame', 'dialog', 'component', 'state', 'other']),
+  purpose: z.string().min(1),
+  states: z.array(z.string().min(1)).default([]),
 }).strict();
+
+export const DesignCatalogSchema = z.object({
+  schemaVersion: z.literal('aiw.design-catalog/v2'),
+  source: FigmaDesignInputSchema,
+  analysisStatus: z.enum(['completed', 'blocked']),
+  blockingReason: z.string().min(1).optional(),
+  items: z.array(DesignCatalogItemSchema).default([]),
+}).strict().superRefine((catalog, context) => {
+  if (catalog.analysisStatus === 'completed' && catalog.items.length === 0) {
+    context.addIssue({ code: 'custom', path: ['items'], message: '设计分析完成时必须包含至少一个具体设计节点' });
+  }
+  if (catalog.analysisStatus === 'blocked' && catalog.blockingReason === undefined) {
+    context.addIssue({ code: 'custom', path: ['blockingReason'], message: '设计读取受阻时必须说明阻塞原因' });
+  }
+  if (catalog.analysisStatus === 'completed' && catalog.blockingReason !== undefined) {
+    context.addIssue({ code: 'custom', path: ['blockingReason'], message: '设计分析完成时不能同时声明阻塞原因' });
+  }
+});
 
 export const DesignRulesSchema = z.object({
   schemaVersion: z.literal('aiw.design-rules/v1'),

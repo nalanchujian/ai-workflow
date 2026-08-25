@@ -23,7 +23,8 @@ describe('design contracts', () => {
     });
 
     expect(DesignCatalogSchema.parse({
-      schemaVersion: 'aiw.design-catalog/v1',
+      schemaVersion: 'aiw.design-catalog/v2',
+      analysisStatus: 'completed',
       source,
       items: [{
         figmaUrl: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292811',
@@ -34,6 +35,30 @@ describe('design contracts', () => {
         states: ['default', 'loading'],
       }],
     })).toMatchObject({ items: [{ nodeId: '9272:292811' }] });
+  });
+
+  it('requires a blocking reason when the browser cannot read the design', () => {
+    const source = FigmaDesignInputSchema.parse({
+      provider: 'figma',
+      url: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292810',
+      fileKey: 'file-key',
+      nodeId: '9272:292810',
+    });
+
+    expect(DesignCatalogSchema.parse({
+      schemaVersion: 'aiw.design-catalog/v2',
+      analysisStatus: 'blocked',
+      blockingReason: 'Figma 画布与图层持续停留在加载占位。',
+      source,
+      items: [],
+    })).toMatchObject({ analysisStatus: 'blocked', items: [] });
+
+    expect(() => DesignCatalogSchema.parse({
+      schemaVersion: 'aiw.design-catalog/v2',
+      analysisStatus: 'blocked',
+      source,
+      items: [],
+    })).toThrow();
   });
 
   it('keeps shared rules and unresolved design questions separate', () => {
