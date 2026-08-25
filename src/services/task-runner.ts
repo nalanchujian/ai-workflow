@@ -23,7 +23,6 @@ import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
 import { transitionNode } from './task-state-machine.js';
 import { TaskStore } from './task-store.js';
-import type { DesignAnalysisInputPreparer } from './design-analysis-input-preparer.js';
 
 export class TaskRunnerError extends Error {
   constructor(readonly code: 'NODE_NOT_RUNNABLE' | 'TASK_BUSY' | 'SKILL_LOCK_INVALID' | 'ARTIFACT_MISSING' | 'ARTIFACT_INVALID' | 'WORKTREE_DIRTY' | 'RUN_RECOVERED', message: string) {
@@ -45,7 +44,6 @@ export class TaskRunner {
     changeInspector: WorkingTreeStatus;
     adapter: CodexAdapter;
     deliveryWorkspaceManager?: DeliveryWorkspaceManager;
-    designInputPreparer?: DesignAnalysisInputPreparer;
     runtimeRoot: string;
     runIdFactory?: () => string;
     runLock?: TaskRunLock;
@@ -88,27 +86,13 @@ export class TaskRunner {
     const skill = await this.loadLockedSkill(node.skill);
     if (!skill.phases.includes(node.phase)) throw new TaskRunnerError('SKILL_LOCK_INVALID', '已锁定技能与当前节点阶段不兼容');
     const methods = await Promise.all(node.skill.methodSources.map((source) => this.deps.methodSourceResolver.readLocked(source)));
+    const instruction = instructionFor(task, input.nodeId);
     const runId = this.deps.runIdFactory?.() ?? randomUUID();
     const runDirectory = join(this.deps.runtimeRoot, task.id, runId);
-    if (node.phase === 'design') {
-      if (this.deps.designInputPreparer === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', 'Figma 设计连接器尚未配置');
-      try {
-        await this.deps.designInputPreparer.prepare(task);
-      } catch (error) {
-        if (input.dryRun) throw error;
-        const message = error instanceof Error ? error.message : 'Figma 设计输入读取失败';
-        const result = preparationFailure(runId, runDirectory, 'DESIGN_INPUT_UNAVAILABLE', message);
-        await this.deps.taskStore.update(transitionNode(task, input.nodeId, { type: 'start', runId }));
-        await this.persistResult(task.id, runId, result);
-        const current = await this.deps.taskStore.load(task.id);
-        await this.deps.taskStore.update(transitionNode(current, input.nodeId, { type: 'fail', message }));
-        return result;
-      }
-    }
     const manifest = await this.deps.contextBuilder.build({
       task, nodeId: input.nodeId, includes: input.includes, enforceBudget: false,
       budgetInputs: [
-        { category: 'node-instruction', label: '节点指令', content: node.title },
+        { category: 'node-instruction', label: '节点指令', content: instruction },
         { category: 'skill', label: `技能：${skill.name}@${skill.version}`, content: skill.body },
         ...methods.map((method) => ({ category: 'method-source' as const, label: `方法论：${method.source.id}`, content: method.content })),
       ],
@@ -121,7 +105,7 @@ export class TaskRunner {
       projectRoot: this.deps.taskStore.projectDirectory(), runtimeRoot: this.deps.runtimeRoot, taskId: task.id, nodeId: input.nodeId, runId,
     });
     try {
-      return await this.execute({ task, nodeId: input.nodeId, manifest, skill, methods, runId, runDirectory, outputPaths, workspace, dryRun: input.dryRun });
+      return await this.execute({ task, nodeId: input.nodeId, instruction, manifest, skill, methods, runId, runDirectory, outputPaths, workspace, dryRun: input.dryRun });
     } finally {
       await workspace?.dispose();
     }
@@ -130,6 +114,7 @@ export class TaskRunner {
   private async execute(input: {
     task: Task;
     nodeId: string;
+    instruction: string;
     manifest: ContextManifest;
     skill: Awaited<ReturnType<TaskRunner['loadLockedSkill']>>;
     methods: Awaited<ReturnType<MethodSourceResolverPort['readLocked']>>[];
@@ -147,7 +132,7 @@ export class TaskRunner {
     const request: RunRequest = {
       schemaVersion: 'aiw.run/v3', runId,
       task: { id: task.id, nodeId, phase: node.phase as RunRequest['task']['phase'], projectRoot: executionRoot },
-      instruction: node.title,
+      instruction: input.instruction,
       contextManifestPath: `.aiw/tasks/${task.id}/runs/${runId}/context-manifest.json`,
       runDirectory, mode: input.dryRun ? 'dry-run' : 'execute', artifacts: outputPaths, outputContract,
       context: {
@@ -280,9 +265,12 @@ function failedResult(request: RunRequest, code: string, message: string): RunRe
   return RunResultSchema.parse({ schemaVersion: 'aiw.run-result/v1', runId: request.runId, status: 'failed', runDirectory: request.runDirectory, startedAt: now, finishedAt: now, artifacts: [], error: { code, message } });
 }
 
-function preparationFailure(runId: string, runDirectory: string, code: string, message: string): RunResult {
-  const now = new Date().toISOString();
-  return RunResultSchema.parse({ schemaVersion: 'aiw.run-result/v1', runId, status: 'failed', runDirectory, startedAt: now, finishedAt: now, artifacts: [], error: { code, message } });
+function instructionFor(task: Task, nodeId: string): string {
+  const node = task.nodes[nodeId];
+  if (node === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', `未知节点：${nodeId}`);
+  if (node.phase !== 'design') return node.title;
+  if (task.designInput === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '设计分析节点缺少 Figma 设计地址');
+  return `${node.title}\nFigma 设计地址：${task.designInput.url}\n根节点 ID：${task.designInput.nodeId}`;
 }
 
 interface ActiveRun { taskId: string; nodeId: string; runId: string; runDirectory: string; controller: AbortController }

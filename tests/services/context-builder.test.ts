@@ -18,24 +18,17 @@ describe('ContextBuilder', () => {
     expect(manifest.files).toEqual([{ role: 'source', path: 'sources/requirements/current/snapshot.md' }]);
   });
 
-  it('gives design analysis the requirement, captured metadata, and overview screenshot', async () => {
+  it('gives browser-based design analysis only the requirement snapshot', async () => {
     const fixture = await setup();
     fixture.task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
     fixture.task.nodes['design-analysis'] = {
       title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: fixture.task.nodes.clarify!.skill,
       requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-catalog.yaml'],
     };
-    await mkdir(join(fixture.root, 'sources/design/current'), { recursive: true });
-    await writeFile(join(fixture.root, 'sources/design/current/metadata.txt'), '<frame name="Overview" />');
-    await writeFile(join(fixture.root, 'sources/design/current/overview.png'), Buffer.from('png'));
-
     const manifest = await fixture.builder.build({ task: fixture.task, nodeId: 'design-analysis', includes: [] });
 
-    expect(manifest.files).toEqual([
-      { role: 'source', path: 'sources/requirements/current/snapshot.md' },
-      { role: 'generated', path: 'sources/design/current/metadata.txt' },
-    ]);
-    expect(manifest.images).toEqual([{ path: 'sources/design/current/overview.png' }]);
+    expect(manifest.files).toEqual([{ role: 'source', path: 'sources/requirements/current/snapshot.md' }]);
+    expect(manifest.images).toEqual([]);
   });
 
   it('gives solution only the fact and decision registers', async () => {

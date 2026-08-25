@@ -9,6 +9,16 @@ export const FigmaDesignInputSchema = z.object({
   nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID，例如 9272:292810'),
 }).strict();
 
+export function parseFigmaDesignUrl(input: string): { fileKey: string; nodeId: string } | undefined {
+  let url: URL;
+  try { url = new URL(input); } catch { return undefined; }
+  if (url.protocol !== 'https:' || !['figma.com', 'www.figma.com'].includes(url.hostname)) return undefined;
+  const match = /^\/(?:design|file)\/([^/]+)\/.+/.exec(url.pathname);
+  const rawNodeId = url.searchParams.get('node-id');
+  if (match === null || rawNodeId === null || !/^\d+(?:-|:)\d+$/.test(rawNodeId)) return undefined;
+  return { fileKey: match[1], nodeId: rawNodeId.replace('-', ':') };
+}
+
 export const DesignReferenceSchema = z.object({
   figmaUrl: z.string().url(),
   nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),

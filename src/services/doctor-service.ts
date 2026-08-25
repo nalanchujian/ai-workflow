@@ -42,35 +42,12 @@ export class DoctorService {
         ? warning('document-connector-configuration', '文档连接器配置', '未检查文档连接器配置，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的文档连接器配置。')
         : failed('document-connector-configuration', '文档连接器配置', '无法验证指定文档，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的文档连接器配置。'));
       checks.push(warning('document-authorization', '文档读取授权', '未验证，因为本机配置无效。', '修复配置后运行 `aiw doctor --source <文档地址>`。'));
-      checks.push(warning('design-connector-configuration', 'Figma 设计连接器', '未检查，因为本机配置无效。', '修复配置后重新运行 `aiw doctor`。'));
       return result(checks);
     }
 
     checks.push(...await this.methodSourceChecks(config));
     checks.push(...await this.larkChecks(config, larkSource(input.source)));
-    checks.push(await this.figmaCheck(config));
     return result(checks);
-  }
-
-  private async figmaCheck(config: LocalConfigDocument): Promise<DoctorCheck> {
-    const profile = config.connectors.figma;
-    if (profile === undefined) {
-      return warning('design-connector-configuration', 'Figma 设计连接器', '未配置；普通需求不受影响。', '需要分析 Figma 时，在 `~/.aiw/config.yaml` 配置 `connectors.figma`。');
-    }
-    if (this.deps.mcpServerConfigResolver === undefined || this.deps.mcpClient?.listTools === undefined) {
-      return warning('design-connector-configuration', 'Figma 设计连接器', '当前运行环境无法检查 Figma MCP。', '使用完整的 aiw CLI 重新运行 `aiw doctor`。');
-    }
-    try {
-      const server = await this.deps.mcpServerConfigResolver.resolve({ source: profile.configSource.kind, path: profile.configSource.path, server: profile.server });
-      const available = new Set((await this.deps.mcpClient.listTools({ server })).map((tool) => tool.name));
-      const required = [profile.tools.metadata, profile.tools.screenshot, profile.tools.designContext];
-      const missing = required.filter((tool) => !available.has(tool));
-      return missing.length === 0
-        ? passed('design-connector-configuration', 'Figma 设计连接器', '元数据、截图和设计上下文工具均可用。')
-        : warning('design-connector-configuration', 'Figma 设计连接器', `缺少工具：${missing.join('、')}。`, '检查 Codex 中 Figma MCP 的工具配置。');
-    } catch {
-      return warning('design-connector-configuration', 'Figma 设计连接器', '无法解析或启动已配置的 Figma MCP。', '检查 `connectors.figma` 与 Codex MCP Server 名称。');
-    }
   }
 
   private async executableCheck(id: string, label: string, command: string, args: string[], cwd: string, suggestion: string): Promise<DoctorCheck> {

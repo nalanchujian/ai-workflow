@@ -10,7 +10,6 @@ import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskRunner } from '../../src/services/task-runner.js';
 import { TaskStore } from '../../src/services/task-store.js';
-import { DesignAnalysisInputPreparer } from '../../src/services/design-analysis-input-preparer.js';
 import { createSevenPhaseTask, createSkillLock } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -29,7 +28,7 @@ describe('TaskRunner', () => {
     await expect(readFile(join(fixture.store.taskDirectory('refund-123'), 'artifacts/clarify/fact-register.yaml'), 'utf8')).resolves.toContain('aiw.fact-register/v2');
   });
 
-  it('captures Figma only when the optional design-analysis node runs', async () => {
+  it('runs optional design analysis through Chrome without a Figma connector', async () => {
     const fixture = await createFixture('design');
     const task = await fixture.store.load('refund-123');
     task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
@@ -46,21 +45,9 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('succeeded');
     expect((await fixture.store.load(task.id)).nodes['design-analysis']?.status).toBe('completed');
-    expect(fixture.prompts.at(-1)).toContain('Figma 元数据和概览截图');
-    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'sources/design/current/overview.png'))).resolves.toEqual(Buffer.from('png'));
-  });
-
-  it('records a design-analysis failure when Figma MCP is unavailable', async () => {
-    const fixture = await createFixture('design-failure');
-    const task = await fixture.store.load('refund-123');
-    task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
-    task.nodes['design-analysis'] = { title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'), requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-catalog.yaml'] };
-    await fixture.store.update(task);
-
-    const result = await fixture.runner.run({ taskId: task.id, nodeId: 'design-analysis', dryRun: false, includes: [] });
-
-    expect(result).toMatchObject({ status: 'failed', error: { code: 'DESIGN_INPUT_UNAVAILABLE' } });
-    expect((await fixture.store.load(task.id)).nodes['design-analysis']?.status).toBe('failed');
+    expect(fixture.prompts.at(-1)).toContain('Figma 设计地址：https://www.figma.com/design/file-key/File?node-id=1-2');
+    expect(fixture.prompts.at(-1)).toContain('已登录的 Chrome');
+    expect(fixture.prompts.at(-1)).not.toContain('Figma MCP');
   });
 
   it('fails when the agent omits a declared artifact', async () => {
@@ -120,7 +107,7 @@ describe('TaskRunner', () => {
   });
 });
 
-async function createFixture(mode: 'design' | 'design-failure' | 'clarify' | 'missing-decision' | 'development' | 'development-no-changes') {
+async function createFixture(mode: 'design' | 'clarify' | 'missing-decision' | 'development' | 'development-no-changes') {
   const root = await createTempDirectory('aiw-runner-'); directories.push(root);
   const runtimeRoot = join(root, '.runtime');
   const store = new TaskStore(root);
@@ -169,17 +156,6 @@ async function createFixture(mode: 'design' | 'design-failure' | 'clarify' | 'mi
     taskStore: store, skillRegistry: registry, methodSourceResolver: new MethodSourceResolver(registry),
     contextBuilder: new ContextBuilder({ taskDirectory: (value) => store.taskDirectory(value.id), projectRoot: () => root, maxTokens: 20_000 }),
     taskFactGuard, changeInspector, adapter,
-    designInputPreparer: new DesignAnalysisInputPreparer({
-      taskStore: store,
-      connector: {
-        supports: () => true,
-        async captureRoot() {
-          if (mode === 'design-failure') throw new Error('Figma MCP 不可用');
-          return { fileKey: 'file-key', nodeId: '1:2', metadata: '<frame name="退款页" />', screenshot: Buffer.from('png'), capturedAt: '2026-08-24T00:00:00.000Z' };
-        },
-        async captureNode() { throw new Error('not used'); },
-      },
-    }),
     deliveryWorkspaceManager: {
       async prepare() {
         return {

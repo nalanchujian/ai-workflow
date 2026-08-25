@@ -6,12 +6,12 @@ import { z } from 'zod';
 
 import type { SkillLock, SourceKind, Task, TaskNode } from '../domain/task.js';
 import type { InstalledSkill } from '../domain/skill.js';
+import { parseFigmaDesignUrl } from '../domain/design.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
 import { executableStages, requiredExecutableStages } from '../domain/workflow-profile.js';
 import { SourceIntake, type SnapshotRecord } from './source-intake.js';
 import { SkillRegistry } from './skill-registry.js';
 import { TaskStore } from './task-store.js';
-import { parseFigmaDesignUrl } from './figma-design-connector.js';
 
 interface SourceIntakePort {
   classify?(value: string): SourceKind;

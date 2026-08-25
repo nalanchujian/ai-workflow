@@ -16,7 +16,7 @@ describe('LocalInitializer', () => {
 
     await expect(initializer.init()).resolves.toEqual({ schemaVersion: 'aiw.init/v1', status: 'created', configPath: join(directory, 'config.yaml') });
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('connectors: {}');
-    await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('ref: v0.0.3');
+    await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('ref: v0.0.4');
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('defaultProfile: standard-web-feature@0.0.1');
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('maxTokens: 20000');
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.not.toContain('methodSources:');
@@ -50,7 +50,7 @@ connectors:
 
     await expect(initializer.init()).resolves.toEqual({ schemaVersion: 'aiw.init/v1', status: 'updated', configPath: path });
     const updated = await readFile(path, 'utf8');
-    expect(updated).toContain('ref: v0.0.3');
+    expect(updated).toContain('ref: v0.0.4');
     expect(updated).toContain('maxTokens: 30000');
     expect(updated).toContain('server: figma');
   });

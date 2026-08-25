@@ -27,7 +27,7 @@ aiw task ignore <task-id> <development-unit-name> --note <原因>
 aiw task status <task-id>
 ```
 
-- `task init`：固化来源并创建任务。`--design` 只登记带 `node-id` 的 Figma 地址并增加可选设计节点；默认拒绝相同来源的重复未完成任务。
+- `task init`：固化来源并创建任务。`--design` 只登记带 `node-id` 的 Figma 地址并增加可选设计节点；设计节点由 Codex 使用已登录的 Chrome 读取该地址，AIW 不配置 Figma MCP；默认拒绝相同来源的重复未完成任务。
 - `task run`：执行 CLI 指定的需求、方案、计划或开发节点。
 - `task review`：逐项确认需求澄清产生的业务决策。
 - `task approve`：批准开发计划和开发单元划分。

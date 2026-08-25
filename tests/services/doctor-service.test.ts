@@ -35,6 +35,7 @@ describe('DoctorService', () => {
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-sources', status: 'warning' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', label: '文档连接器配置', status: 'passed' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', label: '文档读取授权', status: 'warning' }));
+    expect(result.checks.some((check) => check.id === 'design-connector-configuration')).toBe(false);
   });
 
   it('uses an explicitly supplied connected document only to verify its read authorization', async () => {
@@ -82,34 +83,6 @@ describe('DoctorService', () => {
     }).inspect({ projectRoot: directory, codexBin: 'codex' });
 
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'method-sources', status: 'passed' }));
-  });
-
-  it('checks the optional Figma MCP tools before a design-analysis task is run', async () => {
-    const directory = await createTempDirectory('aiw-doctor-figma-');
-    directories.push(directory);
-    await writeFile(join(directory, 'config.yaml'), [
-      'schemaVersion: aiw.local/v1',
-      'connectors:',
-      '  figma:',
-      '    configSource:',
-      '      kind: codex-toml',
-      `      path: ${join(directory, 'codex.toml')}`,
-      '    server: figma',
-      '    tools:',
-      '      metadata: get_metadata',
-      '      screenshot: get_screenshot',
-      '      designContext: get_design_context',
-      '',
-    ].join('\n'), 'utf8');
-    const result = await new DoctorService({
-      config: new LocalConfig(join(directory, 'config.yaml')),
-      projectRepository: { async assertProjectReady() {} },
-      processRunner: successfulProcessRunner(),
-      mcpServerConfigResolver: { async resolve() { return { transport: 'stdio', command: 'figma-mcp', args: [], env: {} }; } },
-      mcpClient: { async callTool() { return {}; }, async listTools() { return [{ name: 'get_metadata' }, { name: 'get_screenshot' }, { name: 'get_design_context' }]; } },
-    }).inspect({ projectRoot: directory, codexBin: 'codex' });
-
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'design-connector-configuration', status: 'passed' }));
   });
 
   it('reports a configuration failure before task creation when block listing is unavailable', async () => {

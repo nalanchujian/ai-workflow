@@ -70,7 +70,24 @@ describe('CodexAdapter', () => {
 
     const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(prompt).toContain('designReferences');
-    expect(prompt).toContain('Figma MCP');
+    expect(prompt).toContain('已登录的 Chrome');
+    expect(prompt).not.toContain('Figma MCP');
+  });
+
+  it('requires design analysis to inspect the supplied Figma URL through Chrome', async () => {
+    const projectRoot = await temporaryDirectory();
+    const runDirectory = join(projectRoot, '.runtime', 'run-design-browser');
+    const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
+    const request = runRequest({ projectRoot, runDirectory, phase: 'design', artifacts: ['artifacts/design/design-context.md'] });
+    request.instruction = '分析设计稿\nFigma 设计地址：https://www.figma.com/design/example/File?node-id=1-2';
+
+    await adapter.run(request);
+
+    const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
+    expect(prompt).toContain('https://www.figma.com/design/example/File?node-id=1-2');
+    expect(prompt).toContain('已登录的 Chrome');
+    expect(prompt).toContain('使用 Chrome 浏览器控制能力');
+    expect(prompt).not.toContain('Figma MCP');
   });
 
   it('maps missing Codex and timeouts to stable failures', async () => {
@@ -82,19 +99,6 @@ describe('CodexAdapter', () => {
     expect(await timeout.run(runRequest({ projectRoot, runDirectory: join(projectRoot, 'timeout'), phase: 'solution', artifacts: ['artifacts/solution/solution.md'] }))).toMatchObject({ status: 'failed', error: { code: 'CODEX_TIMEOUT' } });
   });
 
-  it('passes declared design screenshots to Codex as image inputs', async () => {
-    const projectRoot = await temporaryDirectory();
-    const runDirectory = join(projectRoot, '.runtime', 'run-design');
-    const calls: Array<{ args: string[] }> = [];
-    const adapter = new CodexAdapter({ processRunner: { async run(input) { calls.push(input); return ok(); } } });
-    const request = runRequest({ projectRoot, runDirectory, phase: 'design', artifacts: ['artifacts/design/design-context.md'] });
-    request.context.images = [{ path: 'sources/design/current/overview.png', absolutePath: join(projectRoot, 'overview.png') }];
-
-    await adapter.run(request);
-
-    expect(calls[0]!.args).toContain('--image');
-    expect(calls[0]!.args).toContain(join(projectRoot, 'overview.png'));
-  });
 });
 
 function runRequest(input: { projectRoot: string; runDirectory: string; phase: RunRequest['task']['phase']; artifacts: string[] }): RunRequest {

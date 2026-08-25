@@ -12,7 +12,6 @@ import { TaskDecisionService } from '../../src/services/task-decision-service.js
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskRunner } from '../../src/services/task-runner.js';
 import { TaskStore } from '../../src/services/task-store.js';
-import { DesignAnalysisInputPreparer } from '../../src/services/design-analysis-input-preparer.js';
 import { createSevenPhaseTask, createSkillLock } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
@@ -100,7 +99,7 @@ async function setup(withDesign = false) {
   let runNumber = 0;
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     const stagingRoot = stagingRootFrom(input.stdin, input.cwd);
-    if (input.stdin.includes('Figma 元数据和概览截图')) {
+    if (input.stdin.includes('<artifact-protocol id="design-catalog"')) {
       await write(stagingRoot, 'artifacts/design/design-catalog.yaml', stringify({ schemaVersion: 'aiw.design-catalog/v1', source: task.designInput, items: [{ figmaUrl: task.designInput!.url, nodeId: '1:2', title: '退款页', kind: 'page', purpose: '申请退款', states: ['默认态'] }] }));
       await write(stagingRoot, 'artifacts/design/design-rules.yaml', stringify({ schemaVersion: 'aiw.design-rules/v1', rules: [{ category: 'layout', statement: '使用单列布局', nodeIds: ['1:2'] }], openQuestions: [] }));
       await write(stagingRoot, 'artifacts/design/design-context.md', '# 设计上下文\n\n## 设计范围\n\n退款页。\n\n## 页面与状态\n\n默认态。\n\n## 共性规则\n\n单列布局。\n\n## 待确认问题\n\n无。\n');
@@ -135,10 +134,6 @@ async function setup(withDesign = false) {
     taskStore: store, skillRegistry: registry, methodSourceResolver: new MethodSourceResolver(registry),
     contextBuilder: new ContextBuilder({ taskDirectory: (value) => store.taskDirectory(value.id), projectRoot: () => root, maxTokens: 20_000 }),
     taskFactGuard,
-    ...(withDesign ? { designInputPreparer: new DesignAnalysisInputPreparer({
-      taskStore: store,
-      connector: { supports: () => true, async captureRoot() { return { fileKey: 'file-key', nodeId: '1:2', metadata: '<frame name="退款页" />', screenshot: Buffer.from('png'), capturedAt: '2026-08-24T00:00:00.000Z' }; }, async captureNode() { throw new Error('not used'); } },
-    }) } : {}),
     changeInspector: { async changedPaths() { return []; }, async untrackedPaths() { return []; }, async diff() { return ''; }, async revision() { return { head: 'abc', branch: 'main' }; } },
     deliveryWorkspaceManager: {
       async prepare() {

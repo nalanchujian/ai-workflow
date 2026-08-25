@@ -76,16 +76,6 @@ context:
 #     tool: get_document
 #     # 使用 Lark UAT 环境时设为 true。
 #     useUAT: false
-#   figma:
-#     # 从 Codex 配置读取已授权的只读 Figma MCP Server。
-#     configSource:
-#       kind: codex-toml
-#       path: ~/.codex/config.toml
-#     server: figma
-#     tools:
-#       metadata: get_metadata
-#       screenshot: get_screenshot
-#       designContext: get_design_context
 connectors: {}
 `;
 

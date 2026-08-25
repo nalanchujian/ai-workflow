@@ -88,7 +88,7 @@ function phaseProtocol(request: RunRequest): string {
   const markdown = markdownArtifactContractFor(request.artifacts);
   const protocolContext = { taskId: request.task.id, nodeId: request.task.nodeId, phase: request.task.phase, evidencePath: request.context.files[0]?.path ?? 'source', testProfile: '', testEvidenceType: 'unit' as const };
   if (request.task.phase === 'design') {
-    return `先根据 Figma 元数据和概览截图建立页面/区域目录，再按需要使用 Figma MCP 深入读取代表性节点。输出设计目录、设计规则和简体中文设计上下文；不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-catalog', protocolContext)}\n\n${renderAgentArtifactProtocol('design-rules', protocolContext)}\n\n${markdown}`;
+    return `使用 Chrome 浏览器控制能力，在已登录的 Chrome 中打开任务声明的 Figma 设计地址。先观察根节点并建立页面/区域目录，再按代表性页面、状态和弹窗逐步读取；大型节点不得一次性展开全部内容。若页面未登录、无权限或浏览器不可用，明确失败原因，不得猜测设计内容。输出设计目录、设计规则和简体中文设计上下文；不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-catalog', protocolContext)}\n\n${renderAgentArtifactProtocol('design-rules', protocolContext)}\n\n${markdown}`;
   }
   if (request.task.phase === 'clarify') {
     return [
@@ -101,7 +101,7 @@ function phaseProtocol(request: RunRequest): string {
   if (request.task.phase === 'plan') {
     return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
   }
-  return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；如果单元上下文包含 designReferences，必须先通过 Figma MCP 读取其中声明的具体节点和截图，再进行页面实现；不要自行展开无关设计节点。不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
+  return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；如果单元上下文包含 designReferences，必须使用 Chrome 浏览器控制能力，在已登录的 Chrome 中逐一打开声明的具体 Figma 节点，观察页面和关键状态后再实现；不要自行展开无关设计节点。不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
 }
 
 function outputReceipt(request: RunRequest, taskRoot: string): string {

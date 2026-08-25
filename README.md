@@ -19,7 +19,7 @@
 各阶段职责：
 
 - `intake`：读取本地文件、公开 URL 或已配置连接器支持的在线文档，固化来源快照。
-- `design-analysis`（可选）：读取 Figma 父节点，形成设计目录、设计规则和设计上下文。
+- `design-analysis`（可选）：通过已登录的 Chrome 读取 Figma 父节点，形成设计目录、设计规则和设计上下文。
 - `clarify`：只生成事实登记和决策登记；不生成验收项或跨节点 ID。
 - `review`：逐项选择“本期继续”或“延期处理”；本期继续时选择 AI 提供的方案，延期事项退出当前任务。
 - `solution`：根据当前事实和本期决策生成技术方案。
@@ -51,7 +51,7 @@ git add .aiw && git commit -m "chore(aiw): initialize task"
 aiw task run <task-id> clarify
 ```
 
-需求关联大型 Figma 节点时，在创建任务时增加 `--design "<带 node-id 的 Figma 地址>"`。此时下一步先执行独立的 `design-analysis`；普通任务不受影响。
+需求关联大型 Figma 节点时，先在 Chrome 中登录有权限的 Figma 账号，再在创建任务时增加 `--design "<带 node-id 的 Figma 地址>"`。此时下一步先执行独立的 `design-analysis`；AIW 不使用或配置 Figma MCP，普通任务不受影响。
 
 每一步都会直接显示下一条 `review`、`approve` 或具体节点的 `run` 命令。任务事实位于业务仓库 `.aiw/`，运行日志和临时 worktree 位于本机 `~/.aiw/runtime/`。
 

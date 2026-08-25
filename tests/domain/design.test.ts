@@ -4,9 +4,16 @@ import {
   DesignCatalogSchema,
   DesignRulesSchema,
   FigmaDesignInputSchema,
+  parseFigmaDesignUrl,
 } from '../../src/domain/design.js';
 
 describe('design contracts', () => {
+  it('parses a node-specific Figma Design URL for browser analysis', () => {
+    expect(parseFigmaDesignUrl('https://www.figma.com/design/file-key/file-name?node-id=9272-292810&m=dev'))
+      .toEqual({ fileKey: 'file-key', nodeId: '9272:292810' });
+    expect(parseFigmaDesignUrl('https://www.figma.com/design/file-key/file-name')).toBeUndefined();
+  });
+
   it('accepts a Figma root input and scoped child-node catalog', () => {
     const source = FigmaDesignInputSchema.parse({
       provider: 'figma',
