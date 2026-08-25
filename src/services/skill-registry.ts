@@ -119,18 +119,11 @@ export class SkillRegistry {
       }
       current = emptyRegistry();
     }
-    const incomingRevisions = new Set([
-      ...input.skills.map((skill) => skill.registrySource.revision),
-      ...input.profiles.map((profile) => profile.registrySource.revision),
-      ...(input.methods ?? []).map((method) => method.registrySource.revision),
-    ]);
-    const replacesIncomingRevision = (source: { url: string; revision: string }): boolean => (
-      source.url === input.sourceUrl && incomingRevisions.has(source.revision)
-    );
+    const belongsToSource = (source: { url: string }): boolean => source.url === input.sourceUrl;
     await this.replace({
-      skills: [...current.skills.filter((skill) => !replacesIncomingRevision(skill.registrySource)), ...input.skills],
-      profiles: [...current.profiles.filter((profile) => !replacesIncomingRevision(profile.registrySource)), ...input.profiles],
-      methods: [...current.methods.filter((method) => !replacesIncomingRevision(method.registrySource)), ...(input.methods ?? [])],
+      skills: [...current.skills.filter((skill) => !belongsToSource(skill.registrySource)), ...input.skills],
+      profiles: [...current.profiles.filter((profile) => !belongsToSource(profile.registrySource)), ...input.profiles],
+      methods: [...current.methods.filter((method) => !belongsToSource(method.registrySource)), ...(input.methods ?? [])],
     });
   }
 

@@ -25,13 +25,13 @@ describe('init command', () => {
   it('keeps the initialization result machine-readable with --json', async () => {
     let output = '';
     const command = new Command().option('--json').addCommand(createInitCommand({
-      bootstrapper: { async init() { return { schemaVersion: 'aiw.init/v1', status: 'already-initialized', configPath: '/home/j/.aiw/config.yaml', workflow: { profile: 'standard-web-feature@2.0.0', source: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' }, revision: 'revision', status: 'reused' } }; } } as never,
+      bootstrapper: { async init() { return { schemaVersion: 'aiw.init/v1', status: 'already-initialized', configPath: '/home/j/.aiw/config.yaml', workflow: { profile: 'standard-web-feature@2.0.0', source: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' }, revision: 'revision', status: 'installed' } }; } } as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     }));
 
     await command.parseAsync(['node', 'aiw', '--json', 'init']);
 
-    expect(JSON.parse(output)).toMatchObject({ schemaVersion: 'aiw.init/v1', status: 'already-initialized', configPath: '/home/j/.aiw/config.yaml', workflow: { profile: 'standard-web-feature@2.0.0', status: 'reused' } });
+    expect(JSON.parse(output)).toMatchObject({ schemaVersion: 'aiw.init/v1', status: 'already-initialized', configPath: '/home/j/.aiw/config.yaml', workflow: { profile: 'standard-web-feature@2.0.0', status: 'installed' } });
   });
 
   it('uses user-oriented wording when configuration and skills already exist', async () => {
@@ -41,7 +41,7 @@ describe('init command', () => {
         schemaVersion: 'aiw.init/v1',
         status: 'already-initialized',
         configPath: '/home/j/.aiw/config.yaml',
-        workflow: { profile: 'standard-web-feature@2.0.0', source: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' }, revision: 'revision', status: 'reused' },
+        workflow: { profile: 'standard-web-feature@2.0.0', source: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' }, revision: 'revision', status: 'installed' },
         connector: { status: 'configured', server: 'lark-openapi', tool: 'docx_v1_document_rawContent' },
       }; } } as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
@@ -62,7 +62,7 @@ describe('init command', () => {
     const command = createInitCommand({
       bootstrapper: { async init() { return {
         schemaVersion: 'aiw.init/v1', status: 'already-initialized', configPath: '/home/j/.aiw/config.yaml',
-        workflow: { profile: 'standard-web-feature@2.0.0', source: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' }, revision: 'revision', status: 'reused' },
+        workflow: { profile: 'standard-web-feature@2.0.0', source: { url: 'https://github.com/nalanchujian/ai-workflow-skills.git', ref: 'v2.0.0' }, revision: 'revision', status: 'installed' },
         connector: { status: 'ambiguous', servers: ['lark-openapi', 'lark-uat'] },
       }; } } as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,

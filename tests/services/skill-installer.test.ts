@@ -44,6 +44,28 @@ describe('SkillInstaller', () => {
     ]));
   });
 
+  it('replaces the previous revision when reinstalling the same source', async () => {
+    const directory = await createTempDirectory('aiw-skill-installer-');
+    directories.push(directory);
+    const { repository } = await createBundledSkillRepositoryFixture(directory);
+    const registry = new SkillRegistry(join(directory, 'registry.yaml'));
+    let revision = 'a'.repeat(40);
+    const installer = new SkillInstaller({
+      git: { async clone() { return { directory: repository, revision }; } },
+      registry,
+    });
+
+    await installer.install({ url: 'https://example.test/skills.git', ref: 'v1' });
+    revision = 'b'.repeat(40);
+    await installer.install({ url: 'https://example.test/skills.git', ref: 'v2' });
+
+    await expect(registry.list()).resolves.toHaveLength(5);
+    await expect(registry.listProfiles()).resolves.toEqual([
+      expect.objectContaining({ registrySource: { url: 'https://example.test/skills.git', revision: 'b'.repeat(40) } }),
+    ]);
+    await expect(registry.listMethods()).resolves.toHaveLength(2);
+  });
+
   it('rejects an invalid bundled reference without changing the Registry', async () => {
     const directory = await createTempDirectory('aiw-skill-installer-');
     directories.push(directory);

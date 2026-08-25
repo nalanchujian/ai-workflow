@@ -107,7 +107,6 @@ export function createCliRuntime(input: {
     initializer: localInitializer,
     config,
     installer,
-    registry,
     ...(input.ports.mcpClient === undefined || input.ports.mcpServerCatalog === undefined ? {} : {
       larkDiscovery: new LarkConnectorAutoDiscovery({
         config,

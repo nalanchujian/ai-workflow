@@ -39,7 +39,7 @@
 ## 快速开始
 
 ```bash
-npm install -g @nalanchujian/aiw
+npm install -g @nalanchujian/aiw@latest
 cd <业务仓库>
 aiw init
 aiw doctor
@@ -54,6 +54,8 @@ aiw task run <task-id> clarify
 需求关联大型 Figma 节点时，在创建任务时增加 `--design "<带 node-id 的 Figma 地址>"`。此时下一步先执行独立的 `design-analysis`；普通任务不受影响。
 
 每一步都会直接显示下一条 `review`、`approve` 或具体节点的 `run` 命令。任务事实位于业务仓库 `.aiw/`，运行日志和临时 worktree 位于本机 `~/.aiw/runtime/`。
+
+升级 npm 包后再次运行 `aiw init`。它会把官方技能来源同步到该 npm 版本指定的 Git 标签，并以当前安装覆盖同一来源的旧技能、方法和模板记录。当前 MVP 不兼容依赖旧技能 revision 的任务，升级后请创建新任务。
 
 ## 本地开发
 

@@ -1,7 +1,6 @@
 import type { LocalInitializationResult, LocalInitializer } from './local-initializer.js';
 import type { LocalConfig } from './local-config.js';
 import type { SkillInstaller } from './skill-installer.js';
-import type { SkillRegistry } from './skill-registry.js';
 import type { LarkConnectorAutoDiscovery, LarkConnectorDiscoveryResult } from './lark-connector-auto-discovery.js';
 
 export interface DefaultWorkflowBootstrapResult extends LocalInitializationResult {
@@ -9,7 +8,7 @@ export interface DefaultWorkflowBootstrapResult extends LocalInitializationResul
     profile: string;
     source: { url: string; ref: string };
     revision: string;
-    status: 'installed' | 'reused';
+    status: 'installed';
   };
   connector?: LarkConnectorDiscoveryResult;
 }
@@ -19,7 +18,6 @@ export class DefaultWorkflowBootstrapper {
     initializer: Pick<LocalInitializer, 'init'>;
     config: Pick<LocalConfig, 'defaultWorkflow'>;
     installer: Pick<SkillInstaller, 'install'>;
-    registry: Pick<SkillRegistry, 'findProfile'>;
     larkDiscovery?: Pick<LarkConnectorAutoDiscovery, 'discover'>;
   }) {}
 
@@ -27,18 +25,6 @@ export class DefaultWorkflowBootstrapper {
     const initialized = await this.deps.initializer.init();
     const workflow = await this.deps.config.defaultWorkflow();
     const [name, version] = splitProfileReference(workflow.defaultProfile);
-    const existing = await this.deps.registry.findProfile(name, version);
-    if (existing !== undefined && existing.registrySource.url === workflow.defaultSkillSource.url) {
-      return this.withConnector({
-        ...initialized,
-        workflow: {
-          profile: workflow.defaultProfile,
-          source: { ...workflow.defaultSkillSource },
-          revision: existing.registrySource.revision,
-          status: 'reused',
-        },
-      }, input);
-    }
     let installed: Awaited<ReturnType<SkillInstaller['install']>>;
     try {
       installed = await this.deps.installer.install({ ...workflow.defaultSkillSource });

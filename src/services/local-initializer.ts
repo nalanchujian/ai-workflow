@@ -36,9 +36,10 @@ export class LocalInitializer {
     if (document === null || typeof document !== 'object' || Array.isArray(document)) {
       return false;
     }
+    const shouldSyncOfficialWorkflow = !('workflow' in document) || isOfficialWorkflow(document.workflow);
     const updates = {
       ...document,
-      ...('workflow' in document ? {} : { workflow: officialDefaultWorkflow }),
+      ...(shouldSyncOfficialWorkflow ? { workflow: officialDefaultWorkflow } : {}),
       ...('context' in document ? {} : { context: { maxTokens: DEFAULT_CONTEXT_TOKEN_BUDGET } }),
     };
     if (JSON.stringify(updates) === JSON.stringify(document)) return false;
@@ -51,12 +52,12 @@ const localConfigTemplate = `# AI Workflow 本机配置；此文件仅保存个�
 # 默认团队技能包内置方法，无需配置或单独安装 Superpowers。
 schemaVersion: aiw.local/v1
 
-# aiw init 会自动安装这里指定的来源；仅在团队升级时才修改 ref。
+# aiw init 会把官方来源同步为当前 AIW 版本指定的标签，并覆盖同一来源的旧安装记录。
 workflow:
   defaultSkillSource:
-    url: https://github.com/nalanchujian/ai-workflow-skills.git
-    ref: v0.0.2
-  defaultProfile: standard-web-feature@0.0.1
+    url: ${officialDefaultWorkflow.defaultSkillSource.url}
+    ref: ${officialDefaultWorkflow.defaultSkillSource.ref}
+  defaultProfile: ${officialDefaultWorkflow.defaultProfile}
 
 # 单次交给 Codex 的完整上下文上限。超过时 AIW 会拒绝执行并给出拆分建议。
 # 降低可节省 token；提高可承载更大的需求，但会增加调用成本。
@@ -90,4 +91,13 @@ connectors: {}
 
 function isAlreadyExists(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST';
+}
+
+function isOfficialWorkflow(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const source = Reflect.get(value, 'defaultSkillSource');
+  return source !== null
+    && typeof source === 'object'
+    && !Array.isArray(source)
+    && Reflect.get(source, 'url') === officialDefaultWorkflow.defaultSkillSource.url;
 }
