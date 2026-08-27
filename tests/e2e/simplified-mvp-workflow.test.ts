@@ -53,7 +53,7 @@ describe('simplified MVP workflow', () => {
     expect(task.nodes['design-analysis']?.status).toBe('completed');
     expect(task.nodes.clarify?.status).toBe('ready');
     await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/design-assets.yaml'), 'utf8')).resolves.toContain('aiw.design-assets/v1');
-    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/assets/refund-page.png'))).resolves.toBeInstanceOf(Buffer);
+    await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/assets/refund-flow-block.png'))).resolves.toBeInstanceOf(Buffer);
   });
 });
 
@@ -101,9 +101,9 @@ async function setup(withDesign = false) {
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     const stagingRoot = stagingRootFrom(input.stdin, input.cwd);
     if (input.stdin.includes('<artifact-protocol id="design-assets"')) {
-      await write(stagingRoot, 'artifacts/design/design-assets.yaml', stringify({ schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source: task.designInput, assets: [{ id: 'refund-page', figmaUrl: task.designInput!.url, nodeId: '1:2', sectionNodeId: '1:1', title: '退款页', kind: 'page', imagePath: 'artifacts/design/assets/refund-page.png' }] }));
+      await write(stagingRoot, 'artifacts/design/design-assets.yaml', stringify({ schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source: task.designInput, coverage: { sourceExportCount: 1, logicalBlockCount: 1 }, assets: [{ id: 'refund-flow-block', figmaUrl: task.designInput!.url, nodeId: '1:2', sectionNodeId: '1:2', title: '退款流程', kind: 'block', imagePath: 'artifacts/design/assets/refund-flow-block.png' }] }));
       await mkdir(join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets'), { recursive: true });
-      await writeFile(join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets/refund-page.png'), Buffer.from('89504e470d0a1a0a00000000', 'hex'));
+      await writeFile(join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets/refund-flow-block.png'), Buffer.from('89504e470d0a1a0a00000000', 'hex'));
     } else if (input.stdin.includes('澄清阶段只生成事实登记和决策登记')) {
       await write(stagingRoot, 'artifacts/clarify/fact-register.yaml', stringify({
         schemaVersion: 'aiw.fact-register/v2',

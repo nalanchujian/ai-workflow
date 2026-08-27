@@ -63,10 +63,10 @@ describe('development work planner', () => {
       provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-1', fileKey: 'file-key', nodeId: '1:1',
     };
     await fixture.store.replaceFact(fixture.task.id, 'artifacts/design/design-assets.yaml', [
-      'schemaVersion: aiw.design-assets/v1', 'analysisStatus: completed', 'source:', '  provider: figma',
+      'schemaVersion: aiw.design-assets/v1', 'analysisStatus: completed', 'coverage:', '  sourceExportCount: 1', '  logicalBlockCount: 1', 'source:', '  provider: figma',
       '  url: https://www.figma.com/design/file-key/File?node-id=1-1', '  fileKey: file-key', '  nodeId: "1:1"',
       'assets:', '  - id: main-page', '    figmaUrl: https://www.figma.com/design/file-key/File?node-id=1-2',
-      '    nodeId: "1:2"', '    sectionNodeId: "1:1"', '    title: 主页面', '    kind: page',
+      '    nodeId: "1:2"', '    sectionNodeId: "1:2"', '    title: 主流程', '    kind: block',
       '    imagePath: artifacts/design/assets/main-page.png',
     ].join('\n'));
     await fixture.store.replaceFact(fixture.task.id, 'artifacts/plan/development-plan.yaml', [

@@ -87,17 +87,44 @@ describe('CodexAdapter', () => {
     const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(prompt).toContain('https://www.figma.com/design/example/File?node-id=1-2');
     expect(prompt).toContain('已登录的 Chrome');
-    expect(prompt).toContain('使用 Chrome 浏览器控制能力');
-    expect(prompt).toContain('先检查 Chrome 已打开的页签');
-    expect(prompt).toContain('Figma fileKey 和 node-id');
-    expect(prompt).toContain('直接激活并复用');
-    expect(prompt).toContain('不要刷新、重新导航或新建页签');
-    expect(prompt).toContain('Ready for dev Section 只作为识别入口');
-    expect(prompt).toContain('排除编号、标题、连线、Notes');
-    expect(prompt).toContain('页面与弹窗状态分别截图');
+    expect(prompt).toContain('Figma 原生');
+    expect(prompt).toContain('claim URL 中 fileKey 与任务一致的已有 Figma 页签');
+    expect(prompt).toContain('找不到时才新建临时页签');
+    expect(prompt).toContain('只关闭本次新建的临时页签');
+    expect(prompt).toContain('Actions → Copy as PNG');
+    expect(prompt).toContain('image/png');
+    expect(prompt).toContain('完整父节点 PNG');
+    expect(prompt).toContain('绿色背景');
+    expect(prompt).toContain('编号');
+    expect(prompt).toContain('逻辑业务块');
+    expect(prompt).toContain('本地裁切');
+    expect(prompt).toContain('不得把直接子节点数量当作业务块数量');
+    expect(prompt).toContain('不得修改 Figma 文件');
+    expect(prompt).not.toContain('逐个检查属于该 Section 的 Thumbnail 条目');
+    expect(prompt).not.toContain('tab.screenshot 返回的字节');
+    expect(prompt).not.toContain('先保存完整浏览器截图');
+    expect(prompt).not.toContain('screencapture -x');
+    expect(prompt).not.toContain('osascript');
+    expect(prompt).toContain('view_image');
+    expect(prompt).toContain('file');
+    expect(prompt).toContain('裁切图片数量必须等于逻辑业务块数量');
+    expect(prompt).toContain('保留用户原有 Chrome 页签');
     expect(prompt).toContain('artifacts/design/assets/');
     expect(prompt).not.toContain('输出设计规则');
-    expect(prompt).not.toContain('Figma MCP');
+    expect(prompt).toContain('不得调用 Figma MCP');
+  });
+
+  it('always starts a fresh Codex session for design analysis retries', async () => {
+    const projectRoot = await temporaryDirectory();
+    const currentRun = join(projectRoot, '.runtime', 'task-1', 'current-run');
+    const calls: Array<{ args: string[] }> = [];
+    const adapter = new CodexAdapter({ processRunner: { async run(input) { calls.push(input); return ok(); } } });
+
+    await adapter.run(runRequest({ projectRoot, runDirectory: currentRun, phase: 'design', artifacts: ['artifacts/design/design-assets.yaml'] }));
+
+    expect(calls[0]!.args).toEqual([
+      'exec', '--cd', projectRoot, '--approve-for-me', '--output-last-message', join(currentRun, 'last-message.md'), '-'
+    ]);
   });
 
   it('maps missing Codex and timeouts to stable failures', async () => {

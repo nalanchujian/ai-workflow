@@ -25,16 +25,40 @@ describe('design contracts', () => {
       schemaVersion: 'aiw.design-assets/v1',
       analysisStatus: 'completed',
       source,
+      coverage: { sourceExportCount: 1, logicalBlockCount: 1 },
       assets: [{
         id: 'tracking-links-page',
         figmaUrl: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292811',
         nodeId: '9272:292811',
         sectionNodeId: '9272:292810',
         title: 'Performance overview',
-        kind: 'page',
+        kind: 'block',
         imagePath: 'artifacts/design/assets/tracking-links-page.png',
       }],
     })).toMatchObject({ assets: [{ nodeId: '9272:292811' }] });
+  });
+
+  it('requires completed design analysis to map every logical block from a native parent export', () => {
+    const source = FigmaDesignInputSchema.parse({
+      provider: 'figma', url: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292810',
+      fileKey: 'file-key', nodeId: '9272:292810',
+    });
+    const asset = {
+      id: 'tracking-links-page', figmaUrl: source.url, nodeId: '9272:292811', sectionNodeId: source.nodeId,
+      title: 'Tracking links', kind: 'block', imagePath: 'artifacts/design/assets/tracking-links-page.png',
+    };
+
+    expect(() => DesignAssetsSchema.parse({
+      schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source, assets: [asset],
+    })).toThrow(/coverage/);
+    expect(() => DesignAssetsSchema.parse({
+      schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source,
+      coverage: { sourceExportCount: 1, logicalBlockCount: 2 }, assets: [asset],
+    })).toThrow(/逻辑业务块/);
+    expect(DesignAssetsSchema.parse({
+      schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source,
+      coverage: { sourceExportCount: 1, logicalBlockCount: 1 }, assets: [asset],
+    }).coverage).toEqual({ sourceExportCount: 1, logicalBlockCount: 1 });
   });
 
   it('requires a blocking reason when the browser cannot read the design', () => {

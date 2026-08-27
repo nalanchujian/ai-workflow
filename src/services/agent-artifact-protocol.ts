@@ -65,12 +65,14 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
         schemaVersion: 'aiw.design-assets/v1',
         analysisStatus: 'completed',
         source: { provider: 'figma', url, fileKey: 'example', nodeId: '1:2' },
-        assets: [{ id: 'order-list-page', figmaUrl: url, nodeId: '1:2', sectionNodeId: '1:1', title: '订单列表', kind: 'page', imagePath: 'artifacts/design/assets/order-list-page.png' }],
+        coverage: { sourceExportCount: 1, logicalBlockCount: 1 },
+        assets: [{ id: 'order-flow-block', figmaUrl: url, nodeId: '1:2', sectionNodeId: '1:2', title: '订单流程', kind: 'block', imagePath: 'artifacts/design/assets/order-flow-block.png' }],
       },
       rules: [
-        '只有实际截取到至少一个完整页面或弹窗状态时，analysisStatus 才能是 completed。',
-        '页面未登录、无权限、浏览器不可用、画布持续加载或只看到根节点占位时，analysisStatus 必须是 blocked，并填写 blockingReason。',
-        '每项必须记录具体 Figma 节点以及对应的本地图片路径。',
+        '只有通过 Figma 原生 Copy as PNG 取得父节点图片并裁出至少一个逻辑业务块时，analysisStatus 才能是 completed。',
+        '页面未登录、无权限、浏览器不可用或原生复制失败时，analysisStatus 必须是 blocked，并填写 blockingReason。',
+        'analysisStatus 为 blocked 时不要输出 coverage；completed 时 sourceExportCount 固定为 1，logicalBlockCount 必须等于 assets 数量。',
+        '每项代表父节点原生 PNG 中裁出的一个逻辑业务块，kind 使用 block，nodeId 与 sectionNodeId 使用来源父节点 ID。',
       ],
     };
   }

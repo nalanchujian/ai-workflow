@@ -16,7 +16,7 @@ describe('LocalInitializer', () => {
 
     await expect(initializer.init()).resolves.toEqual({ schemaVersion: 'aiw.init/v1', status: 'created', configPath: join(directory, 'config.yaml') });
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('connectors: {}');
-    await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('ref: v0.0.5');
+    await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('ref: v0.0.8');
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('defaultProfile: standard-web-feature');
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.not.toContain('standard-web-feature@');
     await expect(readFile(join(directory, 'config.yaml'), 'utf8')).resolves.toContain('maxTokens: 20000');
@@ -49,7 +49,7 @@ connectors:
 
     await expect(initializer.init()).resolves.toEqual({ schemaVersion: 'aiw.init/v1', status: 'updated', configPath: path });
     const updated = await readFile(path, 'utf8');
-    expect(updated).toContain('ref: v0.0.5');
+    expect(updated).toContain('ref: v0.0.8');
     expect(updated).toContain('defaultProfile: standard-web-feature');
     expect(updated).not.toContain('standard-web-feature@');
     expect(updated).toContain('maxTokens: 30000');

@@ -47,8 +47,10 @@ describe('TaskRunner', () => {
     expect((await fixture.store.load(task.id)).nodes['design-analysis']?.status).toBe('completed');
     expect(fixture.prompts.at(-1)).toContain('Figma 设计地址：https://www.figma.com/design/file-key/File?node-id=1-2');
     expect(fixture.prompts.at(-1)).toContain('已登录的 Chrome');
-    expect(fixture.prompts.at(-1)).toContain('Ready for dev Section 只作为识别入口');
-    expect(fixture.prompts.at(-1)).not.toContain('Figma MCP');
+    expect(fixture.prompts.at(-1)).toContain('Figma 原生 Actions → Copy as PNG');
+    expect(fixture.prompts.at(-1)).toContain('逻辑业务块');
+    expect(fixture.prompts.at(-1)).not.toContain('Ready for dev Section 只作为识别入口');
+    expect(fixture.prompts.at(-1)).toContain('不得调用 Figma MCP');
   });
 
   it('fails design analysis and keeps clarification pending when browser reading is blocked', async () => {
@@ -187,11 +189,11 @@ async function createFixture(mode: 'design' | 'design-blocked' | 'design-placeho
       const directory = join(taskRoot, 'artifacts/design'); await mkdir(directory, { recursive: true });
       await writeFile(join(directory, 'design-assets.yaml'), stringify(mode === 'design-blocked'
         ? { schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'blocked', blockingReason: 'Figma 画布与图层持续停留在加载占位。', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, assets: [] }
-        : { schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, assets: mode === 'design-placeholder' ? [] : [{ id: 'refund-page', figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', sectionNodeId: '1:1', title: '退款页', kind: 'page', imagePath: 'artifacts/design/assets/refund-page.png' }] }));
+        : { schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source: { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' }, coverage: { sourceExportCount: 1, logicalBlockCount: 1 }, assets: mode === 'design-placeholder' ? [] : [{ id: 'refund-flow-block', figmaUrl: 'https://www.figma.com/design/file-key/File?node-id=1-2', nodeId: '1:2', sectionNodeId: '1:2', title: '退款流程', kind: 'block', imagePath: 'artifacts/design/assets/refund-flow-block.png' }] }));
       if (mode === 'design') {
         const assetDirectory = join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets');
         await mkdir(assetDirectory, { recursive: true });
-        await writeFile(join(assetDirectory, 'refund-page.png'), Buffer.from('89504e470d0a1a0a00000000', 'hex'));
+        await writeFile(join(assetDirectory, 'refund-flow-block.png'), Buffer.from('89504e470d0a1a0a00000000', 'hex'));
       }
     } else if (mode === 'development' || mode === 'development-no-changes') {
       const path = join(taskRoot, 'artifacts/development/development-unit-refund-entry/result.md'); await mkdir(dirname(path), { recursive: true });

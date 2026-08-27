@@ -9,7 +9,7 @@ export interface DefaultWorkflow {
 export const officialDefaultWorkflow: DefaultWorkflow = {
   defaultSkillSource: {
     url: 'https://github.com/nalanchujian/ai-workflow-skills.git',
-    ref: 'v0.0.5',
+    ref: 'v0.0.8',
   },
   defaultProfile: 'standard-web-feature',
 };

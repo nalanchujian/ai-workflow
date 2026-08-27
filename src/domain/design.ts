@@ -33,7 +33,7 @@ const DesignAssetSchema = z.object({
   nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
   sectionNodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
   title: z.string().min(1),
-  kind: z.enum(['page', 'dialog', 'drawer', 'popover', 'state']),
+  kind: z.enum(['block', 'page', 'dialog', 'drawer', 'popover', 'state']),
   imagePath: z.string().regex(/^artifacts\/design\/assets\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i, '设计截图必须位于 artifacts/design/assets/'),
 }).strict();
 
@@ -42,6 +42,10 @@ export const DesignAssetsSchema = z.object({
   source: FigmaDesignInputSchema,
   analysisStatus: z.enum(['completed', 'blocked']),
   blockingReason: z.string().min(1).optional(),
+  coverage: z.object({
+    sourceExportCount: z.literal(1),
+    logicalBlockCount: z.number().int().positive(),
+  }).strict().optional(),
   assets: z.array(DesignAssetSchema).default([]),
 }).strict().superRefine((catalog, context) => {
   if (catalog.analysisStatus === 'completed' && catalog.assets.length === 0) {
@@ -52,6 +56,13 @@ export const DesignAssetsSchema = z.object({
   }
   if (catalog.analysisStatus === 'completed' && catalog.blockingReason !== undefined) {
     context.addIssue({ code: 'custom', path: ['blockingReason'], message: '设计分析完成时不能同时声明阻塞原因' });
+  }
+  if (catalog.analysisStatus === 'completed' && catalog.coverage === undefined) {
+    context.addIssue({ code: 'custom', path: ['coverage'], message: '设计分析完成时必须记录父节点原生导出与逻辑块覆盖情况' });
+  }
+  if (catalog.analysisStatus === 'completed' && catalog.coverage !== undefined
+    && catalog.coverage.logicalBlockCount !== catalog.assets.length) {
+    context.addIssue({ code: 'custom', path: ['coverage', 'logicalBlockCount'], message: '逻辑业务块数量必须等于实际裁切图片数量' });
   }
   const ids = new Set(catalog.assets.map((asset) => asset.id));
   if (ids.size !== catalog.assets.length) context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图 ID 必须唯一' });

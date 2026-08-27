@@ -9,7 +9,14 @@ import { ExecutableNotFoundError, type ProcessRunner } from '../ports/process-ru
 import { minimalChildEnvironment } from './child-process-environment.js';
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 15 * 60 * 1_000;
-const FIGMA_CHROME_TAB_REUSE_PROTOCOL = '在已登录的 Chrome 中访问 Figma 前，先检查 Chrome 已打开的页签；按 Figma fileKey 和 node-id 匹配目标地址，忽略 m=dev、参数顺序等无关差异。若存在匹配页签，直接激活并复用，不要刷新、重新导航或新建页签；只有未找到匹配页签时才打开目标地址。';
+const FIGMA_CHROME_TAB_PROTOCOL = '使用已安装的 Chrome 浏览器控制插件访问已登录的 Figma。读取用户已打开页签，优先 claim URL 中 fileKey 与任务一致的已有 Figma 页签；找不到时才新建临时页签并打开任务指定的完整 URL。任务结束时只关闭本次新建的临时页签，保留用户原有 Chrome 页签。不得调用 Figma MCP、Figma Connector 或 Figma API，不得修改 Figma 文件。';
+const FIGMA_NATIVE_EXPORT_PROTOCOL = [
+  '在目标页签中定位任务指定的 node-id，选中该父节点后调用 Figma 原生 Actions → Copy as PNG。读取剪贴板中的 image/png 并保存为完整父节点 PNG；浏览器截图、系统全屏截图和 tab.screenshot 只能用于确认界面状态，不能作为设计资产来源。',
+  '不得给节点添加 Export settings，也不得为了导出而修改、保存或发布 Figma 文件。原生复制失败时输出 blocked 和具体原因，不得退化为浏览器截图。',
+  '使用完整父节点 PNG 识别逻辑业务块。优先依据绿色背景容器、编号标记、标题和明显留白边界划分；这些视觉块才是交付单位。不得把直接子节点数量当作业务块数量，也不得盲目逐个导出内部 Frame、组件、注释或连线。',
+  '保留完整父节点 PNG 作为本地中间证据；对每个逻辑业务块执行本地裁切，裁切结果不得包含相邻业务块。用 file 确认每张图片是 PNG/JPEG，并用 view_image 检查内容完整、清晰且边界正确。',
+  '每个裁切块写入独立资产记录，kind 使用 block，nodeId 与 sectionNodeId 使用任务指定的父节点 ID，figmaUrl 使用任务原地址。裁切图片数量必须等于逻辑业务块数量。',
+].join('');
 
 export class CodexAdapter {
   constructor(private readonly deps: { processRunner: ProcessRunner; codexBin?: string; executionTimeoutMs?: number }) {}
@@ -93,7 +100,7 @@ function phaseProtocol(request: RunRequest): string {
   const markdown = markdownArtifactContractFor(request.artifacts);
   const protocolContext = { taskId: request.task.id, nodeId: request.task.nodeId, phase: request.task.phase, evidencePath: request.context.files[0]?.path ?? 'source', testProfile: '', testEvidenceType: 'unit' as const };
   if (request.task.phase === 'design') {
-    return `使用 Chrome 浏览器控制能力，在已登录的 Chrome 中读取任务声明的 Figma 设计地址。${FIGMA_CHROME_TAB_REUSE_PROTOCOL}Ready for dev Section 只作为识别入口，不直接截图整个 Section。沿图层层级继续查找可独立交付的完整页面或弹窗状态；排除编号、标题、连线、Notes、小型包装 Frame、组件和页面内部布局。选择包含完整页面结构的最浅层 Frame；一旦选中完整页面，不再递归截图其内部 Frame。页面与弹窗状态分别截图；弹窗必须保留页面背景与遮罩，不只截弹窗本体。截图隐藏 Figma UI、标注和选中边框，保存到 ${taskRoot}/artifacts/design/assets/，并在截图索引中记录对应节点与图片路径。暂不总结设计规则或文字说明。若页面未登录、无权限、浏览器不可用、画布持续加载，或未能实际截图，analysisStatus 必须写为 blocked 并填写 blockingReason。不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-assets', protocolContext)}\n\n${markdown}`;
+    return `使用已登录的 Chrome 打开任务声明的 Figma 设计地址。${FIGMA_CHROME_TAB_PROTOCOL}${FIGMA_NATIVE_EXPORT_PROTOCOL}把裁切图片保存到 ${taskRoot}/artifacts/design/assets/，并生成最小截图索引。暂不总结设计规则或文字说明。若页面未登录、无权限、浏览器不可用、原生复制失败或未能产出真实图片，analysisStatus 必须写为 blocked 并填写 blockingReason。不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-assets', protocolContext)}\n\n${markdown}`;
   }
   if (request.task.phase === 'clarify') {
     return [
