@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { TaskInitializer } from '../../src/services/task-initializer.js';
@@ -48,7 +48,7 @@ describe('TaskInitializer', () => {
     await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
   });
 
-  it('registers an optional design-analysis node without reading Figma during task initialization', async () => {
+  it('copies multiple exported images into task facts and schedules design binding after the plan', async () => {
     const projectRoot = await createTempDirectory('aiw-task-init-');
     directories.push(projectRoot);
     const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
@@ -65,28 +65,53 @@ describe('TaskInitializer', () => {
       now: () => new Date('2026-08-13T12:00:00.000Z'),
     });
 
+    await writeFile(join(projectRoot, 'main.png'), Buffer.from('89504e470d0a1a0a00000000', 'hex'));
+    await writeFile(join(projectRoot, 'details.jpg'), Buffer.from('ffd8ff000000', 'hex'));
     const task = await initializer.init({
       projectRoot,
       source: 'requirements.md',
-      design: 'https://www.figma.com/design/vcORdd4C9qEqW1YIYfbzl7/Infloww?node-id=9272-292810&m=dev',
+      designImages: ['main.png', 'details.jpg'],
       skillProfile: 'standard-web-feature',
     });
 
     expect(task.designInput).toEqual({
-      provider: 'figma',
-      url: 'https://www.figma.com/design/vcORdd4C9qEqW1YIYfbzl7/Infloww?node-id=9272-292810&m=dev',
-      fileKey: 'vcORdd4C9qEqW1YIYfbzl7',
-      nodeId: '9272:292810',
+      provider: 'local-images',
+      images: [
+        { id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' },
+        { id: 'details', originalName: 'details.jpg', imagePath: 'sources/design/details.jpg', mediaType: 'image/jpeg' },
+      ],
     });
     expect(task.nodes['design-analysis']).toMatchObject({
       phase: 'design',
-      status: 'ready',
-      dependsOn: ['intake'],
+      status: 'pending',
+      dependsOn: ['plan'],
       outputs: [
         'artifacts/design/design-assets.yaml',
       ],
     });
-    expect(task.nodes.clarify).toMatchObject({ status: 'pending', dependsOn: ['design-analysis'] });
+    expect(task.nodes.clarify).toMatchObject({ status: 'ready', dependsOn: ['intake'] });
+    await expect(readFile(join(store.taskDirectory(task.id), 'sources/design/main.png'))).resolves.toEqual(Buffer.from('89504e470d0a1a0a00000000', 'hex'));
+  });
+
+  it('rejects missing and unsupported design images before creating a task', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    await registry.replace({ skills: allSkills(), profiles: [profile()] });
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      sourceIntakeFactory: () => ({
+        async snapshot() { return { sourceId: 'requirements', kind: 'local-file', origin: 'requirements.md', revision: 1, fetchedAt: '2026-08-13T00:00:00.000Z', markdown: '# Refund', extractor: 'local-file/requirements.md' }; },
+        async writeSnapshot() { return { kind: 'local-file', origin: 'requirements.md', revision: 1, snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json' }; },
+      }) as never,
+      taskStoreFactory: () => new TaskStore(projectRoot),
+    });
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', designImages: ['missing.png'], skillProfile: 'standard-web-feature' }))
+      .rejects.toThrow(/无法读取设计图片/);
+    await writeFile(join(projectRoot, 'notes.txt'), 'not an image');
+    await expect(initializer.init({ projectRoot, source: 'requirements.md', designImages: ['notes.txt'], skillProfile: 'standard-web-feature' }))
+      .rejects.toThrow(/仅支持 PNG\/JPEG/);
   });
 
   it('keeps profiles without a design skill usable for tasks that do not request design analysis', async () => {
@@ -298,14 +323,14 @@ function profile(): InstalledWorkflowProfile {
   return {
     name: 'standard-web-feature', description: 'Standard web feature workflow', aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash('profile'),
     skills: {
-      design: 'figma-design-analysis@1.0.0', clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', development: 'typescript-web-implementation@1.0.0',
+      design: 'design-image-segmentation@1.0.0', clarify: 'requirements-clarification@1.0.0', solution: 'technical-solution@1.0.0', plan: 'implementation-planning@1.0.0', development: 'typescript-web-implementation@1.0.0',
     },
   };
 }
 
 function allSkills(): InstalledSkill[] {
   return [
-    ['figma-design-analysis', 'design'], ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'development'],
+    ['design-image-segmentation', 'design'], ['requirements-clarification', 'clarify'], ['technical-solution', 'solution'], ['implementation-planning', 'plan'], ['typescript-web-implementation', 'development'],
   ].map(([name, phase]) => ({
     name, version: '1.0.0', description: `${name} skill`, aiwCompatibility: '>=0.0.1 <1.0.0', artifactContract: 'aiw.task-output/v1', phases: [phase as InstalledSkill['phases'][number]], body: '# skill', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash(name),
     methodSources: [{ id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0', revision: 'a'.repeat(40), sha256: hash(`method-${name}`) }],

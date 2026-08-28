@@ -1,5 +1,7 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { CodexAdapter } from '../../src/adapters/codex-adapter.js';
@@ -7,6 +9,7 @@ import type { RunRequest } from '../../src/domain/run.js';
 import { outputContractFor } from '../../src/domain/output-contract.js';
 import { ExecutableNotFoundError } from '../../src/ports/process-runner.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
+import { developmentPlanYaml } from '../helpers/development-plan-yaml.js';
 
 const directories: string[] = [];
 afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
@@ -60,70 +63,69 @@ describe('CodexAdapter', () => {
     expect(prompt).not.toContain('test-results.yaml');
   });
 
+  it('provides an executable read-only plan validator that uses the real schema', async () => {
+    const projectRoot = join(await temporaryDirectory(), "worktree with 'quote' and $value");
+    const request = runRequest({ projectRoot, runDirectory: join(projectRoot, '.runtime'), phase: 'plan', artifacts: ['artifacts/plan/development-plan.yaml'] });
+    const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
+    const prompt = adapter.renderPrompt(request);
+    const command = /<aiw-plan-validation>[\s\S]*?```sh\n([^\n]+)\n```/.exec(prompt)?.[1];
+    expect(command).toBeDefined();
+    const stagedPath = join(projectRoot, '.aiw/tasks/task-1', request.outputContract.entries[0]!.stagingPath);
+    await mkdir(dirname(stagedPath), { recursive: true });
+    await writeFile(stagedPath, developmentPlanYaml());
+    const run = () => promisify(execFile)('/bin/sh', ['-c', command!], { cwd: projectRoot });
+    await expect(run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('开发单元第 5 项 · requirements 第 1 项') });
+    expect(await readFile(stagedPath, 'utf8')).toBe(developmentPlanYaml());
+
+    await writeFile(stagedPath, developmentPlanYaml(true));
+    expect((await run()).stdout).toContain('开发计划结构校验通过');
+    const invalidDependency = developmentPlanYaml(true).replace('dependencies: []', 'dependencies: [development-unit-missing]');
+    await writeFile(stagedPath, invalidDependency);
+    await expect(run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('未知开发单元') });
+  });
+
   it('tells a design-referenced development unit to use only its injected screenshots', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.runtime', 'run-development-design');
     const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
     const request = runRequest({ projectRoot, runDirectory, phase: 'development', artifacts: ['artifacts/development/development-unit-page/result.md'] });
-    request.context.files[0]!.content = 'designReferences:\n  - nodeId: 1:2\n    figmaUrl: https://www.figma.com/design/example/File?node-id=1-2\n    purpose: 页面布局';
+    request.context.files[0]!.content = 'designReferences:\n  - assetId: main-page\n    imagePath: artifacts/design/assets/main-page.png\n    purpose: 页面布局';
     await adapter.run(request);
 
     const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(prompt).toContain('designReferences');
     expect(prompt).toContain('通过 --image 注入的关联截图');
-    expect(prompt).toContain('不要重新打开 Figma');
-    expect(prompt).not.toContain('Figma MCP');
+    expect(prompt).toContain('不要访问设计网站');
+    expect(prompt).not.toContain('外部设计地址');
   });
 
-  it('requires design analysis to inspect the supplied Figma URL through Chrome', async () => {
+  it('uses only pre-exported local images during design segmentation', async () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.runtime', 'run-design-browser');
     const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
     const request = runRequest({ projectRoot, runDirectory, phase: 'design', artifacts: ['artifacts/design/design-assets.yaml'] });
-    request.instruction = '分析设计稿\nFigma 设计地址：https://www.figma.com/design/example/File?node-id=1-2';
+    request.instruction = '切割并绑定 2 张设计图片';
 
     await adapter.run(request);
 
     const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
-    expect(prompt).toContain('https://www.figma.com/design/example/File?node-id=1-2');
-    expect(prompt).toContain('已登录的 Chrome');
-    expect(prompt).toContain('Figma 原生');
-    expect(prompt).toContain('claim URL 中 fileKey 与任务一致的已有 Figma 页签');
-    expect(prompt).toContain('找不到时才新建临时页签');
-    expect(prompt).toContain('只关闭本次新建的临时页签');
-    expect(prompt).toContain('Actions → Copy as PNG');
-    expect(prompt).toContain('image/png');
-    expect(prompt).toContain('完整父节点 PNG');
-    expect(prompt).toContain('绿色背景');
-    expect(prompt).toContain('编号');
-    expect(prompt).toContain('逻辑业务块');
-    expect(prompt).toContain('本地裁切');
-    expect(prompt).toContain('不得把直接子节点数量当作业务块数量');
-    expect(prompt).toContain('不得修改 Figma 文件');
-    expect(prompt).not.toContain('逐个检查属于该 Section 的 Thumbnail 条目');
-    expect(prompt).not.toContain('tab.screenshot 返回的字节');
-    expect(prompt).not.toContain('先保存完整浏览器截图');
-    expect(prompt).not.toContain('screencapture -x');
-    expect(prompt).not.toContain('osascript');
-    expect(prompt).toContain('view_image');
-    expect(prompt).toContain('file');
-    expect(prompt).toContain('裁切图片数量必须等于逻辑业务块数量');
-    expect(prompt).toContain('保留用户原有 Chrome 页签');
-    expect(prompt).toContain('artifacts/design/assets/');
-    expect(prompt).not.toContain('输出设计规则');
-    expect(prompt).toContain('不得调用 Figma MCP');
+    expect(prompt).toContain('输入图片已由用户提前导出');
+    expect(prompt).toContain('不要访问设计网站');
+    expect(prompt).not.toContain('外部设计地址');
   });
 
-  it('always starts a fresh Codex session for design analysis retries', async () => {
+  it('starts a fresh Codex session and injects local images for design retries', async () => {
     const projectRoot = await temporaryDirectory();
     const currentRun = join(projectRoot, '.runtime', 'task-1', 'current-run');
     const calls: Array<{ args: string[] }> = [];
     const adapter = new CodexAdapter({ processRunner: { async run(input) { calls.push(input); return ok(); } } });
 
-    await adapter.run(runRequest({ projectRoot, runDirectory: currentRun, phase: 'design', artifacts: ['artifacts/design/design-assets.yaml'] }));
+    const request = runRequest({ projectRoot, runDirectory: currentRun, phase: 'design', artifacts: ['artifacts/design/design-assets.yaml'] });
+    request.context.images = [{ path: 'sources/design/main.png', absolutePath: join(projectRoot, 'sources/design/main.png') }];
+    await adapter.run(request);
 
     expect(calls[0]!.args).toEqual([
-      'exec', '--cd', projectRoot, '--approve-for-me', '--output-last-message', join(currentRun, 'last-message.md'), '-'
+      'exec', '--cd', projectRoot, '--approve-for-me', '--output-last-message', join(currentRun, 'last-message.md'), '--image', join(projectRoot, 'sources/design/main.png'), '-'
     ]);
   });
 

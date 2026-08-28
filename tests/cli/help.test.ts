@@ -22,7 +22,7 @@ describe('aiw CLI help', () => {
     expect(result.stdout).toContain('aiw init → aiw doctor');
     expect(result.stdout).toContain('日常使用：');
     expect(result.stdout).toContain('aiw task init --source "<需求地址或文件>"');
-    expect(result.stdout).toContain('--design "<带 node-id 的 Figma 地址>"');
+    expect(result.stdout).toContain('--design-image <本地 PNG/JPEG 路径>');
     expect(result.stdout).toContain('aiw task run <task-id> clarify');
     expect(result.stdout).toContain('AIW 每一步都会输出下一条精准命令');
     expect(result.stdout).not.toContain('task continue');

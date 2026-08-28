@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { materializeDevelopmentWork, readDevelopmentPlan, validateDevelopmentPlan } from '../../src/services/implementation-work-planner.js';
+import { applyDesignBindings, materializeDevelopmentWork, readDevelopmentPlan, validateDevelopmentPlan } from '../../src/services/implementation-work-planner.js';
 import { TaskStore } from '../../src/services/task-store.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
+import { developmentPlanYaml } from '../helpers/development-plan-yaml.js';
 
 const directories: string[] = [];
 
@@ -57,32 +58,55 @@ describe('development work planner', () => {
     expect(Object.keys(materialized.task.nodes).some((id) => id.endsWith('-r2'))).toBe(false);
   });
 
-  it('rejects a development unit that references a screenshot outside the current design index', async () => {
+  it('waits for design binding before starting root development units', async () => {
     const fixture = await setup();
     fixture.task.designInput = {
-      provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-1', fileKey: 'file-key', nodeId: '1:1',
+      provider: 'local-images', images: [{ id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' }],
     };
-    await fixture.store.replaceFact(fixture.task.id, 'artifacts/design/design-assets.yaml', [
-      'schemaVersion: aiw.design-assets/v1', 'analysisStatus: completed', 'coverage:', '  sourceExportCount: 1', '  logicalBlockCount: 1', 'source:', '  provider: figma',
-      '  url: https://www.figma.com/design/file-key/File?node-id=1-1', '  fileKey: file-key', '  nodeId: "1:1"',
-      'assets:', '  - id: main-page', '    figmaUrl: https://www.figma.com/design/file-key/File?node-id=1-2',
-      '    nodeId: "1:2"', '    sectionNodeId: "1:2"', '    title: 主流程', '    kind: block',
-      '    imagePath: artifacts/design/assets/main-page.png',
-    ].join('\n'));
-    await fixture.store.replaceFact(fixture.task.id, 'artifacts/plan/development-plan.yaml', [
-      'schemaVersion: aiw.development-plan/v1', 'units:', '  - name: development-unit-main-page', '    title: 主页面',
-      '    goal: 实现页面', '    requirements: [展示页面]', '    codeScope: [src/page]', '    steps: [实现页面]',
-      '    dependencies: []', '    designReferences:', '      - assetId: unrelated-dialog',
-      '        figmaUrl: https://www.figma.com/design/file-key/File?node-id=1-3', '        nodeId: "1:3"',
-      '        imagePath: artifacts/design/assets/unrelated-dialog.png', '        purpose: 弹窗',
-    ].join('\n'));
+    fixture.task.nodes['design-analysis'] = {
+      title: '切割并绑定设计图片', phase: 'design', dependsOn: ['plan'], skill: fixture.task.nodes.plan!.skill,
+      requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-assets.yaml'],
+    };
+    const materialized = await materializeDevelopmentWork(fixture.task, fixture.store);
+    expect(materialized.task.nodes['development-unit-main-list-metrics']).toMatchObject({ dependsOn: ['design-analysis'], status: 'pending' });
+  });
 
-    await expect(materializeDevelopmentWork(fixture.task, fixture.store)).rejects.toThrow(/设计截图索引中不存在/);
+  it('writes only the design references bound to each existing development unit', async () => {
+    const fixture = await setup();
+    const materialized = await materializeDevelopmentWork(fixture.task, fixture.store);
+    await applyDesignBindings(materialized.task, fixture.store, {
+      schemaVersion: 'aiw.design-assets/v1',
+      source: { provider: 'local-images', images: [{ id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' }] },
+      coverage: { sourceImageCount: 1, logicalBlockCount: 1 },
+      assets: [{ id: 'main-page', sourceImageId: 'main', title: '主页面', kind: 'page', imagePath: 'artifacts/design/assets/main-page.png', purpose: '主列表布局', developmentUnits: ['development-unit-main-list-metrics'] }],
+    });
+    const context = await readFile(join(fixture.store.taskDirectory(fixture.task.id), 'artifacts/plan/units/development-unit-main-list-metrics.yaml'), 'utf8');
+    expect(context).toContain('assetId: main-page');
+    expect(context).not.toContain('externalUrl');
+
+    await expect(applyDesignBindings(materialized.task, fixture.store, {
+      schemaVersion: 'aiw.design-assets/v1', source: { provider: 'local-images', images: [{ id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' }] },
+      coverage: { sourceImageCount: 1, logicalBlockCount: 1 },
+      assets: [{ id: 'bad', sourceImageId: 'main', title: '未知', kind: 'page', imagePath: 'artifacts/design/assets/bad.png', purpose: '未知', developmentUnits: ['development-unit-missing'] }],
+    })).rejects.toThrow(/未知开发单元/);
   });
 
   it('rejects old work-breakdown fields', () => {
     expect(() => validateDevelopmentPlan('schemaVersion: aiw.work-breakdown/v2\nunits: []\nacceptanceCoverage: []\n'))
       .toThrow(/开发计划格式无效/);
+  });
+
+  it('reports the real field and type for colon-containing YAML text', () => {
+    expect(() => validateDevelopmentPlan(developmentPlanYaml())).toThrow(/开发单元第 5 项 · requirements 第 1 项/);
+    expect(() => validateDevelopmentPlan(developmentPlanYaml())).toThrow(/开发单元第 8 项 · steps 第 2 项/);
+    expect(() => validateDevelopmentPlan(developmentPlanYaml())).toThrow(/应为文本，实际为对象/);
+    expect(() => validateDevelopmentPlan(developmentPlanYaml(true))).not.toThrow();
+  });
+
+  it('uses the same readable schema errors when approving a plan', async () => {
+    const fixture = await setup();
+    await writeFile(join(fixture.store.taskDirectory(fixture.task.id), 'artifacts/plan/development-plan.yaml'), developmentPlanYaml());
+    await expect(readDevelopmentPlan(fixture.task, fixture.store)).rejects.toThrow(/应为文本，实际为对象/);
   });
 
   it('rejects unknown and cyclic development dependencies', () => {

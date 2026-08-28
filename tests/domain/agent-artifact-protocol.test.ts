@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { parse } from 'yaml';
 
 import {
   agentArtifactProtocolIds,
@@ -23,8 +24,20 @@ describe('Agent artifact protocol', () => {
       expect(rendered).toContain(`<artifact-protocol id="${id}"`);
       expect(rendered).toContain('字段结构（由 Zod Schema 生成）');
       expect(rendered).toContain('YAML 示例（已通过同一 Schema 校验）');
-      expect(rendered).toContain('schemaVersion: aiw.');
+      const yaml = /```yaml\n([\s\S]*?)\n```/.exec(rendered)?.[1];
+      expect(yaml).toBeDefined();
+      expect(parse(yaml!).schemaVersion).toMatch(/^aiw\./);
+      expect(rendered).toContain('冒号 + 空格');
     }
+  });
+
+  it('quotes text examples so punctuation cannot turn strings into YAML objects', () => {
+    const schema = z.object({ steps: z.array(z.string()) });
+    const example = { steps: ['granularity: day', 'prefers-color-scheme: dark', '含 "引号" 和换行\n的说明'] };
+    const rendered = renderAgentArtifactProtocolDescriptor({ id: 'text', title: '文本', schema, example, rules: [] });
+    const yaml = /```yaml\n([\s\S]*?)\n```/.exec(rendered)![1]!;
+    expect(schema.parse(parse(yaml))).toEqual(example);
+    expect(yaml).toContain('"granularity: day"');
   });
 
   it('derives compact field and enum guidance from Zod instead of handwritten prompt text', () => {

@@ -1,75 +1,75 @@
 import { z } from 'zod';
 
-const figmaNodeIdPattern = /^\d+:\d+$/;
+const kebabId = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const taskImagePath = /^sources\/design\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i;
+const assetImagePath = /^artifacts\/design\/assets\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i;
+const developmentUnitName = /^development-unit-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
-export const FigmaDesignInputSchema = z.object({
-  provider: z.literal('figma'),
-  url: z.string().url().refine((value) => /^https:\/\/(?:www\.)?figma\.com\/(?:design|file)\//.test(value), '必须是 Figma Design 地址'),
-  fileKey: z.string().min(1),
-  nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID，例如 9272:292810'),
+export const DesignImageInputSchema = z.object({
+  id: z.string().regex(kebabId, '设计图片 ID 必须使用英文 kebab-case'),
+  originalName: z.string().min(1),
+  imagePath: z.string().regex(taskImagePath, '设计原图必须位于 sources/design/'),
+  mediaType: z.enum(['image/png', 'image/jpeg']),
 }).strict();
 
-export function parseFigmaDesignUrl(input: string): { fileKey: string; nodeId: string } | undefined {
-  let url: URL;
-  try { url = new URL(input); } catch { return undefined; }
-  if (url.protocol !== 'https:' || !['figma.com', 'www.figma.com'].includes(url.hostname)) return undefined;
-  const match = /^\/(?:design|file)\/([^/]+)\/.+/.exec(url.pathname);
-  const rawNodeId = url.searchParams.get('node-id');
-  if (match === null || rawNodeId === null || !/^\d+(?:-|:)\d+$/.test(rawNodeId)) return undefined;
-  return { fileKey: match[1], nodeId: rawNodeId.replace('-', ':') };
-}
+export const DesignInputSchema = z.object({
+  provider: z.literal('local-images'),
+  images: z.array(DesignImageInputSchema).min(1),
+}).strict().superRefine((input, context) => {
+  if (new Set(input.images.map((image) => image.id)).size !== input.images.length) {
+    context.addIssue({ code: 'custom', path: ['images'], message: '设计图片 ID 必须唯一' });
+  }
+  if (new Set(input.images.map((image) => image.imagePath)).size !== input.images.length) {
+    context.addIssue({ code: 'custom', path: ['images'], message: '设计图片路径必须唯一' });
+  }
+});
 
 export const DesignReferenceSchema = z.object({
-  assetId: z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, '设计截图 ID 必须使用英文 kebab-case'),
-  figmaUrl: z.string().url(),
-  nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
-  imagePath: z.string().regex(/^artifacts\/design\/assets\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i, '设计截图必须位于 artifacts/design/assets/'),
+  assetId: z.string().regex(kebabId, '设计截图 ID 必须使用英文 kebab-case'),
+  imagePath: z.string().regex(assetImagePath, '设计截图必须位于 artifacts/design/assets/'),
   purpose: z.string().min(1),
 }).strict();
 
 const DesignAssetSchema = z.object({
-  id: z.string().regex(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/, '设计截图 ID 必须使用英文 kebab-case'),
-  figmaUrl: z.string().url(),
-  nodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
-  sectionNodeId: z.string().regex(figmaNodeIdPattern, '必须是标准 Figma 节点 ID'),
+  id: z.string().regex(kebabId, '设计截图 ID 必须使用英文 kebab-case'),
+  sourceImageId: z.string().regex(kebabId, '来源图片 ID 必须使用英文 kebab-case'),
   title: z.string().min(1),
   kind: z.enum(['block', 'page', 'dialog', 'drawer', 'popover', 'state']),
-  imagePath: z.string().regex(/^artifacts\/design\/assets\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i, '设计截图必须位于 artifacts/design/assets/'),
+  imagePath: z.string().regex(assetImagePath, '设计截图必须位于 artifacts/design/assets/'),
+  purpose: z.string().min(1),
+  developmentUnits: z.array(z.string().regex(developmentUnitName)).min(1),
 }).strict();
 
 export const DesignAssetsSchema = z.object({
   schemaVersion: z.literal('aiw.design-assets/v1'),
-  source: FigmaDesignInputSchema,
-  analysisStatus: z.enum(['completed', 'blocked']),
-  blockingReason: z.string().min(1).optional(),
+  source: DesignInputSchema,
   coverage: z.object({
-    sourceExportCount: z.literal(1),
+    sourceImageCount: z.number().int().positive(),
     logicalBlockCount: z.number().int().positive(),
-  }).strict().optional(),
-  assets: z.array(DesignAssetSchema).default([]),
+  }).strict(),
+  assets: z.array(DesignAssetSchema).min(1),
 }).strict().superRefine((catalog, context) => {
-  if (catalog.analysisStatus === 'completed' && catalog.assets.length === 0) {
-    context.addIssue({ code: 'custom', path: ['assets'], message: '设计分析完成时必须包含至少一张页面或弹窗截图' });
+  if (catalog.coverage.sourceImageCount !== catalog.source.images.length) {
+    context.addIssue({ code: 'custom', path: ['coverage', 'sourceImageCount'], message: '来源图片数量必须等于任务输入图片数量' });
   }
-  if (catalog.analysisStatus === 'blocked' && catalog.blockingReason === undefined) {
-    context.addIssue({ code: 'custom', path: ['blockingReason'], message: '设计读取受阻时必须说明阻塞原因' });
+  if (catalog.coverage.logicalBlockCount !== catalog.assets.length) {
+    context.addIssue({ code: 'custom', path: ['coverage', 'logicalBlockCount'], message: '逻辑业务块数量必须等于实际切割图片数量' });
   }
-  if (catalog.analysisStatus === 'completed' && catalog.blockingReason !== undefined) {
-    context.addIssue({ code: 'custom', path: ['blockingReason'], message: '设计分析完成时不能同时声明阻塞原因' });
+  const sourceIds = new Set(catalog.source.images.map((image) => image.id));
+  for (const [index, asset] of catalog.assets.entries()) {
+    if (!sourceIds.has(asset.sourceImageId)) {
+      context.addIssue({ code: 'custom', path: ['assets', index, 'sourceImageId'], message: `引用了未知来源图片：${asset.sourceImageId}` });
+    }
   }
-  if (catalog.analysisStatus === 'completed' && catalog.coverage === undefined) {
-    context.addIssue({ code: 'custom', path: ['coverage'], message: '设计分析完成时必须记录父节点原生导出与逻辑块覆盖情况' });
+  if (new Set(catalog.assets.map((asset) => asset.id)).size !== catalog.assets.length) {
+    context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图 ID 必须唯一' });
   }
-  if (catalog.analysisStatus === 'completed' && catalog.coverage !== undefined
-    && catalog.coverage.logicalBlockCount !== catalog.assets.length) {
-    context.addIssue({ code: 'custom', path: ['coverage', 'logicalBlockCount'], message: '逻辑业务块数量必须等于实际裁切图片数量' });
+  if (new Set(catalog.assets.map((asset) => asset.imagePath)).size !== catalog.assets.length) {
+    context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图路径必须唯一' });
   }
-  const ids = new Set(catalog.assets.map((asset) => asset.id));
-  if (ids.size !== catalog.assets.length) context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图 ID 必须唯一' });
-  const paths = new Set(catalog.assets.map((asset) => asset.imagePath));
-  if (paths.size !== catalog.assets.length) context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图路径必须唯一' });
 });
 
-export type FigmaDesignInput = z.infer<typeof FigmaDesignInputSchema>;
+export type DesignImageInput = z.infer<typeof DesignImageInputSchema>;
+export type DesignInput = z.infer<typeof DesignInputSchema>;
 export type DesignReference = z.infer<typeof DesignReferenceSchema>;
 export type DesignAssets = z.infer<typeof DesignAssetsSchema>;

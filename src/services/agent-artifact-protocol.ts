@@ -47,8 +47,9 @@ export function renderAgentArtifactProtocolDescriptor(descriptor: AgentArtifactP
     renderObjectFields(jsonSchema),
     'YAML 示例（已通过同一 Schema 校验）：',
     '```yaml',
-    stringify(example, { lineWidth: 0 }).trimEnd(),
+    stringify(example, { lineWidth: 0, defaultStringType: 'QUOTE_DOUBLE', defaultKeyType: 'PLAIN' }).trimEnd(),
     '```',
+    'YAML 文本规则：文本值优先用序列化工具生成；手写时给整句加引号，或用 |- 块文本。尤其含“冒号 + 空格”（如 granularity: day）的句子，不能作为未加引号的列表项，否则会被解析成对象。',
     ...(descriptor.rules.length === 0 ? [] : ['语义规则：', ...descriptor.rules.map((rule) => `- ${rule}`)]),
     '</artifact-protocol>',
   ].join('\n');
@@ -56,23 +57,21 @@ export function renderAgentArtifactProtocolDescriptor(descriptor: AgentArtifactP
 
 function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtocolContext): AgentArtifactProtocolDescriptor {
   if (id === 'design-assets') {
-    const url = 'https://www.figma.com/design/example/File?node-id=1-2';
     return {
       id,
       title: '设计截图索引',
       schema: DesignAssetsSchema,
       example: {
         schemaVersion: 'aiw.design-assets/v1',
-        analysisStatus: 'completed',
-        source: { provider: 'figma', url, fileKey: 'example', nodeId: '1:2' },
-        coverage: { sourceExportCount: 1, logicalBlockCount: 1 },
-        assets: [{ id: 'order-flow-block', figmaUrl: url, nodeId: '1:2', sectionNodeId: '1:2', title: '订单流程', kind: 'block', imagePath: 'artifacts/design/assets/order-flow-block.png' }],
+        source: { provider: 'local-images', images: [{ id: 'order-flow', originalName: 'order-flow.png', imagePath: 'sources/design/order-flow.png', mediaType: 'image/png' }] },
+        coverage: { sourceImageCount: 1, logicalBlockCount: 1 },
+        assets: [{ id: 'order-dialog', sourceImageId: 'order-flow', title: '订单弹窗', kind: 'dialog', imagePath: 'artifacts/design/assets/order-dialog.png', purpose: '订单编辑弹窗布局', developmentUnits: ['development-unit-order-editor'] }],
       },
       rules: [
-        '只有通过 Figma 原生 Copy as PNG 取得父节点图片并裁出至少一个逻辑业务块时，analysisStatus 才能是 completed。',
-        '页面未登录、无权限、浏览器不可用或原生复制失败时，analysisStatus 必须是 blocked，并填写 blockingReason。',
-        'analysisStatus 为 blocked 时不要输出 coverage；completed 时 sourceExportCount 固定为 1，logicalBlockCount 必须等于 assets 数量。',
-        '每项代表父节点原生 PNG 中裁出的一个逻辑业务块，kind 使用 block，nodeId 与 sectionNodeId 使用来源父节点 ID。',
+        'source 必须原样复用任务登记的本地图片清单；sourceImageCount 必须等于输入图片数量。',
+        '每项代表一个实际裁切或可直接使用的页面、弹窗、抽屉、浮层或状态图片。',
+        '每项必须绑定至少一个开发计划中真实存在的 development-unit-* 名称。',
+        '只输出图片索引和裁切图片，不总结设计规则。',
       ],
     };
   }
@@ -134,14 +133,13 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
         codeScope: ['src/pages/growth/links/components/custom-metrics/'],
         steps: ['调整指标配置模型', '接入本地持久化'],
         dependencies: [],
-        designReferences: [{ assetId: 'main-list-page', figmaUrl: 'https://www.figma.com/design/example/File?node-id=1-2', nodeId: '1:2', imagePath: 'artifacts/design/assets/main-list-page.png', purpose: '主列表布局和状态' }],
       }],
     },
     rules: [
       'name 是开发单元的真实节点名称，必须使用 development-unit-<英文 kebab-case 描述>，例如 development-unit-main-list-export；禁止数字编号和中文名称。',
       'dependencies 只引用同一计划中其他开发单元的 name，不引用 title。',
       '每个开发单元必须自包含，不得引用 FACT-*、DEC-* 或 AC-*。',
-      '有设计稿时，界面相关单元必须只携带与自身直接相关的 designReferences；纯逻辑单元可以为空。',
+      '计划不声明设计图片；设计节点在计划批准后按开发单元名称完成绑定。',
       '只规划代码开发，不包含验证、测试、验收或证据声明。',
     ],
   };

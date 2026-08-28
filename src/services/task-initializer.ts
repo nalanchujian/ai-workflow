@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
 import type { SkillLock, SourceKind, Task, TaskNode } from '../domain/task.js';
 import type { InstalledSkill } from '../domain/skill.js';
-import { parseFigmaDesignUrl } from '../domain/design.js';
+import { DesignInputSchema, type DesignImageInput } from '../domain/design.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
 import { executableStages, requiredExecutableStages } from '../domain/workflow-profile.js';
 import { SourceIntake, type SnapshotRecord } from './source-intake.js';
@@ -28,7 +28,7 @@ export class TaskInitializer {
     now?: () => Date;
   }) {}
 
-  async init(input: { projectRoot: string; source: string; section?: string; design?: string; skillProfile: string; forceNew?: boolean }): Promise<Task> {
+  async init(input: { projectRoot: string; source: string; section?: string; designImages?: string[]; skillProfile: string; forceNew?: boolean }): Promise<Task> {
     await this.deps.projectRepository.assertProjectReady(input.projectRoot);
     const taskStore = this.deps.taskStoreFactory(input.projectRoot);
     const sourceIntake = this.deps.sourceIntakeFactory(input.projectRoot);
@@ -42,11 +42,8 @@ export class TaskInitializer {
       throw new Error('工作流模板不存在');
     }
 
-    const parsedDesign = input.design === undefined ? undefined : parseFigmaDesignUrl(input.design);
-    if (input.design !== undefined && parsedDesign === undefined) {
-      throw new Error('设计稿地址无效：请提供带 node-id 的 Figma Design 地址');
-    }
-    const skills = await this.resolveSkills(profile.skills, profile.registrySource, parsedDesign !== undefined);
+    const preparedDesign = await prepareDesignImages(input.projectRoot, input.designImages ?? []);
+    const skills = await this.resolveSkills(profile.skills, profile.registrySource, preparedDesign.length > 0);
     const sourceId = 'requirements';
     const source = await sourceIntake.snapshot({
       sourceId,
@@ -60,6 +57,9 @@ export class TaskInitializer {
     await mkdir(stagingDirectory, { recursive: true });
     try {
       const writtenSource = await sourceIntake.writeSnapshot({ snapshot: source, taskDirectory: stagingDirectory });
+      const designInput = preparedDesign.length === 0
+        ? undefined
+        : DesignInputSchema.parse({ provider: 'local-images', images: await writeDesignImages(stagingDirectory, preparedDesign) });
       const task: Task = {
         schemaVersion: 'aiw.task/v3',
         stateVersion: 0,
@@ -73,11 +73,9 @@ export class TaskInitializer {
           sha256: profile.sha256,
         },
         developmentSkill: lockSkill(skills.development),
-        ...(parsedDesign === undefined ? {} : {
-          designInput: { provider: 'figma' as const, url: input.design!, ...parsedDesign },
-        }),
+        ...(designInput === undefined ? {} : { designInput }),
         sources: { [sourceId]: writtenSource },
-        nodes: createNodes(skills, parsedDesign !== undefined),
+        nodes: createNodes(skills, designInput !== undefined),
         approvalRefs: [],
         events: [],
       };
@@ -100,7 +98,7 @@ export class TaskInitializer {
     const stages = includeDesign ? executableStages : requiredExecutableStages;
     const resolved = await Promise.all(stages.map(async (stage) => {
       const reference = references[stage];
-      if (reference === undefined) throw new Error('当前工作流模板不支持 Figma 设计分析，请先更新团队技能包');
+      if (reference === undefined) throw new Error('当前工作流模板不支持设计图片处理，请先更新团队技能包');
       const [name, version] = parseReference(reference, `阶段 ${stage} 的技能`);
       const skill = await this.deps.registry.findFromSource(name, version, profileSource);
       if (skill === undefined || !skill.phases.includes(stage)) {
@@ -218,22 +216,6 @@ function createNodes(skills: ResolvedSkills, hasDesign: boolean): Record<string,
     intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', hasResult: true, outputs: [] },
   };
   let dependency = 'intake';
-  if (hasDesign) {
-    if (skills.design === undefined) throw new Error('当前工作流模板不支持 Figma 设计分析，请先更新团队技能包');
-    nodes['design-analysis'] = {
-      title: '分析设计稿',
-      phase: 'design',
-      dependsOn: ['intake'],
-      skill: lockSkill(skills.design),
-      requiresApproval: false,
-      status: 'ready',
-      hasResult: false,
-      outputs: [
-        'artifacts/design/design-assets.yaml',
-      ],
-    };
-    dependency = 'design-analysis';
-  }
   for (const definition of stageDefinitions) {
     nodes[definition.id] = {
       title: definition.title,
@@ -241,13 +223,67 @@ function createNodes(skills: ResolvedSkills, hasDesign: boolean): Record<string,
       dependsOn: [dependency],
       skill: lockSkill(skills[definition.id]),
       requiresApproval: definition.requiresApproval,
-      status: definition.id === 'clarify' && !hasDesign ? 'ready' : 'pending',
+      status: definition.id === 'clarify' ? 'ready' : 'pending',
       hasResult: false,
       outputs: definition.outputs,
     };
     dependency = definition.id;
   }
+  if (hasDesign) {
+    if (skills.design === undefined) throw new Error('当前工作流模板不支持设计图片处理，请先更新团队技能包');
+    nodes['design-analysis'] = {
+      title: '切割并绑定设计图片',
+      phase: 'design',
+      dependsOn: ['plan'],
+      skill: lockSkill(skills.design),
+      requiresApproval: false,
+      status: 'pending',
+      hasResult: false,
+      outputs: ['artifacts/design/design-assets.yaml'],
+    };
+  }
   return nodes;
+}
+
+type PreparedDesignImage = { id: string; originalName: string; extension: '.png' | '.jpg'; mediaType: 'image/png' | 'image/jpeg'; content: Buffer };
+
+async function prepareDesignImages(projectRoot: string, paths: string[]): Promise<PreparedDesignImage[]> {
+  const used = new Set<string>();
+  const prepared: PreparedDesignImage[] = [];
+  for (const [index, inputPath] of paths.entries()) {
+    const absolutePath = resolve(projectRoot, inputPath);
+    let content: Buffer;
+    try { content = await readFile(absolutePath); }
+    catch { throw new Error(`无法读取设计图片：${inputPath}`); }
+    const extension = normalizedImageExtension(inputPath, content);
+    if (extension === undefined) throw new Error(`设计图片仅支持 PNG/JPEG：${inputPath}`);
+    const base = slugifyDesignImage(basename(inputPath, extname(inputPath))) || `design-image-${index + 1}`;
+    let id = base;
+    let suffix = 2;
+    while (used.has(id)) id = `${base}-${suffix++}`;
+    used.add(id);
+    prepared.push({ id, originalName: basename(inputPath), extension, mediaType: extension === '.png' ? 'image/png' : 'image/jpeg', content });
+  }
+  return prepared;
+}
+
+async function writeDesignImages(taskDirectory: string, images: PreparedDesignImage[]): Promise<DesignImageInput[]> {
+  return Promise.all(images.map(async (image) => {
+    const imagePath = `sources/design/${image.id}${image.extension}`;
+    await mkdir(dirname(join(taskDirectory, imagePath)), { recursive: true });
+    await writeFile(join(taskDirectory, imagePath), image.content);
+    return { id: image.id, originalName: image.originalName, imagePath, mediaType: image.mediaType };
+  }));
+}
+
+function normalizedImageExtension(path: string, content: Buffer): '.png' | '.jpg' | undefined {
+  if (content.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))) return '.png';
+  if (content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff) return '.jpg';
+  return undefined;
+}
+
+function slugifyDesignImage(value: string): string {
+  return value.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 function lockSkill(skill: InstalledSkill): SkillLock {

@@ -85,8 +85,8 @@ describe('DevelopmentPlanSchema', () => {
     })).toThrow(/未知开发单元名称/);
   });
 
-  it('accepts direct optional Figma references on a development unit', () => {
-    const plan = DevelopmentPlanSchema.parse({
+  it('rejects design references because binding happens after planning', () => {
+    expect(() => DevelopmentPlanSchema.parse({
       schemaVersion: 'aiw.development-plan/v1',
       units: [{
         name: 'development-unit-performance-overview',
@@ -98,14 +98,10 @@ describe('DevelopmentPlanSchema', () => {
         dependencies: [],
         designReferences: [{
           assetId: 'performance-overview-page',
-          figmaUrl: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292811',
-          nodeId: '9272:292811',
           imagePath: 'artifacts/design/assets/performance-overview-page.png',
           purpose: '默认页面',
         }],
       }],
-    });
-
-    expect(plan.units[0]?.designReferences).toEqual([expect.objectContaining({ assetId: 'performance-overview-page', nodeId: '9272:292811' })]);
+    })).toThrow(/Unrecognized key/);
   });
 });

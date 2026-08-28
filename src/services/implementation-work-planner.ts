@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 
-import { DesignAssetsSchema, type DesignAssets } from '../domain/design.js';
+import type { DesignAssets } from '../domain/design.js';
 import {
   DevelopmentPlanSchema,
   DevelopmentUnitContextSchema,
@@ -24,7 +24,7 @@ export async function readDevelopmentPlan(task: Task, taskStore: TaskStore): Pro
   const path = 'artifacts/plan/development-plan.yaml';
   try {
     const content = await readFile(join(taskStore.taskDirectory(task.id), path), 'utf8');
-    return DevelopmentPlanSchema.parse(parse(content));
+    return parseDevelopmentPlan(content);
   } catch (error) {
     if (error instanceof DevelopmentPlanError) throw error;
     const detail = error instanceof Error ? `：${error.message}` : '';
@@ -33,17 +33,40 @@ export async function readDevelopmentPlan(task: Task, taskStore: TaskStore): Pro
 }
 
 export function validateDevelopmentPlan(content: string): void {
+  parseDevelopmentPlan(content);
+}
+
+function parseDevelopmentPlan(content: string): DevelopmentPlan {
+  let data: unknown;
   try {
-    DevelopmentPlanSchema.parse(parse(content));
+    data = parse(content);
+    return DevelopmentPlanSchema.parse(data);
   } catch (error) {
-    throw new DevelopmentPlanError(formatSchemaDiagnostics({ title: '开发计划', error, itemLabel: '开发单元' }));
+    throw new DevelopmentPlanError(formatSchemaDiagnostics({ title: '开发计划', error, data, itemLabel: '开发单元' }));
+  }
+}
+
+export async function applyDesignBindings(task: Task, taskStore: TaskStore, design: DesignAssets): Promise<void> {
+  const developmentNodes = new Map(Object.entries(task.nodes).filter(([, node]) => node.generatedFromPlan === true));
+  for (const asset of design.assets) {
+    for (const unitName of asset.developmentUnits) {
+      if (!developmentNodes.has(unitName)) {
+        throw new DevelopmentPlanError(`设计截图 ${asset.id} 引用了未知开发单元：${unitName}`);
+      }
+    }
+  }
+  for (const [unitName, node] of developmentNodes) {
+    if (node.contextPath === undefined) throw new DevelopmentPlanError(`开发单元缺少上下文：${unitName}`);
+    const context = DevelopmentUnitContextSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), node.contextPath), 'utf8')));
+    const designReferences = design.assets
+      .filter((asset) => asset.developmentUnits.includes(unitName))
+      .map((asset) => ({ assetId: asset.id, imagePath: asset.imagePath, purpose: asset.purpose }));
+    await taskStore.replaceFact(task.id, node.contextPath, stringify({ ...context, designReferences }, { lineWidth: 0 }));
   }
 }
 
 export async function materializeDevelopmentWork(task: Task, taskStore: TaskStore): Promise<{ task: Task }> {
   const plan = await readDevelopmentPlan(task, taskStore);
-  const designAssets = task.designInput === undefined ? undefined : await readDesignAssets(task, taskStore);
-  assertDesignReferences(plan, designAssets);
   const next = TaskSchema.parse(task);
   for (const [nodeId, node] of Object.entries(next.nodes)) {
     if (node.generatedFromPlan === true) delete next.nodes[nodeId];
@@ -53,36 +76,15 @@ export async function materializeDevelopmentWork(task: Task, taskStore: TaskStor
     const nodeId = unit.name;
     const contextPath = `artifacts/plan/units/${nodeId}.yaml`;
     const outputPath = `artifacts/development/${nodeId}/result.md`;
-    const context = DevelopmentUnitContextSchema.parse({ schemaVersion: 'aiw.development-unit/v1', ...unit });
+    const context = DevelopmentUnitContextSchema.parse({ schemaVersion: 'aiw.development-unit/v1', ...unit, designReferences: [] });
     await taskStore.replaceFact(task.id, contextPath, stringify(context, { lineWidth: 0 }));
     const dependencies = unit.dependencies.length === 0
-      ? ['plan']
+      ? [task.designInput === undefined ? 'plan' : 'design-analysis']
       : unit.dependencies;
     next.nodes[nodeId] = developmentNode(next, unit.title, contextPath, outputPath, dependencies);
   }
   next.events.push({ type: 'materialize_development', nodeId: 'plan', at: new Date().toISOString(), note: `已生成 ${plan.units.length} 个开发单元` });
   return { task: TaskSchema.parse(deriveTaskStatus(next)) };
-}
-
-async function readDesignAssets(task: Task, taskStore: TaskStore): Promise<DesignAssets> {
-  try {
-    return DesignAssetsSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), 'artifacts/design/design-assets.yaml'), 'utf8')));
-  } catch (error) {
-    throw new DevelopmentPlanError(`无法读取设计截图索引：${error instanceof Error ? error.message : '格式无效'}`);
-  }
-}
-
-function assertDesignReferences(plan: DevelopmentPlan, design: DesignAssets | undefined): void {
-  const assets = new Map((design?.assets ?? []).map((asset) => [asset.id, asset]));
-  for (const unit of plan.units) {
-    for (const reference of unit.designReferences) {
-      const asset = assets.get(reference.assetId);
-      if (asset === undefined) throw new DevelopmentPlanError(`开发单元 ${unit.name} 引用的设计截图索引中不存在：${reference.assetId}`);
-      if (asset.nodeId !== reference.nodeId || asset.figmaUrl !== reference.figmaUrl || asset.imagePath !== reference.imagePath) {
-        throw new DevelopmentPlanError(`开发单元 ${unit.name} 的设计截图引用与索引不一致：${reference.assetId}`);
-      }
-    }
-  }
 }
 
 function developmentNode(task: Task, title: string, contextPath: string, outputPath: string, dependencies: string[]): TaskNode {

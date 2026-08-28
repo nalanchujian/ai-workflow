@@ -43,15 +43,20 @@ describe('simplified MVP workflow', () => {
     expect(task.nodes).not.toHaveProperty('test');
   });
 
-  it('inserts and completes the optional Figma design analysis before clarification', async () => {
+  it('cuts local design images after planning and binds them before development', async () => {
     const fixture = await setup(true);
 
+    await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'clarify', dryRun: false, includes: [] });
+    await fixture.commands.reviewClarify(fixture.taskId, [], { note: '需求确认' });
+    await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'solution', dryRun: false, includes: [] });
+    await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'plan', dryRun: false, includes: [] });
+    await fixture.commands.approve(fixture.taskId, 'plan', { note: '计划确认' });
     const result = await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'design-analysis', dryRun: false, includes: [] });
     const task = await fixture.store.load(fixture.taskId);
 
     expect(result.status).toBe('succeeded');
     expect(task.nodes['design-analysis']?.status).toBe('completed');
-    expect(task.nodes.clarify?.status).toBe('ready');
+    expect(task.nodes['development-unit-refund-entry']?.status).toBe('ready');
     await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/design-assets.yaml'), 'utf8')).resolves.toContain('aiw.design-assets/v1');
     await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/design/assets/refund-flow-block.png'))).resolves.toBeInstanceOf(Buffer);
   });
@@ -69,14 +74,13 @@ async function setup(withDesign = false) {
   };
   task.nodes.intake!.outputs = ['sources/requirements/r1/snapshot.md', 'sources/requirements/r1/meta.json'];
   if (withDesign) {
-    task.designInput = { provider: 'figma', url: 'https://www.figma.com/design/file-key/File?node-id=1-2', fileKey: 'file-key', nodeId: '1:2' };
-    task.nodes['design-analysis'] = { title: '分析设计稿', phase: 'design', dependsOn: ['intake'], skill: createSkillLock('figma-design-analysis'), requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-assets.yaml'] };
-    task.nodes.clarify!.dependsOn = ['design-analysis'];
-    task.nodes.clarify!.status = 'pending';
+    task.designInput = { provider: 'local-images', images: [{ id: 'refund-design', originalName: 'refund-design.png', imagePath: 'sources/design/refund-design.png', mediaType: 'image/png' }] };
+    task.nodes['design-analysis'] = { title: '切割并绑定设计图片', phase: 'design', dependsOn: ['plan'], skill: createSkillLock('design-image-segmentation'), requiresApproval: false, status: 'pending', hasResult: false, outputs: ['artifacts/design/design-assets.yaml'] };
   }
   await store.create(task);
   await store.replaceFact(task.id, task.sources.requirements.snapshotPath, '# 需求\n\n增加退款入口和退款表单。\n');
   await store.replaceFact(task.id, task.sources.requirements.metaPath, '{}\n');
+  if (withDesign) await store.replaceBinaryFact(task.id, 'sources/design/refund-design.png', Buffer.from('89504e470d0a1a0a00000000', 'hex'));
 
   const registry = new SkillRegistry(join(root, 'registry.yaml'));
   const registrySource = task.skillProfile.registrySource;
@@ -90,7 +94,7 @@ async function setup(withDesign = false) {
   await registry.replace({
     profiles: [],
     skills: [
-      skill('figma-design-analysis', 'design'),
+      skill('design-image-segmentation', 'design'),
       skill('requirements-clarification', 'clarify'), skill('technical-solution', 'solution'),
       skill('implementation-planning', 'plan'), skill('typescript-web-implementation', 'development'),
     ],
@@ -101,7 +105,7 @@ async function setup(withDesign = false) {
   const adapter = new CodexAdapter({ processRunner: { async run(input) {
     const stagingRoot = stagingRootFrom(input.stdin, input.cwd);
     if (input.stdin.includes('<artifact-protocol id="design-assets"')) {
-      await write(stagingRoot, 'artifacts/design/design-assets.yaml', stringify({ schemaVersion: 'aiw.design-assets/v1', analysisStatus: 'completed', source: task.designInput, coverage: { sourceExportCount: 1, logicalBlockCount: 1 }, assets: [{ id: 'refund-flow-block', figmaUrl: task.designInput!.url, nodeId: '1:2', sectionNodeId: '1:2', title: '退款流程', kind: 'block', imagePath: 'artifacts/design/assets/refund-flow-block.png' }] }));
+      await write(stagingRoot, 'artifacts/design/design-assets.yaml', stringify({ schemaVersion: 'aiw.design-assets/v1', source: task.designInput, coverage: { sourceImageCount: 1, logicalBlockCount: 1 }, assets: [{ id: 'refund-flow-block', sourceImageId: 'refund-design', title: '退款流程', kind: 'block', imagePath: 'artifacts/design/assets/refund-flow-block.png', purpose: '退款入口和表单布局', developmentUnits: ['development-unit-refund-entry', 'development-unit-refund-form'] }] }));
       await mkdir(join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets'), { recursive: true });
       await writeFile(join(input.cwd, '.aiw/tasks/refund-123/artifacts/design/assets/refund-flow-block.png'), Buffer.from('89504e470d0a1a0a00000000', 'hex'));
     } else if (input.stdin.includes('澄清阶段只生成事实登记和决策登记')) {

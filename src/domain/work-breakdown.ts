@@ -16,7 +16,6 @@ export const DevelopmentUnitSchema = z.object({
   codeScope: z.array(z.string().regex(relativePathPattern, '代码范围必须是项目内相对路径')).min(1),
   steps: z.array(z.string().min(1)).min(1),
   dependencies: z.array(z.string().min(1)).default([]),
-  designReferences: z.array(DesignReferenceSchema).default([]),
 }).strict();
 
 export const DevelopmentPlanSchema = z.object({
@@ -62,6 +61,7 @@ export const DevelopmentPlanSchema = z.object({
 
 export const DevelopmentUnitContextSchema = DevelopmentUnitSchema.extend({
   schemaVersion: z.literal('aiw.development-unit/v1'),
+  designReferences: z.array(DesignReferenceSchema).default([]),
 }).strict();
 
 export type DevelopmentUnit = z.infer<typeof DevelopmentUnitSchema>;

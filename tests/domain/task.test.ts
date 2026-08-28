@@ -33,24 +33,20 @@ describe('TaskSchema', () => {
     expect(() => TaskSchema.parse(input)).toThrow(/Unrecognized key/);
   });
 
-  it('accepts an optional independent design-analysis node', () => {
+  it('accepts an optional design-image node after planning', () => {
     const task = createSevenPhaseTask();
     task.designInput = {
-      provider: 'figma',
-      url: 'https://www.figma.com/design/file-key/file-name?node-id=9272-292810',
-      fileKey: 'file-key',
-      nodeId: '9272:292810',
+      provider: 'local-images',
+      images: [{ id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' }],
     };
     task.nodes['design-analysis'] = {
-      title: '分析设计稿', phase: 'design', dependsOn: ['intake'],
+      title: '切割并绑定设计图片', phase: 'design', dependsOn: ['plan'],
       skill: createSevenPhaseTask().nodes.clarify!.skill,
-      requiresApproval: false, status: 'ready', hasResult: false,
+      requiresApproval: false, status: 'pending', hasResult: false,
       outputs: [
         'artifacts/design/design-assets.yaml',
       ],
     };
-    task.nodes.clarify!.dependsOn = ['design-analysis'];
-
-    expect(TaskSchema.parse(task).nodes['design-analysis']).toMatchObject({ phase: 'design', dependsOn: ['intake'] });
+    expect(TaskSchema.parse(task).nodes['design-analysis']).toMatchObject({ phase: 'design', dependsOn: ['plan'] });
   });
 });

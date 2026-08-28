@@ -1,5 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { RunRequestSchema, RunResultSchema, type RunRequest, type RunResult } from '../domain/run.js';
 import { markdownArtifactContractFor } from '../domain/artifact-contracts.js';
@@ -9,15 +11,6 @@ import { ExecutableNotFoundError, type ProcessRunner } from '../ports/process-ru
 import { minimalChildEnvironment } from './child-process-environment.js';
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 15 * 60 * 1_000;
-const FIGMA_CHROME_TAB_PROTOCOL = '使用已安装的 Chrome 浏览器控制插件访问已登录的 Figma。读取用户已打开页签，优先 claim URL 中 fileKey 与任务一致的已有 Figma 页签；找不到时才新建临时页签并打开任务指定的完整 URL。任务结束时只关闭本次新建的临时页签，保留用户原有 Chrome 页签。不得调用 Figma MCP、Figma Connector 或 Figma API，不得修改 Figma 文件。';
-const FIGMA_NATIVE_EXPORT_PROTOCOL = [
-  '在目标页签中定位任务指定的 node-id，选中该父节点后调用 Figma 原生 Actions → Copy as PNG。读取剪贴板中的 image/png 并保存为完整父节点 PNG；浏览器截图、系统全屏截图和 tab.screenshot 只能用于确认界面状态，不能作为设计资产来源。',
-  '不得给节点添加 Export settings，也不得为了导出而修改、保存或发布 Figma 文件。原生复制失败时输出 blocked 和具体原因，不得退化为浏览器截图。',
-  '使用完整父节点 PNG 识别逻辑业务块。优先依据绿色背景容器、编号标记、标题和明显留白边界划分；这些视觉块才是交付单位。不得把直接子节点数量当作业务块数量，也不得盲目逐个导出内部 Frame、组件、注释或连线。',
-  '保留完整父节点 PNG 作为本地中间证据；对每个逻辑业务块执行本地裁切，裁切结果不得包含相邻业务块。用 file 确认每张图片是 PNG/JPEG，并用 view_image 检查内容完整、清晰且边界正确。',
-  '每个裁切块写入独立资产记录，kind 使用 block，nodeId 与 sectionNodeId 使用任务指定的父节点 ID，figmaUrl 使用任务原地址。裁切图片数量必须等于逻辑业务块数量。',
-].join('');
-
 export class CodexAdapter {
   constructor(private readonly deps: { processRunner: ProcessRunner; codexBin?: string; executionTimeoutMs?: number }) {}
 
@@ -89,6 +82,7 @@ function renderContext(request: RunRequest): string {
     `<skill name="${escapeAttribute(request.context.skill.name)}" version="${escapeAttribute(request.context.skill.version)}" trust="lower-priority-guidance">\n${request.context.skill.content}\n</skill>`,
     files,
     phaseProtocol(request),
+    planValidation(request, taskRoot),
     outputReceipt(request, taskRoot),
     '</aiw-run>',
     '',
@@ -96,11 +90,10 @@ function renderContext(request: RunRequest): string {
 }
 
 function phaseProtocol(request: RunRequest): string {
-  const taskRoot = `.aiw/tasks/${request.task.id}`;
   const markdown = markdownArtifactContractFor(request.artifacts);
   const protocolContext = { taskId: request.task.id, nodeId: request.task.nodeId, phase: request.task.phase, evidencePath: request.context.files[0]?.path ?? 'source', testProfile: '', testEvidenceType: 'unit' as const };
   if (request.task.phase === 'design') {
-    return `使用已登录的 Chrome 打开任务声明的 Figma 设计地址。${FIGMA_CHROME_TAB_PROTOCOL}${FIGMA_NATIVE_EXPORT_PROTOCOL}把裁切图片保存到 ${taskRoot}/artifacts/design/assets/，并生成最小截图索引。暂不总结设计规则或文字说明。若页面未登录、无权限、浏览器不可用、原生复制失败或未能产出真实图片，analysisStatus 必须写为 blocked 并填写 blockingReason。不要修改业务代码，也不要开始需求澄清。\n\n${renderAgentArtifactProtocol('design-assets', protocolContext)}\n\n${markdown}`;
+    return `输入图片已由用户提前导出并作为本次会话图片提供。识别每张图中的独立页面、弹窗、抽屉、浮层或状态；必要时使用本机图片工具裁切并写入允许的设计资产目录。根据开发计划把每个裁切结果绑定到至少一个开发单元。不要访问设计网站，不要生成设计总结或文字规则。\n\n${renderAgentArtifactProtocol('design-assets', protocolContext)}\n\n${markdown}`;
   }
   if (request.task.phase === 'clarify') {
     return [
@@ -111,9 +104,9 @@ function phaseProtocol(request: RunRequest): string {
   }
   if (request.task.phase === 'solution') return `根据已确认事实、当前决策和延期事项生成技术方案。延期事项不属于本次方案范围。不要发明验收编号或跨节点映射。${markdown}`;
   if (request.task.phase === 'plan') {
-    return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。存在设计截图时，只把与当前业务单元直接相关的截图索引项复制到 designReferences。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
+    return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。设计图片将在计划批准后的独立节点中绑定，不要在计划里猜测或声明设计截图。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
   }
-  return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；如果单元上下文包含 designReferences，直接使用 AIW 通过 --image 注入的关联截图，不要重新打开 Figma，也不要读取其他开发单元的截图。不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
+  return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；如果单元上下文包含 designReferences，直接使用 AIW 通过 --image 注入的关联截图，不要访问设计网站，也不要读取其他开发单元的截图。不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
 }
 
 function outputReceipt(request: RunRequest, taskRoot: string): string {
@@ -123,6 +116,29 @@ function outputReceipt(request: RunRequest, taskRoot: string): string {
     ...request.outputContract.entries.map((entry) => `- 写入：${taskRoot}/${entry.stagingPath}\n  发布为：${taskRoot}/${entry.finalPath}`),
     'AIW 校验后覆盖当前正式产物；不得直接修改正式任务事实。',
     '</aiw-output-receipt>',
+  ].join('\n');
+}
+
+function planValidation(request: RunRequest, taskRoot: string): string {
+  if (request.task.phase !== 'plan') return '';
+  const entry = request.outputContract.entries.find((entry) => entry.finalPath === 'artifacts/plan/development-plan.yaml');
+  if (entry === undefined) return '';
+  const sourceRuntime = import.meta.url.endsWith('.ts');
+  const validator = fileURLToPath(new URL(`../internal/validate-development-plan.${sourceRuntime ? 'ts' : 'js'}`, import.meta.url));
+  const args = [
+    process.execPath,
+    ...(sourceRuntime ? ['--import', pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href] : []),
+    validator,
+    join(request.task.projectRoot, taskRoot, entry.stagingPath),
+  ];
+  return [
+    '<aiw-plan-validation>',
+    '写完暂存计划后必须执行以下只读格式校验。它使用 AIW 最终接收计划的同一套 Schema，检查字段类型和单元依赖；不是业务测试，也不会提交或推进任务。',
+    '```sh',
+    args.map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(' '),
+    '```',
+    '若失败，按具体字段修复 YAML 或依赖声明后重新校验，保持已确认的业务结论不变。不得仅检查 YAML 能解析、字段存在就宣称校验通过。无法通过时如实报告原因。',
+    '</aiw-plan-validation>',
   ].join('\n');
 }
 

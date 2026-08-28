@@ -10,10 +10,10 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
     .requiredOption('--project <path>', '业务仓库根目录')
     .requiredOption('--source <reference>', '需求文档地址或本地文件路径')
     .option('--section <title>', '可选：只读取文档中指定标题及其子标题内容')
-    .option('--design <figma-url>', '可选：在需求澄清前增加独立的 Figma 设计分析节点')
+    .option('--design-image <path>', '可选：添加一张设计工具导出的 PNG/JPEG；可重复使用', collectValues, [])
     .option('--skill-profile <name>', '工作流模板；默认使用本机配置')
     .option('--force-new', '即使存在相同未完成需求任务，仍创建新任务')
-    .action(async (options: { project: string; source: string; section?: string; design?: string; skillProfile?: string; forceNew?: boolean }, command: Command) => {
+    .action(async (options: { project: string; source: string; section?: string; designImage: string[]; skillProfile?: string; forceNew?: boolean }, command: Command) => {
       const skillProfile = options.skillProfile ?? await deps.defaultSkillProfile();
       const task = await withProgress({
         reporter: deps.progress ?? new TerminalProgressReporter({ stderr: process.stderr }),
@@ -25,7 +25,7 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
           projectRoot: options.project,
           source: options.source,
           ...(options.section === undefined ? {} : { section: options.section }),
-          ...(options.design === undefined ? {} : { design: options.design }),
+          ...(options.designImage.length === 0 ? {} : { designImages: options.designImage }),
           ...(options.forceNew === true ? { forceNew: true } : {}),
           skillProfile,
         }),
@@ -40,8 +40,12 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
         ],
         nextSteps: [
           'git add .aiw && git commit -m "chore(aiw): initialize task"',
-          `aiw task run ${task.id} ${task.nodes['design-analysis'] === undefined ? 'clarify' : 'design-analysis'}`,
+          `aiw task run ${task.id} clarify`,
         ],
       });
     });
+}
+
+function collectValues(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }

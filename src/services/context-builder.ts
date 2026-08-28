@@ -128,23 +128,21 @@ function defaultFiles(task: Task, nodeId: string): ContextFile[] {
   const node = task.nodes[nodeId];
   if (node === undefined) throw new ContextBuilderError('CONTEXT_INVALID', `未知节点：${nodeId}`);
   if (node.phase === 'design') {
-    return Object.values(task.sources).map((source) => ({ role: 'source' as const, path: source.snapshotPath }));
+    return [{ role: 'artifact', path: 'artifacts/plan/development-plan.yaml' }];
   }
   if (node.phase === 'clarify') {
     return [
       ...Object.values(task.sources).map((source) => ({ role: 'source' as const, path: source.snapshotPath })),
-      ...designArtifacts(task),
     ];
   }
   if (node.phase === 'solution') {
     return [
       { role: 'artifact', path: 'artifacts/clarify/fact-register.yaml' },
       { role: 'artifact', path: 'artifacts/clarify/decision-register.yaml' },
-      ...designArtifacts(task),
     ];
   }
   if (node.phase === 'plan') {
-    return [{ role: 'artifact', path: 'artifacts/solution/solution.md' }, ...designArtifacts(task)];
+    return [{ role: 'artifact', path: 'artifacts/solution/solution.md' }];
   }
   if (node.contextPath === undefined) {
     throw new ContextBuilderError('CONTEXT_INVALID', `开发节点缺少独立上下文：${nodeId}`);
@@ -152,13 +150,8 @@ function defaultFiles(task: Task, nodeId: string): ContextFile[] {
   return [{ role: 'artifact', path: node.contextPath }];
 }
 
-function designArtifacts(task: Task): ContextFile[] {
-  return task.designInput === undefined ? [] : [
-    { role: 'artifact', path: 'artifacts/design/design-assets.yaml' },
-  ];
-}
-
 function imagesForNode(task: Task, nodeId: string, files: LoadedContextFile[]): string[] {
+  if (task.nodes[nodeId]?.phase === 'design') return task.designInput?.images.map((image) => image.imagePath) ?? [];
   if (task.nodes[nodeId]?.phase !== 'development') return [];
   const context = files.find((file) => file.path === task.nodes[nodeId]?.contextPath);
   if (context === undefined) return [];

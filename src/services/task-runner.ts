@@ -17,7 +17,7 @@ import type { DeliveryWorkspace, DeliveryWorkspaceManager } from '../ports/deliv
 import type { MethodSourceResolverPort } from '../ports/method-source-resolver.js';
 import type { WorkingTreeStatus } from '../ports/repository-status.js';
 import { ContextBuilder } from './context-builder.js';
-import { validateDevelopmentPlan } from './implementation-work-planner.js';
+import { applyDesignBindings, validateDevelopmentPlan } from './implementation-work-planner.js';
 import { SkillRegistry } from './skill-registry.js';
 import { TaskFactGuard } from './task-fact-guard.js';
 import { FileTaskRunLock, type TaskRunLock } from './task-run-lock.js';
@@ -165,7 +165,7 @@ export class TaskRunner {
       try {
         adapterResult = await this.deps.adapter.run(request, { signal: controller.signal });
       } catch (error) {
-        adapterResult = failedResult(request, 'CODEX_EXECUTION_ERROR', error instanceof Error ? error.message : 'Codex 调用失败');
+        adapterResult = failedResult(request, node.phase === 'design' ? 'DESIGN_EXPORT_ERROR' : 'CODEX_EXECUTION_ERROR', error instanceof Error ? error.message : '节点执行失败');
       }
       let finalResult = adapterResult;
       if (adapterResult.status === 'succeeded') {
@@ -180,6 +180,11 @@ export class TaskRunner {
           }
           for (const entry of outputContract.entries) await this.deps.taskStore.replaceFact(task.id, entry.finalPath, outputs.contents.get(entry.finalPath)!);
           for (const asset of outputs.binaryFacts) await this.deps.taskStore.replaceBinaryFact(task.id, asset.path, asset.content);
+          if (node.phase === 'design') {
+            const content = outputs.contents.get('artifacts/design/design-assets.yaml');
+            if (content === undefined) throw new TaskRunnerError('ARTIFACT_MISSING', '设计节点缺少设计截图索引');
+            await applyDesignBindings(task, this.deps.taskStore, DesignAssetsSchema.parse(parse(content)));
+          }
           const artifacts: OutputRecord[] = [...outputPaths, ...outputs.binaryFacts.map((asset) => asset.path)].map((path) => ({ path }));
           await this.deps.taskStore.replaceFact(task.id, `runs/${runId}/change-evidence.json`, JSON.stringify({
             schemaVersion: 'aiw.change-evidence/v1', nodeId, runId, changedPaths,
@@ -252,8 +257,6 @@ async function validateDesignAnalysis(store: TaskStore, taskId: string, contents
   const assetsContent = [...contents].find(([path]) => path.endsWith('design-assets.yaml'))?.[1];
   if (assetsContent === undefined) return [];
   const design = DesignAssetsSchema.parse(parse(assetsContent));
-  if (design.analysisStatus === 'blocked') throw new TaskRunnerError('ARTIFACT_INVALID', `设计稿读取受阻：${design.blockingReason!}`);
-  if (design.assets.length === 0) throw new TaskRunnerError('ARTIFACT_INVALID', '设计分析未生成可用的页面或弹窗截图');
   return Promise.all(design.assets.map(async (asset) => {
     let content: Buffer;
     try { content = await readFile(join(store.taskDirectory(taskId), asset.imagePath)); }
@@ -290,8 +293,8 @@ function instructionFor(task: Task, nodeId: string): string {
   const node = task.nodes[nodeId];
   if (node === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', `未知节点：${nodeId}`);
   if (node.phase !== 'design') return node.title;
-  if (task.designInput === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '设计分析节点缺少 Figma 设计地址');
-  return `${node.title}\nFigma 设计地址：${task.designInput.url}\n根节点 ID：${task.designInput.nodeId}`;
+  if (task.designInput === undefined) throw new TaskRunnerError('NODE_NOT_RUNNABLE', '设计节点缺少本地设计图片');
+  return `${node.title}\n输入图片：${task.designInput.images.length} 张\n按照开发计划切割为页面、弹窗或状态图片，并把每张图片绑定到至少一个开发单元。`;
 }
 
 interface ActiveRun { taskId: string; nodeId: string; runId: string; runDirectory: string; controller: AbortController }

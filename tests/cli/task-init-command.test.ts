@@ -88,19 +88,18 @@ describe('task init command', () => {
     });
   });
 
-  it('forwards an optional Figma design and points the user to the design-analysis node', async () => {
+  it('forwards multiple exported design images and keeps clarification as the first executable node', async () => {
     let received: unknown;
     let output = '';
     const command = createTaskInitCommand({
-      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature' }, nodes: { 'design-analysis': { status: 'ready' } } }; } } as never,
+      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature' }, nodes: { clarify: { status: 'ready' }, 'design-analysis': { status: 'pending' } } }; } } as never,
       defaultSkillProfile: async () => 'standard-web-feature',
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });
 
-    const design = 'https://www.figma.com/design/vcORdd4C9qEqW1YIYfbzl7/Infloww?node-id=9272-292810&m=dev';
-    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--design', design]);
+    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--design-image', 'design/main.png', '--design-image', 'design/details.png']);
 
-    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', design, skillProfile: 'standard-web-feature' });
-    expect(output).toContain('aiw task run task-20260813-120000-000 design-analysis');
+    expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', designImages: ['design/main.png', 'design/details.png'], skillProfile: 'standard-web-feature' });
+    expect(output).toContain('aiw task run task-20260813-120000-000 clarify');
   });
 });

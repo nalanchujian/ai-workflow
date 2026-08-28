@@ -77,23 +77,4 @@ workflow:
     await expect(config.contextTokenBudget()).resolves.toBe(32_000);
   });
 
-  it('rejects the removed Figma MCP profile', async () => {
-    const directory = await createTempDirectory('aiw-local-config-');
-    directories.push(directory);
-    const configPath = join(directory, 'config.yaml');
-    await writeFile(configPath, `schemaVersion: aiw.local/v1
-connectors:
-  figma:
-    configSource:
-      kind: codex-toml
-      path: ~/.codex/config.toml
-    server: figma
-    tools:
-      metadata: get_metadata
-      screenshot: get_screenshot
-      designContext: get_design_context
-`);
-
-    await expect(new LocalConfig(configPath).read()).rejects.toBeDefined();
-  });
 });

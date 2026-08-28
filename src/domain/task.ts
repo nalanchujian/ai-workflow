@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { FigmaDesignInputSchema } from './design.js';
+import { DesignInputSchema } from './design.js';
 
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const taskIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
@@ -90,7 +90,7 @@ const TaskBaseSchema = z.object({
   status: TaskStatusSchema,
   skillProfile: WorkflowProfileLockSchema,
   developmentSkill: SkillLockSchema,
-  designInput: FigmaDesignInputSchema.optional(),
+  designInput: DesignInputSchema.optional(),
   sources: z.record(z.string().min(1), SourceReferenceSchema),
   nodes: z.record(z.string().min(1), TaskNodeSchema),
   approvalRefs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
