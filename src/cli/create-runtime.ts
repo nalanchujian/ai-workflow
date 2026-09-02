@@ -26,6 +26,7 @@ import { TaskInitializer } from '../services/task-initializer.js';
 import { TaskRunner } from '../services/task-runner.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
+import { YapiSourceConnector } from '../services/yapi-source-connector.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
 import { FileTaskRunLock } from '../services/task-run-lock.js';
@@ -83,7 +84,8 @@ export function createCliRuntime(input: {
       client: input.ports.mcpClient,
       resolver: input.ports.mcpServerConfigResolver,
     });
-  const intake = (root: string) => new SourceIntake({ ...(connector === undefined ? {} : { connectors: [connector] }), network: input.ports.network, projectRoot: root });
+  const yapiConnector = new YapiSourceConnector({ network: input.ports.network });
+  const intake = (root: string) => new SourceIntake({ connectors: [yapiConnector, ...(connector === undefined ? [] : [connector])], network: input.ports.network, projectRoot: root });
   const taskFactGuard = new TaskFactGuard({ repositoryStatus: input.ports.repositoryStatus });
   const initializer = new TaskInitializer({
     registry,

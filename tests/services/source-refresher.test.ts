@@ -83,6 +83,35 @@ describe('SourceRefresher', () => {
     expect(result).toMatchObject({ changed: false, revision: 1 });
   });
 
+  it('refreshes an API document from its recognition node without invalidating intake', async () => {
+    const projectRoot = await createTempDirectory('aiw-source-refresh-');
+    directories.push(projectRoot);
+    const connector = mutableLarkConnector('# 接口 v1');
+    const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot });
+    const store = new TaskStore(projectRoot);
+    const task = createSevenPhaseTask();
+    const first = await intake.snapshot({ sourceId: 'api-document-17904', value: 'https://example.larksuite.com/docx/doccn17904' });
+    task.sources['api-document-17904'] = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
+    task.nodes['api-document-recognition'] = {
+      title: '识别 API 文档', phase: 'intake', dependsOn: ['intake'], requiresApproval: false,
+      status: 'completed', hasResult: true,
+      outputs: [task.sources['api-document-17904']!.snapshotPath, task.sources['api-document-17904']!.metaPath],
+    };
+    task.nodes.clarify.dependsOn = ['api-document-recognition'];
+    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.status = 'completed';
+    await store.create(task);
+    connector.content = '# 接口 v2';
+
+    const result = await new SourceRefresher({ intake, taskStore: store }).refresh({ sourceId: 'api-document-17904', taskId: task.id });
+
+    expect(result).toMatchObject({ changed: true, revision: 2 });
+    expect(result.task.nodes.intake.status).toBe('completed');
+    expect(result.task.nodes['api-document-recognition']).toMatchObject({ status: 'completed', outputs: ['sources/api-document-17904/r2/snapshot.md', 'sources/api-document-17904/r2/meta.json'] });
+    expect(result.task.nodes.clarify.status).toBe('ready');
+    expect(result.task.nodes.solution.status).toBe('pending');
+  });
+
   it('does not read or replace a source while another command holds the task lock', async () => {
     const projectRoot = await createTempDirectory('aiw-source-refresh-');
     const runtimeRoot = await createTempDirectory('aiw-source-refresh-runtime-');

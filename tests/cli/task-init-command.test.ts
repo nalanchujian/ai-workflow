@@ -102,4 +102,22 @@ describe('task init command', () => {
     expect(received).toEqual({ projectRoot: '/repo', source: '/repo/requirements.md', designImages: ['design/main.png', 'design/details.png'], skillProfile: 'standard-web-feature' });
     expect(output).toContain('aiw task run task-20260813-120000-000 clarify');
   });
+
+  it('forwards repeated and comma-separated YApi document IDs to task initialization', async () => {
+    let received: unknown;
+    const command = createTaskInitCommand({
+      initializer: { async init(input: unknown) { received = input; return { id: 'task-20260813-120000-000', status: 'active', skillProfile: { name: 'standard-web-feature' }, nodes: {} }; } } as never,
+      defaultSkillProfile: async () => 'standard-web-feature',
+      stdout: { write() { return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', '/repo/requirements.md', '--api-doc-id', '17879,17884', '--api-doc-id', '17904']);
+
+    expect(received).toEqual({
+      projectRoot: '/repo',
+      source: '/repo/requirements.md',
+      apiDocumentIds: ['17879,17884', '17904'],
+      skillProfile: 'standard-web-feature',
+    });
+  });
 });

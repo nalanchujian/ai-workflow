@@ -18,9 +18,9 @@ export function validateMarkdownArtifactContract(path: string, content: string):
 export function markdownArtifactContractFor(paths: string[]): string {
   const applicable = paths.flatMap((path) => {
     const contract = contracts.find((candidate) => candidate.matches(path));
-    return contract === undefined ? [] : [`- ${path}：必须包含 ${contract.headings.map((heading) => `「## ${heading}」`).join('、')}`];
+    return contract === undefined ? [] : [`- ${path}：一级标题例如「# ${contract.label}」（可包含业务单元名称）；必须包含 ${contract.headings.map((heading) => `「## ${heading}」`).join('、')}`];
   });
-  return applicable.length === 0 ? '' : `\n所有 Markdown 产物必须以一级标题（例如「# 需求摘要」）开头；不能只输出二级章节或正文。并使用以下固定章节：\n${applicable.join('\n')}\n`;
+  return applicable.length === 0 ? '' : `\n所有 Markdown 产物必须以一级标题开头；不能只输出二级章节或正文。并使用以下固定章节：\n${applicable.join('\n')}\n`;
 }
 
 function escapeRegExp(value: string): string {

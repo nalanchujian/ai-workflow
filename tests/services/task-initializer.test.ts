@@ -317,6 +317,65 @@ describe('TaskInitializer', () => {
 
     expect(sourceInput).toEqual({ sourceId: 'requirements', value: 'https://jphmzyvzr43.jp.larksuite.com/docx/doccn123', section: '二期 (V2.3)', revision: 1 });
   });
+
+  it('recognizes batch YApi documents before clarification and attaches every snapshot to the task', async () => {
+    const projectRoot = await createTempDirectory('aiw-task-init-');
+    directories.push(projectRoot);
+    const registry = new SkillRegistry(join(projectRoot, '.aiw', 'registry.yaml'));
+    await registry.replace({ skills: allSkills(), profiles: [profile()] });
+    const store = new TaskStore(projectRoot);
+    const snapshotInputs: Array<{ sourceId: string; value: string }> = [];
+    const initializer = new TaskInitializer({
+      registry,
+      projectRepository: { async assertProjectReady() {} },
+      sourceIntakeFactory: () => ({
+        async snapshot(input: { sourceId: string; value: string }) {
+          snapshotInputs.push(input);
+          const isApi = input.sourceId.startsWith('api-document-');
+          return {
+            sourceId: input.sourceId,
+            kind: isApi ? 'connected-document' : 'local-file',
+            origin: input.value,
+            ...(isApi ? { externalId: input.sourceId.replace('api-document-', '') } : {}),
+            revision: 1,
+            fetchedAt: '2026-08-13T00:00:00.000Z',
+            markdown: isApi ? '# 接口' : '# 需求',
+            extractor: isApi ? 'yapi-interface-api/v1' : 'local-file/requirements.md',
+          };
+        },
+        async writeSnapshot(input: { snapshot: { sourceId: string; kind: 'connected-document' | 'local-file'; origin: string; externalId?: string } }) {
+          const { sourceId, kind, origin, externalId } = input.snapshot;
+          return { kind, origin, ...(externalId === undefined ? {} : { externalId }), revision: 1, snapshotPath: `sources/${sourceId}/r1/snapshot.md`, metaPath: `sources/${sourceId}/r1/meta.json` };
+        },
+      }) as never,
+      taskStoreFactory: () => store,
+      now: () => new Date('2026-08-13T12:00:00.000Z'),
+    });
+
+    const task = await initializer.init({
+      projectRoot,
+      source: 'requirements.md',
+      apiDocumentIds: ['17879,17884', '17904,17879'],
+      skillProfile: 'standard-web-feature',
+    });
+
+    expect(snapshotInputs).toEqual([
+      { sourceId: 'requirements', value: 'requirements.md', revision: 1 },
+      { sourceId: 'api-document-17879', value: 'https://yapi.hbdev.club/project/149/interface/api/17879', revision: 1 },
+      { sourceId: 'api-document-17884', value: 'https://yapi.hbdev.club/project/149/interface/api/17884', revision: 1 },
+      { sourceId: 'api-document-17904', value: 'https://yapi.hbdev.club/project/149/interface/api/17904', revision: 1 },
+    ]);
+    expect(Object.keys(task.sources)).toEqual(['requirements', 'api-document-17879', 'api-document-17884', 'api-document-17904']);
+    expect(task.nodes['api-document-recognition']).toMatchObject({
+      phase: 'intake', status: 'completed', dependsOn: ['intake'],
+      outputs: [
+        'sources/api-document-17879/r1/snapshot.md', 'sources/api-document-17879/r1/meta.json',
+        'sources/api-document-17884/r1/snapshot.md', 'sources/api-document-17884/r1/meta.json',
+        'sources/api-document-17904/r1/snapshot.md', 'sources/api-document-17904/r1/meta.json',
+      ],
+    });
+    expect(task.nodes.clarify).toMatchObject({ status: 'ready', dependsOn: ['api-document-recognition'] });
+  });
 });
 
 function profile(): InstalledWorkflowProfile {

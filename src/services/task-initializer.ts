@@ -12,6 +12,7 @@ import { executableStages, requiredExecutableStages } from '../domain/workflow-p
 import { SourceIntake, type SnapshotRecord } from './source-intake.js';
 import { SkillRegistry } from './skill-registry.js';
 import { TaskStore } from './task-store.js';
+import { parseYapiDocumentIds, yapiInterfaceDocumentUrl } from './yapi-source-connector.js';
 
 interface SourceIntakePort {
   classify?(value: string): SourceKind;
@@ -28,7 +29,7 @@ export class TaskInitializer {
     now?: () => Date;
   }) {}
 
-  async init(input: { projectRoot: string; source: string; section?: string; designImages?: string[]; skillProfile: string; forceNew?: boolean }): Promise<Task> {
+  async init(input: { projectRoot: string; source: string; section?: string; designImages?: string[]; apiDocumentIds?: string[]; skillProfile: string; forceNew?: boolean }): Promise<Task> {
     await this.deps.projectRepository.assertProjectReady(input.projectRoot);
     const taskStore = this.deps.taskStoreFactory(input.projectRoot);
     const sourceIntake = this.deps.sourceIntakeFactory(input.projectRoot);
@@ -45,18 +46,27 @@ export class TaskInitializer {
     const preparedDesign = await prepareDesignImages(input.projectRoot, input.designImages ?? []);
     const skills = await this.resolveSkills(profile.skills, profile.registrySource, preparedDesign.length > 0);
     const sourceId = 'requirements';
+    const apiDocumentIds = parseYapiDocumentIds(input.apiDocumentIds ?? []);
     const source = await sourceIntake.snapshot({
       sourceId,
       value: input.source,
       ...(input.section === undefined ? {} : { section: input.section }),
       revision: 1,
     });
+    const apiSources = await Promise.all(apiDocumentIds.map(async (apiDocumentId) => sourceIntake.snapshot({
+      sourceId: apiSourceId(apiDocumentId),
+      value: yapiInterfaceDocumentUrl(apiDocumentId),
+      revision: 1,
+    })));
     const projectConfig = await readProjectConfig(input.projectRoot);
     const taskDirectory = taskStore.taskDirectory(id);
     const stagingDirectory = join(dirname(taskDirectory), `.${id}.initializing-${randomUUID()}`);
     await mkdir(stagingDirectory, { recursive: true });
     try {
-      const writtenSource = await sourceIntake.writeSnapshot({ snapshot: source, taskDirectory: stagingDirectory });
+      const [writtenSource, ...writtenApiSources] = await Promise.all([
+        sourceIntake.writeSnapshot({ snapshot: source, taskDirectory: stagingDirectory }),
+        ...apiSources.map((apiSource) => sourceIntake.writeSnapshot({ snapshot: apiSource, taskDirectory: stagingDirectory })),
+      ]);
       const designInput = preparedDesign.length === 0
         ? undefined
         : DesignInputSchema.parse({ provider: 'local-images', images: await writeDesignImages(stagingDirectory, preparedDesign) });
@@ -74,8 +84,11 @@ export class TaskInitializer {
         },
         developmentSkill: lockSkill(skills.development),
         ...(designInput === undefined ? {} : { designInput }),
-        sources: { [sourceId]: writtenSource },
-        nodes: createNodes(skills, designInput !== undefined),
+        sources: {
+          [sourceId]: writtenSource,
+          ...Object.fromEntries(writtenApiSources.map((apiSource, index) => [apiSourceId(apiDocumentIds[index]!), apiSource])),
+        },
+        nodes: createNodes(skills, designInput !== undefined, writtenApiSources),
         approvalRefs: [],
         events: [],
       };
@@ -206,7 +219,7 @@ function isUnfinished(task: Task): boolean {
 
 type ResolvedSkills = Record<(typeof requiredExecutableStages)[number], InstalledSkill> & { design?: InstalledSkill };
 
-function createNodes(skills: ResolvedSkills, hasDesign: boolean): Record<string, TaskNode> {
+function createNodes(skills: ResolvedSkills, hasDesign: boolean, apiSources: Array<{ snapshotPath: string; metaPath: string }>): Record<string, TaskNode> {
   const stageDefinitions: Array<{ id: 'clarify' | 'solution' | 'plan'; title: string; outputs: string[]; requiresApproval: boolean }> = [
     { id: 'clarify', title: '澄清需求', outputs: ['artifacts/clarify/fact-register.yaml', 'artifacts/clarify/decision-register.yaml'], requiresApproval: true },
     { id: 'solution', title: '形成技术方案', outputs: ['artifacts/solution/solution.md'], requiresApproval: false },
@@ -216,6 +229,18 @@ function createNodes(skills: ResolvedSkills, hasDesign: boolean): Record<string,
     intake: { title: '接入资料', phase: 'intake', dependsOn: [], requiresApproval: false, status: 'completed', hasResult: true, outputs: [] },
   };
   let dependency = 'intake';
+  if (apiSources.length > 0) {
+    nodes['api-document-recognition'] = {
+      title: '识别 API 文档',
+      phase: 'intake',
+      dependsOn: ['intake'],
+      requiresApproval: false,
+      status: 'completed',
+      hasResult: true,
+      outputs: apiSources.flatMap((source) => [source.snapshotPath, source.metaPath]),
+    };
+    dependency = 'api-document-recognition';
+  }
   for (const definition of stageDefinitions) {
     nodes[definition.id] = {
       title: definition.title,
@@ -243,6 +268,10 @@ function createNodes(skills: ResolvedSkills, hasDesign: boolean): Record<string,
     };
   }
   return nodes;
+}
+
+function apiSourceId(id: string): string {
+  return `api-document-${id}`;
 }
 
 type PreparedDesignImage = { id: string; originalName: string; extension: '.png' | '.jpg'; mediaType: 'image/png' | 'image/jpeg'; content: Buffer };

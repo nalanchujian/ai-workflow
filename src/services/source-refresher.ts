@@ -32,9 +32,19 @@ export class SourceRefresher {
       if (snapshot.markdown === previous) return { changed: false, revision: current.revision, task };
 
       const reference = await this.deps.intake.writeSnapshot({ snapshot, taskDirectory: this.deps.taskStore.taskDirectory(task.id) });
-      const next = restartDependentsForSourceChange(task, 'intake', `来源 ${input.sourceId} 已更新`);
+      const recognitionNode = task.nodes['api-document-recognition'];
+      const upstreamNodeId = input.sourceId.startsWith('api-document-') && recognitionNode !== undefined
+        ? 'api-document-recognition'
+        : 'intake';
+      const next = restartDependentsForSourceChange(task, upstreamNodeId, `来源 ${input.sourceId} 已更新`);
       next.sources[input.sourceId] = reference;
-      next.nodes.intake!.outputs = [reference.snapshotPath, reference.metaPath];
+      if (upstreamNodeId === 'api-document-recognition') {
+        next.nodes[upstreamNodeId]!.outputs = Object.entries(next.sources)
+          .filter(([sourceId]) => sourceId.startsWith('api-document-'))
+          .flatMap(([, source]) => [source.snapshotPath, source.metaPath]);
+      } else {
+        next.nodes.intake!.outputs = [reference.snapshotPath, reference.metaPath];
+      }
       return { changed: true, revision: reference.revision, task: await this.deps.taskStore.update(next) };
     });
   }

@@ -51,6 +51,16 @@ git add .aiw && git commit -m "chore(aiw): initialize task"
 aiw task run <task-id> clarify
 ```
 
+需要将 YApi 接口协议一并纳入任务时，只需输入接口文档链接最后的 ID。支持逗号分隔或重复传入，AIW 会自动识别并固化为“识别 API 文档”节点的输入，后续需求澄清会读取这些快照：
+
+```bash
+aiw task init --project . --source requirements.md \
+  --api-doc-id 17879,17884 \
+  --api-doc-id 17904
+```
+
+当前该快捷输入匹配 `https://yapi.hbdev.club/project/149/interface/api/<id>`。
+
 需求关联设计稿时，先从设计工具导出 PNG/JPEG，然后在创建任务时重复增加 `--design-image <图片路径>`。需求澄清、方案和计划完成后，CLI 会提示执行 `design-analysis`；该节点切割图片并按开发单元绑定。AIW 不访问或解析设计平台。
 
 每一步都会直接显示下一条 `review`、`approve` 或具体节点的 `run` 命令。任务事实位于业务仓库 `.aiw/`，运行日志和临时 worktree 位于本机 `~/.aiw/runtime/`。
