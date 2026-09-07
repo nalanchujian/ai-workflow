@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -26,6 +26,9 @@ describe('release worktree gates', () => {
 
   it('allows publishing only when package.json is the sole versioning change', async () => {
     const directory = await repository();
+    await writeFile(join(directory, 'src', 'services', 'default-workflow.ts'), "export const officialDefaultWorkflow = { defaultSkillSource: { ref: 'v1.0.1' } };\n");
+    await git(directory, ['add', 'src/services/default-workflow.ts']);
+    await git(directory, ['commit', '-m', 'sync default skills']);
     await writeFile(join(directory, 'package.json'), '{"name":"example","version":"1.0.1"}\n');
 
     await expect(execFileAsync(process.execPath, [readyScript], { cwd: directory })).resolves.toMatchObject({ stderr: '' });
@@ -34,11 +37,21 @@ describe('release worktree gates', () => {
       .rejects.toMatchObject({ stderr: expect.stringContaining('仅允许 package.json 作为发布版本变更') });
   });
 
+  it('rejects publishing when the default skills tag does not match the AIW version', async () => {
+    const directory = await repository();
+    await writeFile(join(directory, 'package.json'), '{"name":"example","version":"1.0.1"}\n');
+
+    await expect(execFileAsync(process.execPath, [readyScript], { cwd: directory }))
+      .rejects.toMatchObject({ stderr: expect.stringContaining('默认技能包标签 v1.0.0 不一致') });
+  });
+
   async function repository(): Promise<string> {
     const directory = await mkdtemp(join(tmpdir(), 'aiw-release-gate-'));
     directories.push(directory);
     await writeFile(join(directory, 'package.json'), '{"name":"example","version":"1.0.0"}\n');
     await writeFile(join(directory, 'src.ts'), 'export const initial = true;\n');
+    await mkdir(join(directory, 'src', 'services'), { recursive: true });
+    await writeFile(join(directory, 'src', 'services', 'default-workflow.ts'), "export const officialDefaultWorkflow = { defaultSkillSource: { ref: 'v1.0.0' } };\n");
     await git(directory, ['init']);
     await git(directory, ['config', 'user.email', 'aiw@example.com']);
     await git(directory, ['config', 'user.name', 'AIW Test']);

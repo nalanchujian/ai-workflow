@@ -82,9 +82,10 @@ pnpm build
 ```bash
 cd /Users/j/ai-workflow
 pnpm build
+PACKAGE_VERSION="$(node -p \"require('./package.json').version\")"
 pnpm pack
 npm uninstall -g @nalanchujian/aiw
-npm install -g /Users/j/ai-workflow/nalanchujian-aiw-0.0.2.tgz
+npm install -g "/Users/j/ai-workflow/nalanchujian-aiw-${PACKAGE_VERSION}.tgz"
 hash -r
 aiw -V
 ```
