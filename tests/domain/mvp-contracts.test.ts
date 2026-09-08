@@ -22,10 +22,11 @@ describe('MVP node and artifact contracts', () => {
     for (const phase of ['intake', 'clarify', 'design', 'design-analysis', 'api-document-recognition']) expect(PhaseSchema.safeParse(phase).success).toBe(false);
   });
   it('distinguishes unanswered, absent and provided inputs', () => {
-    for (const status of ['not-asked', 'absent']) expect(TaskInputsSchema.parse({ requirementUrl: 'https://docs.example.test/req', apiDocuments: { status }, design: { status } }).apiDocuments.status).toBe(status);
-    expect(TaskInputsSchema.parse({ requirementUrl: 'https://docs.example.test/req', apiDocuments: { status: 'provided', urls: ['https://api.example.test/a', 'https://api.example.test/b'] }, design: { status: 'provided', image } }).design.status).toBe('provided');
-    for (const requirementUrl of ['requirements.md', 'file:///tmp/req.md', 'ftp://docs.example.test/req', 'https://user:secret@docs.example.test/req']) expect(TaskInputsSchema.safeParse({ requirementUrl, apiDocuments: { status: 'absent' }, design: { status: 'absent' } }).success).toBe(false);
-    for (const apiDocuments of [{ status: 'provided', urls: [] }, { status: 'provided', urls: ['123'] }, { status: 'provided', urls: ['https://api.example.test', 'https://api.example.test/'] }, { status: 'absent', urls: ['https://api.example.test/a'] }]) expect(TaskInputsSchema.safeParse({ requirementUrl: 'https://docs.example.test/req', apiDocuments, design: { status: 'absent' } }).success).toBe(false);
+    const base = { requirement: { status: 'provided', url: 'https://acme.larksuite.com/docx/doccn123' }, apiDocuments: { status: 'absent' }, design: { status: 'absent' } } as const;
+    expect(TaskInputsSchema.parse(base).requirement.status).toBe('provided');
+    expect(TaskInputsSchema.parse({ ...base, apiDocuments: { status: 'provided', urls: ['https://yapi.hbdev.club/project/149/interface/api/1'] }, design: { status: 'provided', image } }).design.status).toBe('provided');
+    for (const url of ['https://docs.example.test/req', 'https://acme.larksuite.com/docx/invalid-id!']) expect(TaskInputsSchema.safeParse({ ...base, requirement: { status: 'provided', url } }).success).toBe(false);
+    for (const apiDocuments of [{ status: 'provided', urls: [] }, { status: 'provided', urls: ['123'] }, { status: 'provided', urls: ['https://api.example.test/a'] }]) expect(TaskInputsSchema.safeParse({ ...base, apiDocuments }).success).toBe(false);
   });
   it('accepts one image and rejects the old multi-image format', () => {
     expect(DesignInputSchema.parse({ image }).image.id).toBe('screen');

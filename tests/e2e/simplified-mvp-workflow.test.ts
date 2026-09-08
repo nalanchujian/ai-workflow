@@ -10,8 +10,9 @@ import { SkillRegistry } from '../../src/services/skill-registry.js';
 import { TaskDecisionService } from '../../src/services/task-decision-service.js';
 import { TaskFactGuard } from '../../src/services/task-fact-guard.js';
 import { TaskRunner } from '../../src/services/task-runner.js';
+import { TaskInputService } from '../../src/services/task-input-service.js';
 import { TaskStore } from '../../src/services/task-store.js';
-import { createSevenPhaseTask, createSkillLock } from '../helpers/task-fixtures.js';
+import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 import { createTempDirectory, removeTempDirectory } from '../helpers/temp-directory.js';
 
 const directories: string[] = [];
@@ -22,6 +23,9 @@ describe('simplified MVP workflow', () => {
     const fixture = await setup();
 
     await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'requirement-analysis', dryRun: false, includes: [] });
+    await fixture.commands.reviewRequirement(fixture.taskId, []);
+    await fixture.inputs.saveApiDocuments(fixture.taskId, []);
+    await fixture.inputs.saveDesignImage(fixture.taskId, undefined);
     await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'solution', dryRun: false, includes: [] });
     await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'plan', dryRun: false, includes: [] });
     let task = await fixture.store.load(fixture.taskId);
@@ -45,6 +49,8 @@ describe('simplified MVP workflow', () => {
     const fixture = await setup(true);
 
     await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'requirement-analysis', dryRun: false, includes: [] });
+    await fixture.commands.reviewRequirement(fixture.taskId, []);
+    await fixture.inputs.saveApiDocuments(fixture.taskId, []);
     const result = await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'design-slicing', dryRun: false, includes: [] });
     await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'solution', dryRun: false, includes: [] });
     await fixture.runner.run({ taskId: fixture.taskId, nodeId: 'plan', dryRun: false, includes: [] });
@@ -65,16 +71,14 @@ async function setup(withDesign = false) {
   const store = new TaskStore(root);
   const task = createSevenPhaseTask();
   task.repository = root;
-  task.inputs.apiDocuments = { status: 'absent' };
-  task.inputs.design = { status: 'absent' };
+  task.inputs.apiDocuments = { status: 'not-asked' };
+  task.inputs.design = { status: 'not-asked' };
   task.sources.requirements = {
     kind: 'local-file', origin: 'requirements.md', revision: 1,
     snapshotPath: 'sources/requirements/r1/snapshot.md', metaPath: 'sources/requirements/r1/meta.json',
   };
   if (withDesign) {
     task.inputs.design = { status: 'provided', image: { id: 'refund-design', originalName: 'refund-design.png', imagePath: 'sources/design/refund-design.png', mediaType: 'image/png' } };
-    task.nodes.solution.dependsOn = ['design-slicing'];
-    task.nodes['design-slicing'] = { title: '设计图切割', phase: 'design-slicing', dependsOn: ['requirement-analysis'], skills: [createSkillLock('design-slicing')], requiresApproval: false, status: 'pending', hasResult: false, outputs: ['artifacts/design/design-assets.yaml'] };
   }
   await store.create(task);
   await store.replaceFact(task.id, task.sources.requirements.snapshotPath, '# 需求\n\n增加退款入口和退款表单。\n');
@@ -151,7 +155,7 @@ async function setup(withDesign = false) {
     adapter, runtimeRoot: join(root, '.runtime'), runIdFactory: () => `run-${++runNumber}`,
   });
   const commands = new TaskStateCommands({ taskStore: store, taskFactGuard, decisionService: new TaskDecisionService({ taskStore: store }) });
-  return { runner, commands, store, taskId: task.id };
+  return { runner, commands, inputs: new TaskInputService({ taskStore: store }), store, taskId: task.id };
 }
 
 function stagingRootFrom(prompt: string, cwd: string): string {

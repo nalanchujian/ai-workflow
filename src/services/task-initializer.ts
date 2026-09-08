@@ -5,7 +5,6 @@ import { z } from 'zod';
 
 import type { SkillLock, Task, TaskNode } from '../domain/task.js';
 import type { InstalledSkill } from '../domain/skill.js';
-import { DocumentUrlSchema } from '../domain/document-url.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
 import { requiredExecutableStages, type WorkflowProfile } from '../domain/workflow-profile.js';
 import { SkillRegistry } from './skill-registry.js';
@@ -19,13 +18,9 @@ export class TaskInitializer {
     now?: () => Date;
   }) {}
 
-  async init(input: { projectRoot: string; source: string; skillProfile: string; forceNew?: boolean }): Promise<Task> {
-    const requirementUrl = DocumentUrlSchema.parse(input.source);
+  async init(input: { projectRoot: string; skillProfile: string }): Promise<Task> {
     await this.deps.projectRepository.assertProjectReady(input.projectRoot);
     const taskStore = this.deps.taskStoreFactory(input.projectRoot);
-    if (input.forceNew !== true) {
-      await this.rejectDuplicateTask(taskStore, requirementUrl);
-    }
     const id = taskIdAt(this.deps.now?.() ?? new Date());
     assertTaskId(id);
     const profile = await this.deps.registry.findProfile(input.skillProfile);
@@ -36,7 +31,7 @@ export class TaskInitializer {
     const skills = await this.resolveSkills(profile.skills, profile.registrySource);
     const projectConfig = await readProjectConfig(input.projectRoot);
     const task: Task = {
-        schemaVersion: 'aiw.task/v5',
+        schemaVersion: 'aiw.task/v6',
         stateVersion: 0,
         id,
         title: `任务 ${id}`,
@@ -49,7 +44,7 @@ export class TaskInitializer {
         },
         developmentSkills: lockSkills(skills.development),
         inputs: {
-          requirementUrl,
+          requirement: { status: 'not-asked' },
           apiDocuments: { status: 'not-asked' },
           design: { status: 'not-asked' },
         },
@@ -83,16 +78,6 @@ export class TaskInitializer {
       return [stage, skills] as const;
     }));
     return Object.fromEntries(resolved) as ResolvedSkills;
-  }
-
-  private async rejectDuplicateTask(taskStore: TaskStore, requirementUrl: string): Promise<void> {
-    const duplicates = (await taskStore.list()).filter((task) => isUnfinished(task)
-      && task.inputs.requirementUrl === requirementUrl);
-    if (duplicates.length === 0) {
-      return;
-    }
-    const ids = duplicates.map((task) => task.id).join('、');
-    throw new Error(`已存在相同需求的未完成任务：${ids}。请先执行 aiw task status <task-id> 查看并继续；确需重新创建时使用 --force-new。`);
   }
 }
 
@@ -148,17 +133,13 @@ function parseReference(reference: string, label: string): [string, string] {
   return [match[1], match[2]];
 }
 
-function isUnfinished(task: Task): boolean {
-  return task.status !== 'completed'
-    && task.status !== 'cancelled'
-    && Object.values(task.nodes).some((node) => node.status !== 'completed' && node.status !== 'cancelled');
-}
-
 type ResolvedSkills = Record<(typeof requiredExecutableStages)[number], InstalledSkill[]>;
 
 function createNodes(skills: ResolvedSkills): Record<string, TaskNode> {
-  const stageDefinitions: Array<{ id: 'requirement-analysis' | 'solution' | 'plan'; title: string; outputs: string[]; requiresApproval: boolean }> = [
-    { id: 'requirement-analysis', title: '需求分析', outputs: ['artifacts/requirement-analysis/fact-register.yaml', 'artifacts/requirement-analysis/decision-register.yaml'], requiresApproval: false },
+  const stageDefinitions: Array<{ id: 'requirement-analysis' | 'api-analysis' | 'design-slicing' | 'solution' | 'plan'; title: string; outputs: string[]; requiresApproval: boolean }> = [
+    { id: 'requirement-analysis', title: '需求分析', outputs: ['artifacts/requirement-analysis/fact-register.yaml', 'artifacts/requirement-analysis/decision-register.yaml'], requiresApproval: true },
+    { id: 'api-analysis', title: '接口分析', outputs: ['artifacts/api-analysis/api-analysis.yaml'], requiresApproval: false },
+    { id: 'design-slicing', title: '设计图切割', outputs: ['artifacts/design/design-assets.yaml'], requiresApproval: false },
     { id: 'solution', title: '形成技术方案', outputs: ['artifacts/solution/solution.md'], requiresApproval: false },
     { id: 'plan', title: '制定开发计划', outputs: ['artifacts/plan/development-plan.yaml'], requiresApproval: false },
   ];

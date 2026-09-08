@@ -16,12 +16,12 @@ const directories: string[] = [];
 afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
 describe('TaskRunner', () => {
-  it('automatically completes requirement analysis when no decision is pending', async () => {
+  it('always sends completed requirement analysis to human review', async () => {
     const fixture = await createFixture('requirement-analysis');
     const result = await fixture.runner.run({ taskId: 'refund-123', nodeId: 'requirement-analysis', dryRun: false, includes: [] });
     expect(result.status).toBe('succeeded');
     expect(result.artifacts.map((item) => item.path)).toEqual(['artifacts/requirement-analysis/fact-register.yaml', 'artifacts/requirement-analysis/decision-register.yaml']);
-    expect((await fixture.store.load('refund-123')).nodes['requirement-analysis']?.status).toBe('completed');
+    expect((await fixture.store.load('refund-123')).nodes['requirement-analysis']?.status).toBe('awaiting_approval');
   });
 
   it('reads and stores the requirement URL snapshot inside requirement analysis', async () => {
@@ -33,7 +33,7 @@ describe('TaskRunner', () => {
     await fixture.runner.run({ taskId: task.id, nodeId: 'requirement-analysis', dryRun: false, includes: [] });
 
     const stored = await fixture.store.load(task.id);
-    expect(stored.sources.requirements).toMatchObject({ origin: 'https://docs.example.test/requirements', snapshotPath: 'sources/requirements/r1/snapshot.md' });
+    expect(stored.sources.requirements).toMatchObject({ origin: 'https://acme.larksuite.com/docx/doccn123', snapshotPath: 'sources/requirements/r1/snapshot.md' });
     await expect(readFile(join(fixture.store.taskDirectory(task.id), 'sources/requirements/r1/snapshot.md'), 'utf8')).resolves.toContain('用户可以申请退款');
   });
 
@@ -47,7 +47,7 @@ describe('TaskRunner', () => {
     expect((await fixture.store.load(task.id)).nodes['requirement-analysis']?.status).toBe('failed');
   });
 
-  it('does not allow solution to bypass unanswered material selection', async () => {
+  it('does not allow solution to bypass fixed material nodes', async () => {
     const fixture = await createFixture('requirement-analysis');
     const task = await fixture.store.load('refund-123');
     task.nodes['requirement-analysis']!.status = 'completed';
@@ -55,7 +55,7 @@ describe('TaskRunner', () => {
     await fixture.store.update(task);
 
     await expect(fixture.runner.run({ taskId: task.id, nodeId: 'solution', dryRun: false, includes: [] }))
-      .rejects.toThrow('aiw task inputs refund-123');
+      .rejects.toThrow('请先完成上游节点：design-slicing');
   });
 
   it('cuts task-local images without writing development-unit bindings', async () => {
@@ -89,8 +89,8 @@ describe('TaskRunner', () => {
 
     expect(result.status).toBe('succeeded');
     const stored = await fixture.store.load(task.id);
-    expect(stored.sources['api/api-document-1']).toMatchObject({ origin: 'https://api.example.test/orders', snapshotPath: 'sources/api/api-document-1/r1/snapshot.md' });
-    expect(stored.sources['api/api-document-2']).toMatchObject({ origin: 'https://api.example.test/refunds', snapshotPath: 'sources/api/api-document-2/r1/snapshot.md' });
+    expect(stored.sources['api/api-document-1']).toMatchObject({ origin: 'https://yapi.hbdev.club/project/149/interface/api/1', snapshotPath: 'sources/api/api-document-1/r1/snapshot.md' });
+    expect(stored.sources['api/api-document-2']).toMatchObject({ origin: 'https://yapi.hbdev.club/project/149/interface/api/2', snapshotPath: 'sources/api/api-document-2/r1/snapshot.md' });
     expect(fixture.prompts.at(-1)).toContain('ID：api-document-1');
     expect(fixture.prompts.at(-1)).toContain('<artifact-protocol id="api-analysis"');
     await expect(readFile(join(fixture.store.taskDirectory(task.id), 'artifacts/api-analysis/api-analysis.yaml'), 'utf8')).resolves.toContain('api-document-2');
@@ -141,11 +141,8 @@ describe('TaskRunner', () => {
 async function prepareDesignTask(store: TaskStore) {
   const task = await store.load('refund-123');
   task.inputs.design = { status: 'provided', image: { id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' } };
-  task.nodes['requirement-analysis']!.status = 'completed'; task.nodes.solution!.status = 'completed'; task.nodes.plan!.status = 'completed';
-  task.nodes['design-slicing'] = {
-    title: '设计图切割', phase: 'design-slicing', dependsOn: ['plan'], skills: [createSkillLock('design-slicing')],
-    requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/design/design-assets.yaml'],
-  };
+  task.nodes['requirement-analysis']!.status = 'completed'; task.nodes['api-analysis']!.status = 'completed'; task.nodes['design-slicing']!.status = 'ready';
+  task.nodes.solution!.status = 'completed'; task.nodes.plan!.status = 'completed';
   task.nodes['development-unit-refund-entry'] = {
     title: '退款入口', phase: 'development', dependsOn: ['design-slicing'], skills: [createSkillLock('typescript-web-implementation')],
     requiresApproval: false, status: 'pending', hasResult: false, outputs: ['artifacts/development/development-unit-refund-entry/result.md'],
@@ -161,7 +158,7 @@ async function prepareDesignTask(store: TaskStore) {
 async function prepareApiTask(store: TaskStore) {
   const task = await store.load('refund-123');
   task.nodes['requirement-analysis']!.status = 'completed';
-  task.inputs.apiDocuments = { status: 'provided', urls: ['https://api.example.test/orders', 'https://api.example.test/refunds'] };
+  task.inputs.apiDocuments = { status: 'provided', urls: ['https://yapi.hbdev.club/project/149/interface/api/1', 'https://yapi.hbdev.club/project/149/interface/api/2'] };
   task.nodes['api-analysis'] = {
     title: '接口分析', phase: 'api-analysis', dependsOn: ['requirement-analysis'], skills: [createSkillLock('api-analysis')],
     requiresApproval: false, status: 'ready', hasResult: false, outputs: ['artifacts/api-analysis/api-analysis.yaml'],
@@ -217,7 +214,7 @@ async function createFixture(mode: 'design-slicing' | 'design-invalid' | 'api-an
       const output = join(taskRoot, 'artifacts/api-analysis/api-analysis.yaml'); await mkdir(dirname(output), { recursive: true });
       const documents = ['orders', 'refunds'].map((name, index) => ({
         id: mode === 'api-invalid' && index === 0 ? 'other-document' : `api-document-${index + 1}`,
-        url: `https://api.example.test/${name}`,
+        url: `https://yapi.hbdev.club/project/149/interface/api/${index + 1}`,
         snapshotPath: `sources/api/api-document-${index + 1}/r1/snapshot.md`,
         interfaces: [{ id: `list-${name}`, title: `${name} 列表`, method: 'GET', path: `/${name}`, request: '无参数。', response: '列表。', errors: [], constraints: [], missingInformation: [] }],
         missingInformation: [],

@@ -15,28 +15,22 @@ describe('TaskInitializer', () => {
   const directories: string[] = [];
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('creates a task from one requirement URL without reading it or creating old nodes', async () => {
+  it('creates a task before collecting any requirement material', async () => {
     const projectRoot = await setupRoot(directories);
-    const task = await createInitializer(projectRoot).init({ projectRoot, source: 'https://docs.example.test/requirements', skillProfile: 'standard-web-feature' });
+    const task = await createInitializer(projectRoot).init({ projectRoot, skillProfile: 'standard-web-feature' });
 
-    expect(task.inputs).toEqual({ requirementUrl: 'https://docs.example.test/requirements', apiDocuments: { status: 'not-asked' }, design: { status: 'not-asked' } });
+    expect(task.inputs).toEqual({ requirement: { status: 'not-asked' }, apiDocuments: { status: 'not-asked' }, design: { status: 'not-asked' } });
     expect(task.sources).toEqual({});
     expect(task.nodes).toMatchObject({
-      'requirement-analysis': { title: '需求分析', status: 'ready', dependsOn: [], requiresApproval: false },
-      solution: { status: 'pending', dependsOn: ['requirement-analysis'] },
+      'requirement-analysis': { title: '需求分析', status: 'ready', dependsOn: [], requiresApproval: true },
+      'api-analysis': { status: 'pending', dependsOn: ['requirement-analysis'] },
+      'design-slicing': { status: 'pending', dependsOn: ['api-analysis'] },
+      solution: { status: 'pending', dependsOn: ['design-slicing'] },
     });
     expect(task.nodes).not.toHaveProperty('intake');
     expect(task.nodes).not.toHaveProperty('clarify');
     expect(task.nodes).not.toHaveProperty('api-document-recognition');
     await expect(readFile(join(projectRoot, '.aiw', 'config.yaml'), 'utf8')).resolves.toContain('schemaVersion: aiw.config/v1');
-  });
-
-  it('accepts only an HTTP(S) requirement document URL', async () => {
-    const projectRoot = await setupRoot(directories);
-    const initializer = createInitializer(projectRoot);
-    for (const source of ['requirements.md', 'file:///tmp/requirements.md', 'ftp://docs.example.test/requirements', 'https://user:secret@docs.example.test/requirements']) {
-      await expect(initializer.init({ projectRoot, source, skillProfile: 'standard-web-feature' })).rejects.toThrow();
-    }
   });
 
   it('locks every skill bound to a phase in profile order', async () => {
@@ -52,16 +46,15 @@ describe('TaskInitializer', () => {
       }],
     });
 
-    const task = await createInitializer(projectRoot).init({ projectRoot, source: 'https://docs.example.test/multiple', skillProfile: workflow.name });
+    const task = await createInitializer(projectRoot).init({ projectRoot, skillProfile: workflow.name });
 
     expect(task.nodes.solution?.skills.map((skill) => skill.name)).toEqual(['technical-solution', 'solution-review']);
   });
 
-  it('rejects a duplicate unfinished task before creating another task', async () => {
+  it('does not require a requirement URL during initialization', async () => {
     const projectRoot = await setupRoot(directories);
     const initializer = createInitializer(projectRoot);
-    await initializer.init({ projectRoot, source: 'https://docs.example.test/requirements', skillProfile: 'standard-web-feature' });
-    await expect(initializer.init({ projectRoot, source: 'https://docs.example.test/requirements', skillProfile: 'standard-web-feature' })).rejects.toThrow(/已存在相同需求/);
+    await expect(initializer.init({ projectRoot, skillProfile: 'standard-web-feature' })).resolves.toBeDefined();
   });
 
   it('checks repository admission before creating a task', async () => {
@@ -72,7 +65,7 @@ describe('TaskInitializer', () => {
       projectRepository: { async assertProjectReady() { throw new ProjectRepositoryError('PROJECT_NOT_GIT', '不是 Git 工作树'); } },
       taskStoreFactory: (root) => new TaskStore(root),
     });
-    await expect(initializer.init({ projectRoot, source: 'https://docs.example.test/requirements', skillProfile: 'standard-web-feature' })).rejects.toThrow('不是 Git 工作树');
+    await expect(initializer.init({ projectRoot, skillProfile: 'standard-web-feature' })).rejects.toThrow('不是 Git 工作树');
   });
 });
 

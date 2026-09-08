@@ -21,9 +21,9 @@ describe('aiw CLI help', () => {
     expect(result.stdout).toContain('首次使用：');
     expect(result.stdout).toContain('aiw init → aiw doctor');
     expect(result.stdout).toContain('日常使用：');
-    expect(result.stdout).toContain('aiw task init --source "<需求文档 URL>"');
+    expect(result.stdout).toContain('aiw task init --project .');
     expect(result.stdout).toContain('aiw task run <task-id> requirement-analysis');
-    expect(result.stdout).toContain('aiw task inputs <task-id>');
+    expect(result.stdout).not.toContain('aiw task inputs <task-id>');
     expect(result.stdout).toContain('AIW 每一步都会输出下一条精准命令');
     expect(result.stdout).not.toContain('task continue');
     expect(result.stdout).not.toContain('AI 提出疑问时使用 aiw task decision');
@@ -41,7 +41,7 @@ describe('aiw CLI help', () => {
     expect(output).toContain('init');
     expect(output).toMatch(/^ {2}run\s+/m);
     expect(output).toMatch(/^ {2}review\s+/m);
-    expect(output).toMatch(/^ {2}inputs\s+/m);
+    expect(output).not.toMatch(/^ {2}inputs\s+/m);
     expect(output).not.toMatch(/^ {2}approve\s+/m);
     expect(output).toContain('status');
     expect(output).toContain('高级与例外命令：');

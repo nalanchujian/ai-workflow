@@ -96,12 +96,12 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   root.addCommand(new Command('review').description('逐项处理需求分析中的待决策事项').argument('<task-id>').action(async (taskId: string, _options: unknown, command: Command) => {
     const task = await deps.commands.status(taskId);
     if (task.nodes['requirement-analysis']?.status !== 'awaiting_approval') {
-      writeCommandResult(task, command, deps.stdout, { headline: '需求分析当前不需要确认', nextSteps: await nextStepsForTask(deps.commands, task) });
+      writeCommandResult(task, command, deps.stdout, { headline: '需求分析当前不在审核阶段', nextSteps: await nextStepsForTask(deps.commands, task) });
       return;
     }
     const prompter = deps.reviewPrompter ?? createReviewPrompter(deps.stdout);
     const reviewed = await reviewRequirementInteractively(deps.commands, taskId, prompter, deps.stdout);
-    writeCommandResult(reviewed, command, deps.stdout, { headline: '需求分析中的待决策事项已处理', nextSteps: await nextStepsForTask(deps.commands, reviewed, 'review requirement-analysis') });
+    writeCommandResult(reviewed, command, deps.stdout, { headline: '需求分析已完成人工审核', nextSteps: await nextStepsForTask(deps.commands, reviewed, 'review requirement-analysis') });
   }));
   root.addCommand(new Command('ignore').description('忽略不属于当前任务范围的开发单元').argument('<task-id>').argument('<development-unit-name>', 'development-unit-<英文语义名>').requiredOption('--note <text>', '忽略原因').action(async (taskId: string, nodeId: string, options: { note: string }, command: Command) => {
     const task = await deps.commands.ignore(taskId, nodeId, options);
@@ -124,7 +124,7 @@ export async function reviewRequirementInteractively(
 ): Promise<Task> {
   const pending = await commands.pendingDecisions(taskId);
   const selections: RequirementDecisionSelection[] = [];
-  stdout.write(`需求分析 · 待确认 ${pending.length} 项\n\n`);
+  stdout.write(`需求分析 · 人工审核（待确认 ${pending.length} 项）\n\n`);
   for (const [index, item] of pending.entries()) selections.push(await promptDecision(prompter, stdout, item, index, pending.length));
   return commands.reviewRequirement(taskId, selections, { note: '需求分析待决策事项已逐项处理' });
 }
@@ -175,10 +175,6 @@ export async function nextStepsForTask(commands: Pick<TaskStateCommands, 'uncomm
 export function workflowNextSteps(task: Task): string[] | undefined {
   if (task.status === 'completed' || task.status === 'cancelled') return undefined;
   if (task.nodes['requirement-analysis']?.status === 'awaiting_approval') return [`aiw task review ${task.id}`];
-  if (task.nodes['requirement-analysis']?.status === 'completed'
-    && (task.inputs.apiDocuments.status === 'not-asked' || task.inputs.design.status === 'not-asked')) {
-    return [`aiw task inputs ${task.id}`];
-  }
   const runnable = Object.entries(task.nodes)
     .filter(([, node]) => ['ready', 'failed'].includes(node.status)
       && node.dependsOn.every((dependency) => task.nodes[dependency]?.status === 'completed'))

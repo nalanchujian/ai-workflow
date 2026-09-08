@@ -12,7 +12,7 @@ const directories: string[] = [];
 afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
 describe('TaskStateCommands', () => {
-  it('resolves requirement decisions and unlocks solution without creating an approval record', async () => {
+  it('resolves requirement decisions and unlocks API analysis without creating an approval record', async () => {
     const fixture = await createFixture();
     const task = await fixture.store.load('refund-123');
     task.nodes['requirement-analysis']!.status = 'awaiting_approval'; task.nodes['requirement-analysis']!.hasResult = true;
@@ -22,14 +22,14 @@ describe('TaskStateCommands', () => {
     const reviewed = await fixture.commands.reviewRequirement(task.id, [{ index: 0, action: 'continue', option: 0 }], { note: '确认' });
 
     expect(reviewed.nodes['requirement-analysis']?.status).toBe('completed');
-    expect(reviewed.nodes.solution?.status).toBe('ready');
+    expect(reviewed.nodes['api-analysis']?.status).toBe('ready');
     expect(reviewed.approvalRefs).toEqual([]);
   });
 
   it('ignores a failed leaf development unit and records the operator reason', async () => {
     const fixture = await createFixture();
     const task = await fixture.store.load('refund-123');
-    task.nodes['requirement-analysis']!.status = 'completed'; task.nodes.solution!.status = 'completed'; task.nodes.plan!.status = 'completed';
+    task.nodes['requirement-analysis']!.status = 'completed'; task.nodes['api-analysis']!.status = 'completed'; task.nodes['design-slicing']!.status = 'completed'; task.nodes.solution!.status = 'completed'; task.nodes.plan!.status = 'completed';
     task.nodes['development-unit-external-page'] = {
       title: '外部应用开发', phase: 'development', dependsOn: ['plan'], skills: task.developmentSkills,
       requiresApproval: false, status: 'failed', hasResult: false,

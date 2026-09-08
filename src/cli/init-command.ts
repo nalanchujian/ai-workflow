@@ -34,7 +34,7 @@ function renderInitResult(result: Awaited<ReturnType<DefaultWorkflowBootstrapper
     ...(result.connector === undefined ? [] : renderConnectorStatus(result.connector)),
     '',
     '下一步：',
-    'aiw task init --project <业务仓库> --source <需求来源>',
+    'aiw task init --project <业务仓库>',
     '',
     `配置位置：${result.configPath}`,
   ].join('\n');

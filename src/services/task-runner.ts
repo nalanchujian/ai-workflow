@@ -52,7 +52,7 @@ export class TaskRunner {
     this.runLock = deps.runLock ?? new FileTaskRunLock(deps.runtimeRoot);
   }
 
-  async run(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult> {
+  async run(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[]; allowUncommittedInputs?: boolean }): Promise<RunResult> {
     const lease = await this.runLock.acquire({ taskId: input.taskId });
     if (lease === undefined) throw new TaskRunnerError('TASK_BUSY', '当前任务正在被其他命令修改，请稍后重试');
     try {
@@ -71,7 +71,7 @@ export class TaskRunner {
     return true;
   }
 
-  private async runLocked(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[] }): Promise<RunResult> {
+  private async runLocked(input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[]; allowUncommittedInputs?: boolean }): Promise<RunResult> {
     let task = await this.deps.taskStore.load(input.taskId);
     const node = task.nodes[input.nodeId];
     if (node?.status === 'running') {
@@ -83,10 +83,16 @@ export class TaskRunner {
     }
     const incomplete = node.dependsOn.filter((id) => task.nodes[id]?.status !== 'completed');
     if (incomplete.length > 0) throw new TaskRunnerError('NODE_NOT_RUNNABLE', `请先完成上游节点：${incomplete.join('、')}`);
-    if (node.phase === 'solution' && (task.inputs.apiDocuments.status === 'not-asked' || task.inputs.design.status === 'not-asked')) {
-      throw new TaskRunnerError('NODE_NOT_RUNNABLE', `请先执行 aiw task inputs ${task.id} 完成资料选择`);
+    if (node.phase === 'requirement-analysis' && task.inputs.requirement.status !== 'provided') {
+      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '请先在需求分析节点的交互中提供 Lark 需求文档地址');
     }
-    if (createsOwnSourceSnapshot(node.phase)) {
+    if (node.phase === 'api-analysis' && task.inputs.apiDocuments.status !== 'provided') {
+      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '请先在接口分析节点的交互中提供 YApi 接口文档地址，或直接回车跳过');
+    }
+    if (node.phase === 'design-slicing' && task.inputs.design.status !== 'provided') {
+      throw new TaskRunnerError('NODE_NOT_RUNNABLE', '请先在设计图切割节点的交互中提供本地设计图，或直接回车跳过');
+    }
+    if (createsOwnSourceSnapshot(node.phase) && input.allowUncommittedInputs !== true) {
       await this.deps.taskFactGuard.assertCommitted({
         task,
         projectRoot: this.deps.taskStore.projectDirectory(),
@@ -131,7 +137,7 @@ export class TaskRunner {
         ...skills.map((skill) => ({ category: 'skill' as const, label: `技能：${skill.name}@${skill.version}`, content: skill.body })),
       ],
     });
-    await this.assertCommittedInputs(task, manifest);
+    await this.assertCommittedInputs(task, manifest, input.allowUncommittedInputs === true);
     if (!input.dryRun) await this.assertBusinessTreeClean();
 
     const outputPaths = node.outputs;
@@ -233,8 +239,8 @@ export class TaskRunner {
       if (finalResult.status === 'succeeded' && current.nodes[nodeId]?.phase === 'requirement-analysis') {
         const decisionContent = finalResult.artifacts.find((artifact) => artifact.path.endsWith('decision-register.yaml'));
         if (decisionContent === undefined) throw new TaskRunnerError('ARTIFACT_MISSING', '需求分析缺少决策登记');
-        const decisions = DecisionRegisterSchema.parse(parse(await readFile(join(this.deps.taskStore.taskDirectory(task.id), decisionContent.path), 'utf8')));
-        current.nodes[nodeId]!.requiresApproval = decisions.pendingDecisions.length > 0;
+        DecisionRegisterSchema.parse(parse(await readFile(join(this.deps.taskStore.taskDirectory(task.id), decisionContent.path), 'utf8')));
+        current.nodes[nodeId]!.requiresApproval = true;
       }
       const next = finalResult.status === 'succeeded'
         ? materializedPlan ?? transitionNode(current, nodeId, { type: 'succeed', runId, outputs: finalResult.artifacts })
@@ -254,7 +260,8 @@ export class TaskRunner {
     return skill;
   }
 
-  private async assertCommittedInputs(task: Task, manifest: ContextManifest): Promise<void> {
+  private async assertCommittedInputs(task: Task, manifest: ContextManifest, allowUncommittedInputs: boolean): Promise<void> {
+    if (allowUncommittedInputs) return;
     const prefix = `.aiw/tasks/${task.id}/`;
     const ownsSourceSnapshot = createsOwnSourceSnapshot(task.nodes[manifest.nodeId]?.phase);
     const paths = [...(ownsSourceSnapshot ? [] : [prefix + 'task.yaml']), ...manifest.files
@@ -267,7 +274,11 @@ export class TaskRunner {
     if (this.deps.sourceIntake === undefined) {
       throw new TaskRunnerError('NODE_NOT_RUNNABLE', '当前环境无法读取需求文档');
     }
-    const snapshot = await this.deps.sourceIntake.snapshot({ sourceId: 'requirements', value: task.inputs.requirementUrl, revision: 1 });
+    if (task.inputs.requirement.status !== 'provided') throw new TaskRunnerError('NODE_NOT_RUNNABLE', '需求分析缺少 Lark 需求文档地址');
+    const snapshot = await this.deps.sourceIntake.snapshot({
+      sourceId: 'requirements', value: task.inputs.requirement.url,
+      ...(task.inputs.requirement.section === undefined ? {} : { section: task.inputs.requirement.section }), revision: 1,
+    });
     const reference = await this.deps.sourceIntake.writeSnapshot({ snapshot, taskDirectory: this.deps.taskStore.taskDirectory(task.id) });
     const next: Task = { ...task, sources: { ...task.sources, requirements: reference } };
     await this.deps.taskStore.update(next);

@@ -13,11 +13,11 @@ describe('task state machine', () => {
     expect(next.nodes['requirement-analysis']).toMatchObject({ status: 'awaiting_approval', hasResult: true });
   });
 
-  it('approves clarification and unlocks solution', () => {
+  it('approves requirement review and unlocks API analysis', () => {
     const task = createSevenPhaseTask();
     task.nodes['requirement-analysis']!.status = 'awaiting_approval';
     const next = transitionNode(task, 'requirement-analysis', { type: 'approve', actor: 'developer' });
-    expect(next.nodes.solution!.status).toBe('ready');
+    expect(next.nodes['api-analysis']!.status).toBe('ready');
   });
 
   it('reruns an upstream node and invalidates every downstream result', () => {
@@ -56,6 +56,8 @@ describe('task state machine', () => {
   it('finishes a task when its last unfinished development unit is explicitly ignored', () => {
     const task = createSevenPhaseTask();
     task.nodes['requirement-analysis']!.status = 'completed';
+    task.nodes['api-analysis']!.status = 'completed';
+    task.nodes['design-slicing']!.status = 'completed';
     task.nodes.solution!.status = 'completed';
     task.nodes.plan!.status = 'completed';
     task.nodes['development-unit-share-link-theme'] = {
@@ -77,6 +79,8 @@ describe('task state machine', () => {
   it('rejects ignoring a workflow node or a unit with unfinished dependents', () => {
     const task = createSevenPhaseTask();
     task.nodes['requirement-analysis']!.status = 'completed';
+    task.nodes['api-analysis']!.status = 'completed';
+    task.nodes['design-slicing']!.status = 'completed';
     task.nodes.solution!.status = 'completed';
     task.nodes.plan!.status = 'completed';
     task.nodes['development-unit-base-rules'] = {

@@ -6,7 +6,7 @@ import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 describe('TaskSchema', () => {
   it('accepts the simplified task without decisions, impact graphs, or delivery status', () => {
     const task = createSevenPhaseTask();
-    expect(TaskSchema.parse(task)).toMatchObject({ schemaVersion: 'aiw.task/v5', status: 'active' });
+    expect(TaskSchema.parse(task)).toMatchObject({ schemaVersion: 'aiw.task/v6', status: 'active' });
   });
 
   it('rejects a workflow profile lock with an independent profile version', () => {
@@ -33,17 +33,9 @@ describe('TaskSchema', () => {
     expect(() => TaskSchema.parse(input)).toThrow(/Unrecognized key/);
   });
 
-  it('accepts an optional design-image node after planning', () => {
+  it('keeps design slicing as a fixed node before solution', () => {
     const task = createSevenPhaseTask();
     task.inputs.design = { status: 'provided', image: { id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' } };
-    task.nodes['design-slicing'] = {
-      title: '切割并绑定设计图片', phase: 'design-slicing', dependsOn: ['plan'],
-      skills: createSevenPhaseTask().nodes['requirement-analysis']!.skills,
-      requiresApproval: false, status: 'pending', hasResult: false,
-      outputs: [
-        'artifacts/design/design-assets.yaml',
-      ],
-    };
-    expect(TaskSchema.parse(task).nodes['design-slicing']).toMatchObject({ phase: 'design-slicing', dependsOn: ['plan'] });
+    expect(TaskSchema.parse(task).nodes['design-slicing']).toMatchObject({ phase: 'design-slicing', dependsOn: ['api-analysis'] });
   });
 });

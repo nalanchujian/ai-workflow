@@ -148,14 +148,14 @@ function defaultFiles(task: Task, nodeId: string): ContextFile[] {
     return [
       { role: 'artifact', path: 'artifacts/requirement-analysis/fact-register.yaml' },
       { role: 'artifact', path: 'artifacts/requirement-analysis/decision-register.yaml' },
-      ...(task.nodes['api-analysis'] === undefined ? [] : [{ role: 'artifact' as const, path: 'artifacts/api-analysis/api-analysis.yaml' }]),
+      ...(task.inputs.apiDocuments.status === 'provided' ? [{ role: 'artifact' as const, path: 'artifacts/api-analysis/api-analysis.yaml' }] : []),
     ];
   }
   if (node.phase === 'plan') {
     return [
       { role: 'artifact', path: 'artifacts/solution/solution.md' },
-      ...(task.nodes['api-analysis'] === undefined ? [] : [{ role: 'artifact' as const, path: 'artifacts/api-analysis/api-analysis.yaml' }]),
-      ...(task.nodes['design-slicing'] === undefined ? [] : [{ role: 'artifact' as const, path: 'artifacts/design/design-assets.yaml' }]),
+      ...(task.inputs.apiDocuments.status === 'provided' ? [{ role: 'artifact' as const, path: 'artifacts/api-analysis/api-analysis.yaml' }] : []),
+      ...(task.inputs.design.status === 'provided' ? [{ role: 'artifact' as const, path: 'artifacts/design/design-assets.yaml' }] : []),
     ];
   }
   if (node.contextPath === undefined) {

@@ -1,13 +1,15 @@
 import { Command } from 'commander';
 
 import type { TaskRunner } from '../services/task-runner.js';
+import type { TaskInputService } from '../services/task-input-service.js';
 import { workflowNextSteps, type TaskStateCommands } from './task-state-commands.js';
 import { writeCommandResult } from './output.js';
 import { TerminalProgressReporter, type ProgressReporter } from './progress-reporter.js';
+import { createReviewPrompter, type ReviewPrompter } from './review-prompter.js';
 
 type TaskStateReader = Pick<TaskStateCommands, 'status' | 'uncommittedTaskPaths' | 'runBusinessPaths'>;
 
-export function createTaskRunCommand(deps: { runner: TaskRunner; taskState: TaskStateReader; progress?: ProgressReporter; stdout: NodeJS.WriteStream }): Command {
+export function createTaskRunCommand(deps: { runner: TaskRunner; taskState: TaskStateReader; inputs: TaskInputService; progress?: ProgressReporter; stdout: NodeJS.WriteStream; prompter?: ReviewPrompter }): Command {
   return new Command('run')
     .description('运行任务节点')
     .argument('<task-id>')
@@ -21,10 +23,23 @@ export function createTaskRunCommand(deps: { runner: TaskRunner; taskState: Task
 }
 
 export async function executeTaskNode(
-  deps: { runner: TaskRunner; taskState: TaskStateReader; progress?: ProgressReporter; stdout: NodeJS.WriteStream },
+  deps: { runner: TaskRunner; taskState: TaskStateReader; inputs: TaskInputService; progress?: ProgressReporter; stdout: NodeJS.WriteStream; prompter?: ReviewPrompter },
   input: { taskId: string; nodeId: string; dryRun: boolean; includes: string[]; command: Command },
 ): Promise<void> {
   const { taskId, nodeId, command } = input;
+  const preparation = await prepareNodeInputs(deps, input);
+  if (preparation.skipped) {
+    const uncommitted = await deps.taskState.uncommittedTaskPaths(taskId);
+    writeCommandResult(preparation.task, command, deps.stdout, {
+      headline: `「${nodeId}」节点已跳过`,
+      details: [{ label: '任务 ID', value: taskId }, { label: '原因', value: preparation.reason }],
+      nextSteps: [
+        ...(uncommitted.length === 0 ? [] : ['git add .aiw && git commit -m "chore(aiw): record skipped material node"']),
+        ...(workflowNextSteps(preparation.task) ?? []),
+      ],
+    });
+    return;
+  }
   const progress = (deps.progress ?? new TerminalProgressReporter({ stderr: process.stderr })).start(
     command,
     input.dryRun ? `正在构建「${nodeId}」节点上下文` : `正在执行「${nodeId}」节点，等待 Codex 完成`,
@@ -41,7 +56,7 @@ export async function executeTaskNode(
   process.once('SIGINT', handleSignal);
   process.once('SIGTERM', handleSignal);
   try {
-    result = await deps.runner.run({ taskId, nodeId, dryRun: input.dryRun, includes: input.includes });
+    result = await deps.runner.run({ taskId, nodeId, dryRun: input.dryRun, includes: input.includes, ...(preparation.inputsSaved ? { allowUncommittedInputs: true } : {}) });
   } catch (error) {
     progress.fail(`「${nodeId}」节点执行失败`);
     throw error;
@@ -67,6 +82,38 @@ export async function executeTaskNode(
     ],
     nextSteps: await nextStepsForRun(deps.taskState, taskId, nodeId, result.runId, result.status),
   });
+}
+
+async function prepareNodeInputs(
+  deps: { taskState: TaskStateReader; inputs: TaskInputService; stdout: NodeJS.WriteStream; prompter?: ReviewPrompter },
+  input: { taskId: string; nodeId: string; dryRun: boolean },
+): Promise<{ skipped: false; inputsSaved: boolean } | { skipped: true; task: Awaited<ReturnType<TaskStateReader['status']>>; reason: string }> {
+  const task = await deps.taskState.status(input.taskId);
+  const node = task.nodes[input.nodeId];
+  if (node === undefined || !['requirement-analysis', 'api-analysis', 'design-slicing'].includes(node.phase)) return { skipped: false, inputsSaved: false };
+  const unanswered = node.phase === 'requirement-analysis' ? task.inputs.requirement.status === 'not-asked'
+    : node.phase === 'api-analysis' ? task.inputs.apiDocuments.status === 'not-asked'
+      : task.inputs.design.status === 'not-asked';
+  if (!unanswered) return { skipped: false, inputsSaved: false };
+  if (input.dryRun) throw new Error('请先以非 dry-run 方式运行该节点并完成资料对话');
+  if (deps.prompter === undefined && !process.stdin.isTTY) throw new Error(`「${input.nodeId}」需要交互终端以补充资料`);
+  const prompter = deps.prompter ?? createReviewPrompter(deps.stdout);
+  if (node.phase === 'requirement-analysis') {
+    const url = (await prompter.ask('请输入 Lark 需求文档地址：')).trim();
+    if (url.length === 0) throw new Error('需求分析必须提供 Lark 需求文档地址');
+    const section = (await prompter.ask('请输入需求章节名称（直接回车分析整篇文档）：')).trim();
+    await deps.inputs.saveRequirement(input.taskId, { url, ...(section.length === 0 ? {} : { section }) });
+    return { skipped: false, inputsSaved: true };
+  }
+  if (node.phase === 'api-analysis') {
+    const answer = await prompter.ask('请输入 YApi 接口文档地址（多个地址用逗号分隔；直接回车跳过）：');
+    const urls = answer.split(/[\s,，]+/).map((value) => value.trim()).filter(Boolean);
+    const saved = await deps.inputs.saveApiDocuments(input.taskId, urls);
+    return saved.skipped ? { skipped: true, task: saved.task, reason: '未提供 YApi 接口文档' } : { skipped: false, inputsSaved: true };
+  }
+  const image = (await prompter.ask('请输入本地设计图片路径（PNG/JPEG；直接回车跳过）：')).trim();
+  const saved = await deps.inputs.saveDesignImage(input.taskId, image.length === 0 ? undefined : image);
+  return saved.skipped ? { skipped: true, task: saved.task, reason: '未提供设计图' } : { skipped: false, inputsSaved: true };
 }
 
 async function nextStepsForRun(

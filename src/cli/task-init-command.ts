@@ -8,10 +8,8 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
   return new Command('init')
     .description('使用工作流模板初始化研发任务')
     .requiredOption('--project <path>', '业务仓库根目录')
-    .requiredOption('--source <url>', '需求文档 URL')
     .option('--skill-profile <name>', '工作流模板；默认使用本机配置')
-    .option('--force-new', '即使存在相同未完成需求任务，仍创建新任务')
-    .action(async (options: { project: string; source: string; skillProfile?: string; forceNew?: boolean }, command: Command) => {
+    .action(async (options: { project: string; skillProfile?: string }, command: Command) => {
       const skillProfile = options.skillProfile ?? await deps.defaultSkillProfile();
       const task = await withProgress({
         reporter: deps.progress ?? new TerminalProgressReporter({ stderr: process.stderr }),
@@ -21,8 +19,6 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
         failure: '任务初始化失败',
         operation: () => deps.initializer.init({
           projectRoot: options.project,
-          source: options.source,
-          ...(options.forceNew === true ? { forceNew: true } : {}),
           skillProfile,
         }),
       });

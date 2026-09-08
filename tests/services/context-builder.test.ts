@@ -43,6 +43,7 @@ describe('ContextBuilder', () => {
 
   it('gives solution API analysis but never design assets, then gives plan both optional catalogs', async () => {
     const fixture = await setup();
+    fixture.task.inputs.apiDocuments = { status: 'provided', urls: ['https://yapi.hbdev.club/project/149/interface/api/1'] };
     fixture.task.inputs.design = { status: 'provided', image: { id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' } };
     fixture.task.nodes['api-analysis'] = { title: '接口分析', phase: 'api-analysis', dependsOn: ['requirement-analysis'], skills: fixture.task.developmentSkills, requiresApproval: false, status: 'completed', hasResult: true, outputs: ['artifacts/api-analysis/api-analysis.yaml'] };
     fixture.task.nodes['design-slicing'] = { title: '设计图切割', phase: 'design-slicing', dependsOn: ['api-analysis'], skills: fixture.task.developmentSkills, requiresApproval: false, status: 'completed', hasResult: true, outputs: ['artifacts/design/design-assets.yaml'] };

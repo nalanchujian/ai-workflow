@@ -73,7 +73,7 @@ export const TaskEventSchema = z.object({
 }).strict();
 
 const TaskBaseSchema = z.object({
-  schemaVersion: z.literal('aiw.task/v5'),
+  schemaVersion: z.literal('aiw.task/v6'),
   stateVersion: z.number().int().nonnegative().default(0),
   id: z.string().regex(taskIdPattern),
   title: z.string().min(1),

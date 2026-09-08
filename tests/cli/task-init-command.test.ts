@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createTaskInitCommand } from '../../src/cli/task-init-command.js';
 
 describe('task init command', () => {
-  it('accepts only project, one requirement URL, profile and force-new', async () => {
+  it('accepts project and an optional workflow profile', async () => {
     let received: unknown;
     let output = '';
     const command = createTaskInitCommand({
@@ -13,13 +13,13 @@ describe('task init command', () => {
       stdout: writable((value) => { output += value; }),
     });
 
-    await command.parseAsync(['node', 'init', '--project', '/repo', '--source', 'https://docs.example.test/requirements', '--force-new'], { from: 'node' });
+    await command.parseAsync(['node', 'init', '--project', '/repo'], { from: 'node' });
 
-    expect(received).toEqual({ projectRoot: '/repo', source: 'https://docs.example.test/requirements', skillProfile: 'standard-web-feature', forceNew: true });
+    expect(received).toEqual({ projectRoot: '/repo', skillProfile: 'standard-web-feature' });
     expect(output).toContain('aiw task run task-1 requirement-analysis');
   });
 
-  it('rejects removed section, YApi and design-image options', async () => {
+  it('rejects removed source and material options', async () => {
     const command = createTaskInitCommand({
       initializer: { async init() { throw new Error('not reached'); } } as never,
       defaultSkillProfile: async () => 'standard-web-feature',
@@ -27,8 +27,8 @@ describe('task init command', () => {
       stdout: writable(() => undefined),
     });
     command.exitOverride();
-    for (const option of ['--section', '--api-doc-id', '--design-image']) {
-      await expect(command.parseAsync(['node', 'init', '--project', '/repo', '--source', 'https://docs.example.test/requirements', option, 'value'], { from: 'node' })).rejects.toThrow();
+    for (const option of ['--source', '--section', '--api-doc-id', '--design-image']) {
+      await expect(command.parseAsync(['node', 'init', '--project', '/repo', option, 'value'], { from: 'node' })).rejects.toThrow();
     }
   });
 });

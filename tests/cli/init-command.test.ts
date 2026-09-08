@@ -19,7 +19,7 @@ describe('init command', () => {
     expect(output).toContain('已完成首次本机初始化。');
     expect(output).toContain('默认工作流：standard-web-feature（可用）');
     expect(output).not.toContain('revision');
-    expect(output).toContain('aiw task init --project <业务仓库> --source <需求来源>');
+    expect(output).toContain('aiw task init --project <业务仓库>');
   });
 
   it('keeps the initialization result machine-readable with --json', async () => {

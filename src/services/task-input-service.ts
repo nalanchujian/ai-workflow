@@ -1,79 +1,68 @@
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 
-import { canonicalDocumentUrl, DocumentUrlSchema } from '../domain/document-url.js';
+import { DocumentUrlSchema } from '../domain/document-url.js';
 import type { DesignImageInput } from '../domain/design.js';
-import type { InstalledSkill } from '../domain/skill.js';
-import type { SkillLock, Task, TaskNode } from '../domain/task.js';
-import type { InstalledWorkflowProfile } from '../domain/workflow-profile.js';
-import { SkillRegistry } from './skill-registry.js';
+import type { Task } from '../domain/task.js';
+import { TaskSchema } from '../domain/task.js';
+import { transitionNode } from './task-state-machine.js';
 import type { TaskRunLock } from './task-run-lock.js';
 import { TaskStore } from './task-store.js';
 
-/** Records optional materials and materializes only the matching workflow nodes. */
+/** Persists information collected by each material-owning workflow node. */
 export class TaskInputService {
-  constructor(private readonly deps: {
-    taskStore: TaskStore;
-    registry: SkillRegistry;
-    taskLock?: TaskRunLock;
-  }) {}
+  constructor(private readonly deps: { taskStore: TaskStore; taskLock?: TaskRunLock }) {}
 
   status(taskId: string): Promise<Task> { return this.deps.taskStore.load(taskId); }
 
-  async saveApiDocuments(taskId: string, urls: string[] | undefined): Promise<Task> {
-    const selection = urls === undefined
-      ? { status: 'absent' as const }
-      : { status: 'provided' as const, urls: canonicalUrls(urls) };
+  async saveRequirement(taskId: string, input: { url: string; section?: string }): Promise<Task> {
+    const url = canonicalLarkUrl(input.url);
+    const section = input.section?.trim();
     return this.locked(taskId, async () => {
-      const task = await this.requireReadyForInputs(taskId);
-      if (task.inputs.apiDocuments.status !== 'not-asked') throw new Error('接口文档已记录，不能重复提交');
-      task.inputs.apiDocuments = selection;
-      if (selection.status === 'provided') {
-        task.nodes['api-analysis'] = createNode('api-analysis', await this.resolveSkills(task, 'api-analysis'), ['requirement-analysis'], 'ready');
-      }
-      refreshWorkflowDependencies(task);
-      return this.deps.taskStore.update(task);
+      const task = await this.deps.taskStore.load(taskId);
+      this.requireUnansweredReadyNode(task, 'requirement-analysis', 'requirement');
+      const duplicates = (await this.deps.taskStore.list()).filter((candidate) => candidate.id !== task.id
+        && candidate.status !== 'completed' && candidate.status !== 'cancelled'
+        && candidate.inputs.requirement.status === 'provided' && candidate.inputs.requirement.url === url);
+      if (duplicates.length > 0) throw new Error(`已存在相同需求的未完成任务：${duplicates.map((candidate) => candidate.id).join('、')}。请继续已有任务。`);
+      task.inputs.requirement = { status: 'provided', url, ...(section === undefined || section.length === 0 ? {} : { section }) };
+      return this.deps.taskStore.update(TaskSchema.parse(task));
     });
   }
 
-  async saveDesignImage(taskId: string, imageFile: string | undefined): Promise<Task> {
+  async saveApiDocuments(taskId: string, urls: string[]): Promise<{ task: Task; skipped: boolean }> {
     return this.locked(taskId, async () => {
-      const task = await this.requireReadyForInputs(taskId);
-      if (task.inputs.design.status !== 'not-asked') throw new Error('设计图已记录，不能重复提交');
+      let task = await this.deps.taskStore.load(taskId);
+      this.requireUnansweredReadyNode(task, 'api-analysis', 'apiDocuments');
+      if (urls.length === 0) {
+        task.inputs.apiDocuments = { status: 'absent' };
+        task = skipNode(task, 'api-analysis', '未提供 YApi 接口文档，接口分析已跳过');
+        return { task: await this.deps.taskStore.update(task), skipped: true };
+      }
+      task.inputs.apiDocuments = { status: 'provided', urls: canonicalYapiUrls(urls) };
+      return { task: await this.deps.taskStore.update(TaskSchema.parse(task)), skipped: false };
+    });
+  }
+
+  async saveDesignImage(taskId: string, imageFile: string | undefined): Promise<{ task: Task; skipped: boolean }> {
+    return this.locked(taskId, async () => {
+      let task = await this.deps.taskStore.load(taskId);
+      this.requireUnansweredReadyNode(task, 'design-slicing', 'design');
       if (imageFile === undefined) {
         task.inputs.design = { status: 'absent' };
-      } else {
-        const image = await loadDesignImage(imageFile);
-        const skills = await this.resolveSkills(task, 'design-slicing');
-        await this.deps.taskStore.replaceBinaryFact(taskId, image.input.imagePath, image.content);
-        task.inputs.design = { status: 'provided', image: image.input };
-        const dependency = task.nodes['api-analysis'] === undefined ? 'requirement-analysis' : 'api-analysis';
-        task.nodes['design-slicing'] = createNode('design-slicing', skills, [dependency], dependency === 'requirement-analysis' ? 'ready' : 'pending');
+        task = skipNode(task, 'design-slicing', '未提供设计图，设计图切割已跳过');
+        return { task: await this.deps.taskStore.update(task), skipped: true };
       }
-      refreshWorkflowDependencies(task);
-      return this.deps.taskStore.update(task);
+      const image = await loadDesignImage(imageFile);
+      await this.deps.taskStore.replaceBinaryFact(taskId, image.input.imagePath, image.content);
+      task.inputs.design = { status: 'provided', image: image.input };
+      return { task: await this.deps.taskStore.update(TaskSchema.parse(task)), skipped: false };
     });
   }
 
-  private async requireReadyForInputs(taskId: string): Promise<Task> {
-    const task = await this.deps.taskStore.load(taskId);
-    if (task.nodes['requirement-analysis']?.status !== 'completed') {
-      throw new Error('请先完成需求分析及待决策事项，再补充资料');
-    }
-    return task;
-  }
-
-  private async resolveSkills(task: Task, phase: 'api-analysis' | 'design-slicing'): Promise<SkillLock[]> {
-    const profile = await this.deps.registry.findProfile(task.skillProfile.name);
-    if (!isLockedProfile(profile, task)) throw new Error('当前工作流模板与任务锁定版本不一致，请恢复对应团队技能包后重试');
-    const references = profile.skills[phase];
-    const skills = await Promise.all(references.map(async (reference) => {
-      const [name, version] = parseReference(reference);
-      const skill = await this.deps.registry.findFromSource(name, version, task.skillProfile.registrySource);
-      if (skill === undefined || !skill.phases.includes(phase)) throw new Error(`工作流模板引用了不兼容技能：${phase}`);
-      return skill;
-    }));
-    return skills.map(lockSkill);
+  private requireUnansweredReadyNode(task: Task, nodeId: 'requirement-analysis' | 'api-analysis' | 'design-slicing', input: 'requirement' | 'apiDocuments' | 'design'): void {
+    if (task.nodes[nodeId]?.status !== 'ready') throw new Error(`当前不能为「${nodeId}」补充资料`);
+    if (task.inputs[input].status !== 'not-asked') throw new Error(`「${nodeId}」的资料已记录，不能重复提交`);
   }
 
   private async locked<T>(taskId: string, action: () => Promise<T>): Promise<T> {
@@ -84,44 +73,31 @@ export class TaskInputService {
   }
 }
 
-function canonicalUrls(urls: string[]): string[] {
-  if (urls.length === 0) throw new Error('至少提供一个接口文档 URL');
-  const parsed = urls.map((url) => canonicalDocumentUrl(DocumentUrlSchema.parse(url.trim())));
-  if (new Set(parsed).size !== parsed.length) throw new Error('接口文档 URL 不能重复');
-  return parsed;
+function canonicalLarkUrl(value: string): string {
+  const url = new URL(DocumentUrlSchema.parse(value.trim()));
+  if (url.protocol !== 'https:' || !(url.hostname.endsWith('.larksuite.com') || url.hostname.endsWith('.feishu.cn')) || !/^\/(docx|wiki)\/[A-Za-z0-9]+\/?$/.test(url.pathname)) throw new Error('需求文档只支持 Lark docx 或 wiki 地址');
+  url.search = ''; url.hash = '';
+  return url.href.replace(/\/$/, '');
 }
 
-function createNode(phase: 'api-analysis' | 'design-slicing', skills: SkillLock[], dependsOn: string[], status: 'ready' | 'pending'): TaskNode {
-  return phase === 'api-analysis'
-    ? { title: '接口分析', phase, dependsOn, skills, requiresApproval: false, status, hasResult: false, outputs: ['artifacts/api-analysis/api-analysis.yaml'] }
-    : { title: '设计图切割与绑定', phase, dependsOn, skills, requiresApproval: false, status, hasResult: false, outputs: ['artifacts/design/design-assets.yaml'] };
+function canonicalYapiUrls(urls: string[]): string[] {
+  const values = urls.map((value) => value.trim()).filter(Boolean);
+  const canonical = values.map((value) => {
+    const url = new URL(DocumentUrlSchema.parse(value));
+    if (url.protocol !== 'https:' || url.hostname !== 'yapi.hbdev.club' || !/^\/project\/149\/interface\/api\/[1-9]\d*\/?$/.test(url.pathname)) throw new Error('接口文档只支持当前 YApi 的文章地址');
+    url.search = ''; url.hash = '';
+    return url.href.replace(/\/$/, '');
+  });
+  if (canonical.length === 0) throw new Error('至少提供一个 YApi 接口文档地址');
+  if (new Set(canonical).size !== canonical.length) throw new Error('接口文档 URL 不能重复');
+  return canonical;
 }
 
-function refreshWorkflowDependencies(task: Task): void {
-  const api = task.nodes['api-analysis'];
-  const design = task.nodes['design-slicing'];
-  if (api !== undefined && design !== undefined) {
-    design.dependsOn = ['api-analysis'];
-    if (api.status === 'completed' && design.status === 'pending') design.status = 'ready';
-  }
-  task.nodes.solution!.dependsOn = [design === undefined ? api === undefined ? 'requirement-analysis' : 'api-analysis' : 'design-slicing'];
-}
-
-function isLockedProfile(profile: InstalledWorkflowProfile | undefined, task: Task): profile is InstalledWorkflowProfile {
-  return profile !== undefined
-    && profile.sha256 === task.skillProfile.sha256
-    && profile.registrySource.url === task.skillProfile.registrySource.url
-    && profile.registrySource.revision === task.skillProfile.registrySource.revision;
-}
-
-function parseReference(reference: string): [string, string] {
-  const match = /^([a-z][a-z0-9-]*)@(\d+\.\d+\.\d+)$/.exec(reference);
-  if (match === null) throw new Error('工作流模板中的技能引用格式无效');
-  return [match[1]!, match[2]!];
-}
-
-function lockSkill(skill: InstalledSkill): SkillLock {
-  return { name: skill.name, version: skill.version, registrySource: skill.registrySource, sha256: skill.sha256 };
+function skipNode(task: Task, nodeId: 'api-analysis' | 'design-slicing', note: string): Task {
+  const runId = `input-skip-${Date.now()}`;
+  const skipped = transitionNode(transitionNode(task, nodeId, { type: 'start', runId }), nodeId, { type: 'succeed', runId, outputs: [] });
+  skipped.events[skipped.events.length - 1]!.note = note;
+  return skipped;
 }
 
 async function loadDesignImage(file: string): Promise<{ input: DesignImageInput; content: Buffer }> {
@@ -131,10 +107,7 @@ async function loadDesignImage(file: string): Promise<{ input: DesignImageInput;
   const extension = mediaType === 'image/png' ? 'png' : 'jpg';
   const originalName = basename(file);
   const imageId = imageIdFor(originalName);
-  return {
-    content,
-    input: { id: imageId, originalName, imagePath: `sources/design/${imageId}.${extension}`, mediaType },
-  };
+  return { content, input: { id: imageId, originalName, imagePath: `sources/design/${imageId}.${extension}`, mediaType } };
 }
 
 function imageMediaType(content: Buffer): 'image/png' | 'image/jpeg' | undefined {

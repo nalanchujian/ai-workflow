@@ -12,7 +12,7 @@ export function createSkillLock(name: string): SkillLock {
 /** A new task before its approved plan has materialized development units. */
 export function createSevenPhaseTask(): Task {
   return {
-    schemaVersion: 'aiw.task/v5',
+    schemaVersion: 'aiw.task/v6',
     stateVersion: 0,
     id: 'refund-123',
     title: '实现退款功能',
@@ -24,13 +24,19 @@ export function createSevenPhaseTask(): Task {
       sha256: 'c'.repeat(64),
     },
     developmentSkills: [createSkillLock('typescript-web-implementation')],
-    inputs: { requirementUrl: 'https://docs.example.test/requirements', apiDocuments: { status: 'not-asked' }, design: { status: 'not-asked' } },
+    inputs: { requirement: { status: 'provided', url: 'https://acme.larksuite.com/docx/doccn123' }, apiDocuments: { status: 'not-asked' }, design: { status: 'not-asked' } },
     sources: {},
     nodes: {
       'requirement-analysis': node('澄清需求', 'requirement-analysis', [], 'ready', true, [
         'artifacts/requirement-analysis/fact-register.yaml', 'artifacts/requirement-analysis/decision-register.yaml',
       ], createSkillLock('requirement-analysis')),
-      solution: node('形成技术方案', 'solution', ['requirement-analysis'], 'pending', false, [
+      'api-analysis': node('接口分析', 'api-analysis', ['requirement-analysis'], 'pending', false, [
+        'artifacts/api-analysis/api-analysis.yaml',
+      ], createSkillLock('api-analysis')),
+      'design-slicing': node('设计图切割', 'design-slicing', ['api-analysis'], 'pending', false, [
+        'artifacts/design/design-assets.yaml',
+      ], createSkillLock('design-slicing')),
+      solution: node('形成技术方案', 'solution', ['design-slicing'], 'pending', false, [
         'artifacts/solution/solution.md',
       ], createSkillLock('technical-solution')),
       plan: node('制定开发计划', 'plan', ['solution'], 'pending', false, [

@@ -111,7 +111,7 @@ export function createCliRuntime(input: {
   const taskCancellation = new TaskCancellationService({ taskStore, runtimeRoot });
   const codexAdapter = new CodexAdapter({ processRunner: input.ports.processRunner });
   const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, taskLock, cancellation: taskCancellation, decisionService: new TaskDecisionService({ taskStore }) });
-  const taskInputs = new TaskInputService({ taskStore, registry, taskLock });
+  const taskInputs = new TaskInputService({ taskStore, taskLock });
   const taskRunner = new TaskRunner({
     taskStore,
     skillRegistry: registry,

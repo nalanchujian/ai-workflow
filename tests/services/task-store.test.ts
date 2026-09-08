@@ -22,7 +22,7 @@ describe('TaskStore', () => {
     await store.create(task);
     const loaded = await store.load(task.id);
 
-    expect(loaded).toMatchObject({ id: 'refund-123', schemaVersion: 'aiw.task/v5' });
+    expect(loaded).toMatchObject({ id: 'refund-123', schemaVersion: 'aiw.task/v6' });
     expect(loaded.nodes['requirement-analysis'].status).toBe('ready');
   });
 

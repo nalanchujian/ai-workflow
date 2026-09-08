@@ -18,11 +18,13 @@ describe('task run command', () => {
           return {
             id: 'refund-123', status: 'active',
             nodes: { 'requirement-analysis': { status: 'awaiting_approval', phase: 'requirement-analysis' } },
+            inputs: { requirement: { status: 'provided', url: 'https://acme.larksuite.com/docx/doccn123' }, apiDocuments: { status: 'not-asked' }, design: { status: 'not-asked' } },
           };
         },
         async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/task.yaml']; },
         async runBusinessPaths() { return []; },
       } as never,
+      inputs: {} as never,
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });
 
