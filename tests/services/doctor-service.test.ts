@@ -8,131 +8,43 @@ import { createTempDirectory, removeTempDirectory } from '../helpers/temp-direct
 
 describe('DoctorService', () => {
   const directories: string[] = [];
-
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('reports Git, Codex and document connector configuration without testing document authorization by default', async () => {
-    const directory = await createConfiguredDirectory(directories);
-    const result = await new DoctorService({
-      config: new LocalConfig(join(directory, 'config.yaml')),
-      projectRepository: { async assertProjectReady() {} },
-      processRunner: successfulProcessRunner(),
-      mcpServerConfigResolver: { async resolve() { return { transport: 'stdio', command: 'lark-mcp', args: [], env: {} }; } },
-      mcpClient: { async callTool() { return { data: { content: '# requirements' } }; }, async listTools() { return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }]; } },
-    }).inspect({ projectRoot: directory, codexBin: 'codex' });
-
+  it('checks a configured Lark OpenAPI connector without MCP', async () => {
+    const directory = await configuredDirectory(directories);
+    const result = await new DoctorService({ config: new LocalConfig(join(directory, 'config.yaml')), projectRepository: { async assertProjectReady() {} }, processRunner: successfulProcessRunner(), network: successfulNetwork() }).inspect({ projectRoot: directory, codexBin: 'codex', source: 'https://acme.larksuite.com/docx/doccn123' });
     expect(result.ok).toBe(true);
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'git-cli', status: 'passed' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'project-repository', status: 'passed' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'codex-cli', status: 'passed' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({
-      id: 'local-configuration',
-      label: 'AIW 本机设置',
-      message: '默认工作流和文档连接器设置有效。',
-      status: 'passed',
-    }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', label: '文档连接器配置', status: 'passed' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', label: '文档读取授权', status: 'warning' }));
-    expect(result.checks.some((check) => check.id === 'design-connector-configuration')).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', status: 'passed', message: 'Lark OpenAPI 应用配置有效。' }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', status: 'passed', message: '指定文档可通过 Lark OpenAPI 读取。' }));
   });
 
-  it('uses an explicitly supplied connected document only to verify its read authorization', async () => {
-    const directory = await createConfiguredDirectory(directories);
-    let receivedArguments: unknown;
-    const result = await new DoctorService({
-      config: new LocalConfig(join(directory, 'config.yaml')),
-      projectRepository: { async assertProjectReady() {} },
-      processRunner: successfulProcessRunner(),
-      mcpServerConfigResolver: { async resolve() { return { transport: 'stdio', command: 'lark-mcp', args: [], env: {} }; } },
-      mcpClient: {
-        async callTool(input) {
-          receivedArguments = input.arguments;
-          return { data: { content: '# requirements' } };
-        },
-        async listTools() { return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }]; },
-      },
-    }).inspect({ projectRoot: directory, codexBin: 'codex', source: 'https://acme.larksuite.com/docx/doccn123' });
-
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', label: '文档读取授权', status: 'passed' }));
-    expect(receivedArguments).toEqual({ path: { document_id: 'doccn123' }, params: { lang: 0 }, useUAT: false });
-    expect(JSON.stringify(result)).not.toContain('# requirements');
-  });
-
-  it('explains when the Lark OAuth login has expired', async () => {
-    const directory = await createConfiguredDirectory(directories);
-    const result = await new DoctorService({
-      config: new LocalConfig(join(directory, 'config.yaml')),
-      projectRepository: { async assertProjectReady() {} },
-      processRunner: successfulProcessRunner(),
-      mcpServerConfigResolver: { async resolve() { return { transport: 'stdio', command: 'lark-mcp', args: [], env: {} }; } },
-      mcpClient: {
-        async callTool() {
-          return { isError: true, content: [{ type: 'text', text: JSON.stringify({ errorMessage: 'Current user_access_token is invalid or expired' }) }] };
-        },
-        async listTools() { return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }]; },
-      },
-    }).inspect({ projectRoot: directory, codexBin: 'codex', source: 'https://acme.larksuite.com/docx/doccn123' });
-
-    expect(result.checks).toContainEqual(expect.objectContaining({
-      id: 'document-authorization',
-      status: 'failed',
-      message: 'Lark Connector 登录状态已失效，请重新授权后重试',
-      suggestion: '重新授权当前 Lark Connector 账号后重试。',
-    }));
-  });
-
-  it('reports a configuration failure before task creation when block listing is unavailable', async () => {
-    const directory = await createConfiguredDirectory(directories);
-    const result = await new DoctorService({
-      config: new LocalConfig(join(directory, 'config.yaml')),
-      projectRepository: { async assertProjectReady() {} }, processRunner: successfulProcessRunner(),
-      mcpServerConfigResolver: { async resolve() { return { transport: 'stdio', command: 'lark-mcp', args: [], env: {} }; } },
-      mcpClient: { async callTool() { return { data: { content: '# requirements' } }; }, async listTools() { return [{ name: 'docx_v1_document_rawContent' }]; } },
-    }).inspect({ projectRoot: directory, codexBin: 'codex' });
-
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', status: 'failed', message: expect.stringContaining('docx_v1_documentBlock_list') }));
-  });
-
-  it('returns actionable failures instead of throwing when the local configuration is invalid', async () => {
+  it('reports invalid local configuration without throwing', async () => {
     const directory = await createTempDirectory('aiw-doctor-');
     directories.push(directory);
-    await writeFile(join(directory, 'config.yaml'), 'schemaVersion: invalid\nconnectors: [not-a-map]\n', 'utf8');
+    await writeFile(join(directory, 'config.yaml'), 'schemaVersion: invalid\nconnectors: {}\n', 'utf8');
+    const result = await new DoctorService({ config: new LocalConfig(join(directory, 'config.yaml')), projectRepository: { async assertProjectReady() { throw new Error('not a repository'); } }, processRunner: successfulProcessRunner(), network: successfulNetwork() }).inspect({ projectRoot: directory, codexBin: 'codex' });
+    expect(result.ok).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'local-configuration', status: 'failed' }));
+  });
 
+  it('identifies missing Lark OpenAPI scopes', async () => {
+    const directory = await configuredDirectory(directories);
     const result = await new DoctorService({
       config: new LocalConfig(join(directory, 'config.yaml')),
-      projectRepository: { async assertProjectReady() { throw new Error('not a repository'); } },
+      projectRepository: { async assertProjectReady() {} },
       processRunner: successfulProcessRunner(),
-    }).inspect({ projectRoot: directory, codexBin: 'codex' });
-
-    expect(result.ok).toBe(false);
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'local-configuration', status: 'failed', suggestion: expect.stringContaining('~/.aiw/config.yaml') }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'project-repository', status: 'failed' }));
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', status: 'warning' }));
+      network: { async fetch(input: { url: string; method?: string }) { return input.method === 'POST' ? { body: JSON.stringify({ code: 0, tenant_access_token: 'token' }), contentType: 'application/json', status: 200, url: input.url } : { body: JSON.stringify({ code: 99991672 }), contentType: 'application/json', status: 400, url: input.url }; }, async resolve() { return ['8.8.8.8']; } },
+    }).inspect({ projectRoot: directory, codexBin: 'codex', source: 'https://acme.larksuite.com/wiki/DJJXwQUSui36aEkFz8QjwPRTp8e' });
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', status: 'failed', message: 'Lark OpenAPI 缺少 Wiki 读取权限，请在应用中授权、发布并完成审批' }));
   });
 });
 
-async function createConfiguredDirectory(directories: string[]): Promise<string> {
+async function configuredDirectory(directories: string[]): Promise<string> {
   const directory = await createTempDirectory('aiw-doctor-');
   directories.push(directory);
-  await writeFile(join(directory, 'config.yaml'), [
-    'schemaVersion: aiw.local/v1',
-    'connectors:',
-    '  lark:',
-    '    configSource:',
-    '      kind: codex-toml',
-    `      path: ${join(directory, 'codex.toml')}`,
-    '    server: lark-openapi',
-    '    tool: docx_v1_document_rawContent',
-    '    useUAT: false',
-    '',
-  ].join('\n'), 'utf8');
+  await writeFile(join(directory, 'config.yaml'), ['schemaVersion: aiw.local/v1', 'connectors:', '  lark:', '    appId: cli_test', '    appSecret: secret', '    domain: https://open.larksuite.com', ''].join('\n'), 'utf8');
   return directory;
 }
 
-function successfulProcessRunner() {
-  return {
-    async run() {
-      return { exitCode: 0, signal: null, stdout: 'version', stderr: '', timedOut: false };
-    },
-  };
-}
+function successfulProcessRunner() { return { async run() { return { exitCode: 0, signal: null, stdout: 'version', stderr: '', timedOut: false }; } }; }
+function successfulNetwork() { return { async fetch(input: { url: string; method?: string }) { return input.method === 'POST' ? { body: JSON.stringify({ code: 0, tenant_access_token: 'token' }), contentType: 'application/json', status: 200, url: input.url } : { body: JSON.stringify({ code: 0, data: { has_more: false, items: [{ block_id: 'root', block_type: 2, text: { elements: [{ text_run: { content: '需求' } }] } }] } }), contentType: 'application/json', status: 200, url: input.url }; }, async resolve() { return ['8.8.8.8']; } }; }

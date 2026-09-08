@@ -1,21 +1,18 @@
 import { DoctorResultSchema, type DoctorCheck, type DoctorResult } from '../domain/doctor.js';
-import type { McpClient } from '../ports/mcp-client.js';
-import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
+import type { NetworkClient } from '../ports/network-client.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
-import { isLarkDocumentReference, LarkSourceConnector, LarkSourceConnectorError } from './lark-source-connector.js';
+import { isLarkDocumentReference, LarkSourceConnectorError } from './lark-source-connector.js';
+import { LarkOpenApiSourceConnector } from './lark-openapi-source-connector.js';
 import { LocalConfig, type LocalConfigDocument } from './local-config.js';
 
 const CHECK_TIMEOUT_MS = 10_000;
-const LARK_REQUIRED_TOOLS = ['docx_v1_document_rawContent', 'docx_v1_documentBlock_list'];
-
 export class DoctorService {
   constructor(private readonly deps: {
     config: LocalConfig;
     projectRepository: ProjectRepository;
     processRunner: ProcessRunner;
-    mcpClient?: McpClient;
-    mcpServerConfigResolver?: McpServerConfigResolver;
+    network: NetworkClient;
   }) {}
 
   async inspect(input: { projectRoot: string; source?: string; codexBin?: string }): Promise<DoctorResult> {
@@ -77,66 +74,29 @@ export class DoctorService {
         warning('document-authorization', '文档读取授权', '未验证。', '配置文档连接器后运行 `aiw doctor --source <文档地址>`。'),
       ];
     }
-    if (this.deps.mcpServerConfigResolver === undefined || this.deps.mcpClient === undefined) {
-      return [
-        failed('document-connector-configuration', '文档连接器配置', '当前运行环境未提供 MCP 调用能力。', '使用完整的 aiw CLI 运行 `aiw doctor`。'),
-        warning('document-authorization', '文档读取授权', '未验证。', '修复 MCP 调用环境后运行 `aiw doctor --source <文档地址>`。'),
-      ];
-    }
-    let server: Awaited<ReturnType<McpServerConfigResolver['resolve']>>;
-    try {
-      server = await this.deps.mcpServerConfigResolver.resolve({ source: profile.configSource.kind, path: profile.configSource.path, server: profile.server });
-    } catch {
-      return [
-        failed('document-connector-configuration', '文档连接器配置', '无法解析已配置的文档 MCP Server。', '检查本机文档连接器配置和 Codex TOML 中对应的 MCP Server 定义。'),
-        warning('document-authorization', '文档读取授权', '未验证。', '修复 MCP 配置后运行 `aiw doctor --source <文档地址>`。'),
-      ];
-    }
-    try {
-      if (this.deps.mcpClient.listTools === undefined) {
-        throw new Error('MCP 不支持工具清单');
-      }
-      const available = new Set((await this.deps.mcpClient.listTools({ server })).map((tool) => tool.name));
-      const missing = LARK_REQUIRED_TOOLS.filter((tool) => !available.has(tool));
-      if (missing.length > 0) {
-        return [
-          failed('document-connector-configuration', '文档连接器配置', `缺少章节读取工具：${missing.join('、')}。`, '为当前文档 MCP 启用正文读取与章节读取工具后重新运行 `aiw doctor`。'),
-          warning('document-authorization', '文档读取授权', '未验证。', '修复 MCP 工具配置后运行 `aiw doctor --source <文档地址>`。'),
-        ];
-      }
-    } catch {
-      return [
-        failed('document-connector-configuration', '文档连接器配置', '无法读取文档 MCP 工具清单。', '确认文档 MCP 可启动并启用正文和章节读取工具。'),
-        warning('document-authorization', '文档读取授权', '未验证。', '修复 MCP 工具配置后运行 `aiw doctor --source <文档地址>`。'),
-      ];
-    }
     if (source === undefined) {
       return [
-        passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Lark OpenAPI 应用配置有效。'),
         warning('document-authorization', '文档读取授权', '未验证。', '运行 `aiw doctor --source <文档地址>` 验证文档读取权限。'),
       ];
     }
     try {
-      const connector = new LarkSourceConnector({
-        client: this.deps.mcpClient,
-        resolver: this.deps.mcpServerConfigResolver,
-        config: { configPath: profile.configSource.path, server: profile.server, tool: profile.tool, useUAT: profile.useUAT },
-      });
+      const connector = new LarkOpenApiSourceConnector({ network: this.deps.network, config: profile });
       await connector.fetch(source);
       return [
-        passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
-        passed('document-authorization', '文档读取授权', '指定文档可通过已配置连接器读取。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Lark OpenAPI 应用配置有效。'),
+        passed('document-authorization', '文档读取授权', '指定文档可通过 Lark OpenAPI 读取。'),
       ];
     } catch (error) {
-      if (error instanceof LarkSourceConnectorError && error.code === 'LARK_AUTH_EXPIRED') {
+      if (error instanceof LarkSourceConnectorError && (error.code === 'LARK_AUTH_EXPIRED' || error.code === 'LARK_AUTHORIZATION_DENIED')) {
         return [
-          passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
-          failed('document-authorization', '文档读取授权', error.message, '重新授权当前 Lark Connector 账号后重试。'),
+          passed('document-connector-configuration', '文档连接器配置', 'Lark OpenAPI 应用配置有效。'),
+          failed('document-authorization', '文档读取授权', error.message, '检查 Lark 应用授权后重试。'),
         ];
       }
       return [
-        passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
-        failed('document-authorization', '文档读取授权', '无法通过已配置连接器读取指定文档。', '确认文档地址、连接器授权和当前账号权限后重试。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Lark OpenAPI 应用配置有效。'),
+        failed('document-authorization', '文档读取授权', '无法通过 Lark OpenAPI 读取指定文档。', '确认文档地址、应用权限与可访问范围后重试。'),
       ];
     }
   }

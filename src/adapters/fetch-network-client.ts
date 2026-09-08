@@ -6,7 +6,14 @@ import { isIP } from 'node:net';
 import type { NetworkClient, NetworkResponse } from '../ports/network-client.js';
 
 export class FetchNetworkClient implements NetworkClient {
-  async fetch(input: { url: string; timeoutMs: number; vettedAddresses?: string[] }): Promise<NetworkResponse> {
+  async fetch(input: {
+    url: string;
+    timeoutMs: number;
+    vettedAddresses?: string[];
+    method?: 'GET' | 'POST';
+    headers?: Record<string, string>;
+    body?: string;
+  }): Promise<NetworkResponse> {
     const url = new URL(input.url);
     const vettedAddress = input.vettedAddresses?.[0];
     if (input.vettedAddresses !== undefined && vettedAddress === undefined) {
@@ -14,7 +21,8 @@ export class FetchNetworkClient implements NetworkClient {
     }
     return new Promise<NetworkResponse>((resolve, reject) => {
       const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
-        method: 'GET',
+        method: input.method ?? 'GET',
+        ...(input.headers === undefined ? {} : { headers: input.headers }),
         ...(vettedAddress === undefined ? {} : {
           lookup(_hostname, options, callback) {
             const resolved = { address: vettedAddress, family: isIP(vettedAddress) };
@@ -61,7 +69,7 @@ export class FetchNetworkClient implements NetworkClient {
       });
       request.setTimeout(input.timeoutMs, () => request.destroy(new Error('URL 请求超时')));
       request.once('error', reject);
-      request.end();
+      request.end(input.body);
     });
   }
 

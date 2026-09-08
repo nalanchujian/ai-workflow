@@ -10,7 +10,7 @@ export interface LarkConnectorConfig {
 }
 
 export class LarkSourceConnectorError extends Error {
-  constructor(readonly code: 'LARK_URL_UNSUPPORTED' | 'LARK_RESPONSE_INVALID' | 'LARK_MCP_UNAVAILABLE' | 'LARK_AUTH_EXPIRED', message: string) {
+  constructor(readonly code: 'LARK_URL_UNSUPPORTED' | 'LARK_RESPONSE_INVALID' | 'LARK_MCP_UNAVAILABLE' | 'LARK_AUTH_EXPIRED' | 'LARK_AUTHORIZATION_DENIED', message: string) {
     super(message);
     this.name = 'LarkSourceConnectorError';
   }
@@ -71,10 +71,6 @@ export class LarkSourceConnector implements SourceConnector {
     documentId: string,
     requestedTitle: string,
   ): Promise<{ markdown: string; section: { title: string; startBlockId: string; endBlockId: string } }> {
-    const requested = normalizeHeading(requestedTitle);
-    if (requested.length === 0) {
-      throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', '需求章节不能为空');
-    }
     const blocks: LarkBlock[] = [];
     let pageToken: string | undefined;
     do {
@@ -83,36 +79,12 @@ export class LarkSourceConnector implements SourceConnector {
         tool: 'docx_v1_documentBlock_list',
         arguments: blockArguments(documentId, this.deps.config.useUAT, pageToken),
       });
-      const page = blocksPageFromResponse(response);
+      const page = larkBlocksPageFromResponse(response);
       blocks.push(...page.items);
       pageToken = page.hasMore ? page.nextPageToken : undefined;
     } while (pageToken !== undefined);
 
-    const headings = blocks.flatMap((block, index) => block.headingLevel === undefined || block.text.length === 0
-      ? []
-      : [{ ...block, index }]);
-    const matches = headings.filter((heading) => normalizeHeading(heading.text) === requested);
-    if (matches.length === 0) {
-      throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', `未找到需求章节：${requestedTitle.trim()}`);
-    }
-    if (matches.length > 1) {
-      throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', `需求章节不唯一：${requestedTitle.trim()}`);
-    }
-    const heading = matches[0];
-    const headingLevel = heading.headingLevel;
-    if (headingLevel === undefined) {
-      throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', 'Lark MCP 返回了无效章节标题');
-    }
-    const next = headings.find((candidate) => candidate.index > heading.index && candidate.headingLevel !== undefined && candidate.headingLevel <= headingLevel);
-    const selected = blocks.slice(heading.index, next?.index);
-    const markdown = renderBlocks(selected);
-    if (selected.length <= 1 || markdown.replace(/^#{1,9}\s+.*(?:\n|$)/, '').trim().length === 0) {
-      throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', `需求章节为空：${heading.text}`);
-    }
-    return {
-      markdown,
-      section: { title: heading.text, startBlockId: heading.id, endBlockId: selected.at(-1)?.id ?? heading.id },
-    };
+    return selectLarkSection(blocks, requestedTitle);
   }
 
   private async resolveWikiDocument(server: Awaited<ReturnType<McpServerConfigResolver['resolve']>>, nodeToken: string): Promise<string> {
@@ -145,7 +117,7 @@ export function isLarkDocumentReference(input: string): boolean {
   return parseLarkUrl(input) !== undefined;
 }
 
-function parseLarkUrl(input: string): { kind: 'docx' | 'wiki'; canonicalUrl: string; externalId: string } | undefined {
+export function parseLarkUrl(input: string): { kind: 'docx' | 'wiki'; canonicalUrl: string; externalId: string } | undefined {
   let url: URL;
   try {
     url = new URL(input);
@@ -188,7 +160,7 @@ function blockArguments(documentId: string, useUAT: boolean, pageToken: string |
   };
 }
 
-interface LarkBlock {
+export interface LarkBlock {
   id: string;
   kind: string;
   text: string;
@@ -200,8 +172,8 @@ interface LarkBlock {
   imageToken?: string;
 }
 
-function blocksPageFromResponse(response: unknown): { hasMore: boolean; nextPageToken?: string; items: LarkBlock[] } {
-  const body = objectFromResponse(response);
+export function larkBlocksPageFromResponse(response: unknown): { hasMore: boolean; nextPageToken?: string; items: LarkBlock[] } {
+  const body = isRecord(response) && Array.isArray(response.content) ? objectFromResponse(response) : isRecord(response) ? response : undefined;
   if (!isRecord(body) || !Array.isArray(body.items) || typeof body.has_more !== 'boolean') {
     throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', 'Lark MCP 返回了无效文档块');
   }
@@ -290,7 +262,7 @@ function renderTextRun(textRun: Record<string, unknown>): string {
   return link === undefined ? text : `[${text}](${decodeURIComponent(link)})`;
 }
 
-function renderBlocks(blocks: LarkBlock[]): string {
+export function renderLarkBlocks(blocks: LarkBlock[]): string {
   const byId = new Map(blocks.map((block) => [block.id, block]));
   const consumed = new Set<string>();
   const parts = blocks.flatMap((block) => {
@@ -306,6 +278,38 @@ function renderBlocks(blocks: LarkBlock[]): string {
     return markdown.length === 0 ? [] : [markdown];
   });
   return parts.join('\n\n').trim();
+}
+
+export function selectLarkSection(blocks: LarkBlock[], requestedTitle: string): { markdown: string; section: { title: string; startBlockId: string; endBlockId: string } } {
+  const requested = normalizeHeading(requestedTitle);
+  if (requested.length === 0) {
+    throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', '需求章节不能为空');
+  }
+  const headings = blocks.flatMap((block, index) => block.headingLevel === undefined || block.text.length === 0
+    ? []
+    : [{ ...block, index }]);
+  const matches = headings.filter((heading) => normalizeHeading(heading.text) === requested);
+  if (matches.length === 0) {
+    throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', `未找到需求章节：${requestedTitle.trim()}`);
+  }
+  if (matches.length > 1) {
+    throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', `需求章节不唯一：${requestedTitle.trim()}`);
+  }
+  const heading = matches[0];
+  const headingLevel = heading.headingLevel;
+  if (headingLevel === undefined) {
+    throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', 'Lark 文档返回了无效章节标题');
+  }
+  const next = headings.find((candidate) => candidate.index > heading.index && candidate.headingLevel !== undefined && candidate.headingLevel <= headingLevel);
+  const selected = blocks.slice(heading.index, next?.index);
+  const markdown = renderLarkBlocks(selected);
+  if (selected.length <= 1 || markdown.replace(/^#{1,9}\s+.*(?:\n|$)/, '').trim().length === 0) {
+    throw new LarkSourceConnectorError('LARK_RESPONSE_INVALID', `需求章节为空：${heading.text}`);
+  }
+  return {
+    markdown,
+    section: { title: heading.text, startBlockId: heading.id, endBlockId: selected.at(-1)?.id ?? heading.id },
+  };
 }
 
 function renderBlock(block: LarkBlock, byId: Map<string, LarkBlock>): string {

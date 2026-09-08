@@ -1,6 +1,4 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 
@@ -19,10 +17,9 @@ const LocalConfigSchema = z.object({
   schemaVersion: z.literal('aiw.local/v1'),
   connectors: z.object({
     lark: z.object({
-      configSource: z.object({ kind: z.literal('codex-toml'), path: z.string().min(1) }),
-      server: z.string().min(1),
-      tool: z.string().min(1),
-      useUAT: z.boolean(),
+      appId: z.string().min(1),
+      appSecret: z.string().min(1),
+      domain: z.string().url(),
     }).optional(),
   }).strict().default({}),
   workflow: DefaultWorkflowSchema.optional(),
@@ -42,10 +39,7 @@ export class LocalConfig {
     if (profile === undefined) {
       throw new Error('Lark Connector is unavailable');
     }
-    return {
-      ...profile,
-      configSource: { ...profile.configSource, path: expandHome(profile.configSource.path) },
-    };
+    return profile;
   }
 
   async defaultWorkflow(): Promise<DefaultWorkflow> {
@@ -97,10 +91,6 @@ export class LocalConfig {
   async read(): Promise<LocalConfigDocument> {
     return LocalConfigSchema.parse(parse(await readFile(this.path, 'utf8')));
   }
-}
-
-function expandHome(path: string): string {
-  return path === '~' ? homedir() : path.startsWith('~/') ? join(homedir(), path.slice(2)) : path;
 }
 
 function isMissingFile(error: unknown): error is NodeJS.ErrnoException {

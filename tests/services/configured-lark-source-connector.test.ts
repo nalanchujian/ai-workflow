@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { ConfiguredLarkSourceConnector } from '../../src/services/configured-lark-source-connector.js';
 import { LocalConfig } from '../../src/services/local-config.js';
@@ -8,47 +8,34 @@ import { createTempDirectory, removeTempDirectory } from '../helpers/temp-direct
 
 describe('ConfiguredLarkSourceConnector', () => {
   const directories: string[] = [];
+  afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  afterEach(async () => {
-    await Promise.all(directories.splice(0).map(removeTempDirectory));
-  });
-
-  it('forwards the selected section to the configured Lark connector', async () => {
-    const directory = await createTempDirectory('aiw-configured-lark-');
+  it('reads a selected section through Lark OpenAPI', async () => {
+    const directory = await createTempDirectory('aiw-lark-openapi-');
     directories.push(directory);
-    const configPath = join(directory, 'config.yaml');
-    await writeFile(configPath, `schemaVersion: aiw.local/v1
-connectors:
-  lark:
-    configSource:
-      kind: codex-toml
-      path: /local/config.toml
-    server: lark-openapi
-    tool: docx_v1_document_rawContent
-    useUAT: false
-`);
+    await writeFile(join(directory, 'config.yaml'), [
+      'schemaVersion: aiw.local/v1', 'connectors:', '  lark:', '    appId: cli_test', '    appSecret: secret', '    domain: https://open.larksuite.com', '',
+    ].join('\n'));
     const connector = new ConfiguredLarkSourceConnector({
-      config: new LocalConfig(configPath),
-      client: {
-        async callTool() {
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                has_more: false,
-                items: [
-                  { block_id: 'target', heading1: { elements: [{ text_run: { content: '二期 (V2.3)' } }] } },
-                  { block_id: 'content', text: { elements: [{ text_run: { content: '目标需求' } }] } },
-                ],
-              }),
-            }],
-          };
+      config: new LocalConfig(join(directory, 'config.yaml')),
+      network: {
+        async fetch(input) {
+          if (input.method === 'POST') return { body: JSON.stringify({ code: 0, tenant_access_token: 'tenant-token' }), contentType: 'application/json', status: 200, url: input.url };
+          return { body: JSON.stringify({ code: 0, data: { has_more: false, items: [heading('target', '二期'), text('content', '目标需求'), heading('after', '三期')] } }), contentType: 'application/json', status: 200, url: input.url };
         },
+        async resolve() { return ['8.8.8.8']; },
       },
-      resolver: { async resolve() { return { args: [], command: 'lark-mcp', env: {}, transport: 'stdio' }; } },
     });
 
-    await expect(connector.fetch('https://acme.larksuite.com/docx/doccn123', { section: '二期 (V2.3)' }))
-      .resolves.toMatchObject({ section: { startBlockId: 'target', endBlockId: 'content' } });
+    await expect(connector.fetch('https://acme.larksuite.com/docx/doccn123', { section: '二期' }))
+      .resolves.toMatchObject({ markdown: '# 二期\n\n目标需求', section: { startBlockId: 'target', endBlockId: 'content' }, extractor: 'lark-openapi/v1' });
   });
 });
+
+function heading(id: string, content: string) {
+  return { block_id: id, block_type: 3, heading1: { elements: [{ text_run: { content } }] } };
+}
+
+function text(id: string, content: string) {
+  return { block_id: id, block_type: 2, text: { elements: [{ text_run: { content } }] } };
+}

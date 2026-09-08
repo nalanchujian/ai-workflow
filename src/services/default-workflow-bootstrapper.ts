@@ -1,7 +1,6 @@
 import type { LocalInitializationResult, LocalInitializer } from './local-initializer.js';
 import type { LocalConfig } from './local-config.js';
 import type { SkillInstaller } from './skill-installer.js';
-import type { LarkConnectorAutoDiscovery, LarkConnectorDiscoveryResult } from './lark-connector-auto-discovery.js';
 
 export interface DefaultWorkflowBootstrapResult extends LocalInitializationResult {
   workflow: {
@@ -10,7 +9,6 @@ export interface DefaultWorkflowBootstrapResult extends LocalInitializationResul
     revision: string;
     status: 'installed';
   };
-  connector?: LarkConnectorDiscoveryResult;
 }
 
 export class DefaultWorkflowBootstrapper {
@@ -18,10 +16,9 @@ export class DefaultWorkflowBootstrapper {
     initializer: Pick<LocalInitializer, 'init'>;
     config: Pick<LocalConfig, 'defaultWorkflow'>;
     installer: Pick<SkillInstaller, 'install'>;
-    larkDiscovery?: Pick<LarkConnectorAutoDiscovery, 'discover'>;
   }) {}
 
-  async init(input: { connectorServer?: string } = {}): Promise<DefaultWorkflowBootstrapResult> {
+  async init(): Promise<DefaultWorkflowBootstrapResult> {
     const initialized = await this.deps.initializer.init();
     const workflow = await this.deps.config.defaultWorkflow();
     let installed: Awaited<ReturnType<SkillInstaller['install']>>;
@@ -34,7 +31,7 @@ export class DefaultWorkflowBootstrapper {
     if (profile === undefined) {
       throw new Error(`默认技能包未提供工作流模板：${workflow.defaultProfile}`);
     }
-    return this.withConnector({
+    return {
       ...initialized,
       workflow: {
         profile: workflow.defaultProfile,
@@ -42,17 +39,6 @@ export class DefaultWorkflowBootstrapper {
         revision: profile.registrySource.revision,
         status: 'installed',
       },
-    }, input);
-  }
-
-  private async withConnector(result: Omit<DefaultWorkflowBootstrapResult, 'connector'>, input: { connectorServer?: string }): Promise<DefaultWorkflowBootstrapResult> {
-    if (this.deps.larkDiscovery === undefined) {
-      return result;
-    }
-    try {
-      return { ...result, connector: await this.deps.larkDiscovery.discover(input.connectorServer === undefined ? {} : { server: input.connectorServer }) };
-    } catch {
-      return { ...result, connector: { status: 'unavailable' } };
-    }
+    };
   }
 }

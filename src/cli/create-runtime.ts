@@ -1,20 +1,17 @@
 import { join } from 'node:path';
 
 import { CodexAdapter } from '../adapters/codex-adapter.js';
-import { CodexTomlMcpServerConfigResolver } from '../adapters/codex-toml-mcp-server-config-resolver.js';
 import { FetchNetworkClient } from '../adapters/fetch-network-client.js';
 import { GitRepositoryStatus } from '../adapters/git-repository-status.js';
 import { GitDeliveryWorkspaceManager } from '../adapters/git-delivery-workspace.js';
 import { NodeProcessRunner } from '../adapters/node-process-runner.js';
 import { ShellGitClient } from '../adapters/shell-git-client.js';
-import { StdioMcpClient } from '../adapters/stdio-mcp-client.js';
 import { ContextBuilder } from '../services/context-builder.js';
 import { ConfiguredLarkSourceConnector } from '../services/configured-lark-source-connector.js';
 import { DoctorService } from '../services/doctor-service.js';
 import { DefaultWorkflowBootstrapper } from '../services/default-workflow-bootstrapper.js';
 import { LocalConfig } from '../services/local-config.js';
 import { LocalInitializer } from '../services/local-initializer.js';
-import { LarkConnectorAutoDiscovery } from '../services/lark-connector-auto-discovery.js';
 import { SkillInstaller } from '../services/skill-installer.js';
 import { SkillRegistry } from '../services/skill-registry.js';
 import { SourceIntake } from '../services/source-intake.js';
@@ -31,9 +28,6 @@ import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
 import { FileTaskRunLock } from '../services/task-run-lock.js';
 import type { GitClient } from '../ports/git-client.js';
-import type { McpClient } from '../ports/mcp-client.js';
-import type { McpServerCatalog } from '../ports/mcp-server-catalog.js';
-import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
 import type { NetworkClient } from '../ports/network-client.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
@@ -65,9 +59,6 @@ export function createCliRuntime(input: {
     repositoryStatus: RepositoryStatus & ProjectRepository & WorkingTreeStatus;
     network: NetworkClient;
     processRunner: ProcessRunner;
-    mcpClient?: McpClient;
-    mcpServerConfigResolver?: McpServerConfigResolver;
-    mcpServerCatalog?: McpServerCatalog;
     deliveryWorkspaceManager?: DeliveryWorkspaceManager;
   };
 }): CliRuntime {
@@ -77,15 +68,9 @@ export function createCliRuntime(input: {
   const taskLock = new FileTaskRunLock(runtimeRoot);
   const registry = new SkillRegistry(join(input.homeDirectory, 'registry.yaml'));
   const config = new LocalConfig(join(input.homeDirectory, 'config.yaml'));
-  const connector = input.ports.mcpClient === undefined || input.ports.mcpServerConfigResolver === undefined
-    ? undefined
-    : new ConfiguredLarkSourceConnector({
-      config,
-      client: input.ports.mcpClient,
-      resolver: input.ports.mcpServerConfigResolver,
-    });
+  const connector = new ConfiguredLarkSourceConnector({ config, network: input.ports.network });
   const yapiConnector = new YapiSourceConnector({ network: input.ports.network });
-  const intake = (root: string) => new SourceIntake({ connectors: [yapiConnector, ...(connector === undefined ? [] : [connector])], network: input.ports.network, projectRoot: root });
+  const intake = (root: string) => new SourceIntake({ connectors: [yapiConnector, connector], network: input.ports.network, projectRoot: root });
   const taskFactGuard = new TaskFactGuard({ repositoryStatus: input.ports.repositoryStatus });
   const initializer = new TaskInitializer({
     registry,
@@ -99,13 +84,6 @@ export function createCliRuntime(input: {
     initializer: localInitializer,
     config,
     installer,
-    ...(input.ports.mcpClient === undefined || input.ports.mcpServerCatalog === undefined ? {} : {
-      larkDiscovery: new LarkConnectorAutoDiscovery({
-        config,
-        catalog: input.ports.mcpServerCatalog,
-        client: input.ports.mcpClient,
-      }),
-    }),
   });
   const sourceRefresher = new SourceRefresher({ intake: intake(projectRoot), taskStore, taskLock });
   const taskCancellation = new TaskCancellationService({ taskStore, runtimeRoot });
@@ -141,8 +119,7 @@ export function createCliRuntime(input: {
       config,
       projectRepository: input.ports.repositoryStatus,
       processRunner: input.ports.processRunner,
-      ...(input.ports.mcpClient === undefined ? {} : { mcpClient: input.ports.mcpClient }),
-      ...(input.ports.mcpServerConfigResolver === undefined ? {} : { mcpServerConfigResolver: input.ports.mcpServerConfigResolver }),
+      network: input.ports.network,
     }),
     runHistory: new RunHistoryService({ runtimeRoot }),
     localConfig: config,
@@ -152,7 +129,6 @@ export function createCliRuntime(input: {
 }
 
 export function createProductionCliRuntime(input: { homeDirectory: string; projectRoot?: () => string }): CliRuntime {
-  const mcpServerConfig = new CodexTomlMcpServerConfigResolver();
   return createCliRuntime({
     homeDirectory: input.homeDirectory,
     projectRoot: input.projectRoot ?? (() => process.cwd()),
@@ -161,9 +137,6 @@ export function createProductionCliRuntime(input: { homeDirectory: string; proje
       repositoryStatus: new GitRepositoryStatus(),
       network: new FetchNetworkClient(),
       processRunner: new NodeProcessRunner(),
-      mcpClient: new StdioMcpClient(),
-      mcpServerConfigResolver: mcpServerConfig,
-      mcpServerCatalog: mcpServerConfig,
       deliveryWorkspaceManager: new GitDeliveryWorkspaceManager(),
     },
   });
