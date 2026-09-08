@@ -8,11 +8,11 @@ AIW 是 Git 原生的 AI 研发工作流 CLI。它将资料快照、AI 产物和
 requirement-analysis → task review → api-analysis → design-slicing → solution → plan → development-unit-*
 ```
 
-所有节点固定存在。需求分析完成后始终进入人工审核；接口分析和设计图切割会在各自执行时询问资料，未提供资料时该节点直接通过。
+所有节点固定存在。需求分析完成后始终进入人工审核；接口分析和设计图切割未提供资料时会直接通过。
 
-- `requirement-analysis`：交互输入 Lark `docx` 或 `wiki` 地址，以及可选章节名称。
-- `api-analysis`：交互输入零个或多个当前 YApi 文章地址。
-- `design-slicing`：交互输入零张或一张本地 PNG/JPEG。
+- `requirement-analysis`：使用 `--requirement-url` 传入 Lark `docx`/`wiki` 地址，可选 `--section`。
+- `api-analysis`：重复使用 `--api-url` 传入当前 YApi 文章地址；无资料时使用 `--skip`。
+- `design-slicing`：使用 `--design-image` 传入一张本地 PNG/JPEG；无资料时使用 `--skip`。
 - `solution` 只使用需求事实、审核结论和接口分析；不读取设计切割结果。
 - `plan` 可引用已提供的接口与设计资产；成功后自动生成开发单元，无需人工批准。
 
@@ -23,10 +23,10 @@ aiw init
 aiw doctor
 aiw task init --project .
 git add .aiw && git commit -m "chore(aiw): initialize task"
-aiw task run <task-id> requirement-analysis
+aiw task run <task-id> requirement-analysis --requirement-url "https://acme.larksuite.com/docx/doccn123" [--section "退款"]
 aiw task review <task-id>
-aiw task run <task-id> api-analysis
-aiw task run <task-id> design-slicing
+aiw task run <task-id> api-analysis --api-url "https://yapi.hbdev.club/project/149/interface/api/123"
+aiw task run <task-id> design-slicing --design-image ./design/refund.png
 aiw task run <task-id> solution
 aiw task run <task-id> plan
 aiw task run <task-id> development-unit-<name>

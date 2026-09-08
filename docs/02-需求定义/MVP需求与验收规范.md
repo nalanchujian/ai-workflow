@@ -10,9 +10,9 @@
 
 | 项目 | 约束 | 采集位置 |
 | --- | --- | --- |
-| 需求 | 一个 Lark docx/wiki URL，可选章节名称 | `requirement-analysis` 对话 |
-| 接口 | 零个或多个当前 YApi 文章 URL | `api-analysis` 对话 |
-| 设计 | 零张或一张本地 PNG/JPEG | `design-slicing` 对话 |
+| 需求 | 一个 Lark docx/wiki URL，可选章节名称 | `--requirement-url`，可选 `--section` |
+| 接口 | 零个或多个当前 YApi 文章 URL | 重复 `--api-url`；无资料为 `--skip` |
+| 设计 | 零张或一张本地 PNG/JPEG | `--design-image`；无资料为 `--skip` |
 
 `task init` 只创建任务。所有主干节点固定存在；接口或设计资料留空时，对应节点记录为已跳过并直接推进。
 

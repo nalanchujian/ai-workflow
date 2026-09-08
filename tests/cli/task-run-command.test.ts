@@ -39,4 +39,69 @@ describe('task run command', () => {
     expect(output).not.toContain('aiw task status refund-123');
     expect(output).not.toContain('"runId"');
   });
+
+  it('stores a Lark requirement URL and optional section from command parameters', async () => {
+    let saved: unknown;
+    let received: unknown;
+    const command = createTaskRunCommand({
+      runner: { async run(input: unknown) { received = input; return { runId: 'run-2', status: 'succeeded', artifacts: [] }; } } as never,
+      taskState: stateFor({ 'requirement-analysis': { status: 'ready', phase: 'requirement-analysis' } }, { requirement: { status: 'not-asked' }, apiDocuments: { status: 'not-asked' }, design: { status: 'not-asked' } }) as never,
+      inputs: { async saveRequirement(_taskId: string, input: unknown) { saved = input; } } as never,
+      stdout: writable(),
+    });
+
+    await command.parseAsync(['node', 'run', 'refund-123', 'requirement-analysis', '--requirement-url', 'https://acme.larksuite.com/docx/doccn123', '--section', '退款'], { from: 'node' });
+
+    expect(saved).toEqual({ url: 'https://acme.larksuite.com/docx/doccn123', section: '退款' });
+    expect(received).toMatchObject({ taskId: 'refund-123', nodeId: 'requirement-analysis', allowUncommittedInputs: true });
+  });
+
+  it('skips API analysis when --skip is supplied', async () => {
+    let saved: unknown;
+    let ran = false;
+    const skippedTask = taskFor({
+      'requirement-analysis': { status: 'completed', phase: 'requirement-analysis' },
+      'api-analysis': { status: 'completed', phase: 'api-analysis' },
+      'design-slicing': { status: 'ready', phase: 'design-slicing' },
+    }, { requirement: { status: 'provided', url: 'https://acme.larksuite.com/docx/doccn123' }, apiDocuments: { status: 'absent' }, design: { status: 'not-asked' } });
+    let output = '';
+    const command = createTaskRunCommand({
+      runner: { async run() { ran = true; throw new Error('not reached'); } } as never,
+      taskState: {
+        ...stateFor({
+          'requirement-analysis': { status: 'completed', phase: 'requirement-analysis' },
+          'api-analysis': { status: 'ready', phase: 'api-analysis' },
+          'design-slicing': { status: 'pending', phase: 'design-slicing' },
+        }, { requirement: { status: 'provided', url: 'https://acme.larksuite.com/docx/doccn123' }, apiDocuments: { status: 'not-asked' }, design: { status: 'not-asked' } }),
+        async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/task.yaml']; },
+      } as never,
+      inputs: { async saveApiDocuments(_taskId: string, input: unknown) { saved = input; return { task: skippedTask, skipped: true }; } } as never,
+      stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
+    });
+
+    await command.parseAsync(['node', 'run', 'refund-123', 'api-analysis', '--skip'], { from: 'node' });
+
+    expect(saved).toEqual([]);
+    expect(ran).toBe(false);
+    expect(output).toContain('「api-analysis」节点已跳过');
+    expect(output).toContain('aiw task run refund-123 design-slicing');
+  });
 });
+
+function stateFor(nodes: Record<string, { status: string; phase: string }>, inputs: unknown) {
+  const task = taskFor(nodes, inputs);
+  return {
+    async status() { return task; },
+    async uncommittedTaskPaths() { return []; },
+    async runBusinessPaths() { return []; },
+  };
+}
+
+function taskFor(nodes: Record<string, { status: string; phase: string }>, inputs: unknown) {
+  return {
+    id: 'refund-123', status: 'active', inputs,
+    nodes: Object.fromEntries(Object.entries(nodes).map(([id, node]) => [id, { ...node, dependsOn: [] }])),
+  };
+}
+
+function writable(): NodeJS.WriteStream { return { write() { return true; } } as unknown as NodeJS.WriteStream; }
