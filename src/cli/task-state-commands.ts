@@ -1,13 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { Command } from 'commander';
 
-import { ApprovalFactSchema } from '../domain/approval.js';
 import type { Task } from '../domain/task.js';
-import { materializeDevelopmentWork } from '../services/implementation-work-planner.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
-import { TaskDecisionService, type ClarifyDecisionSelection } from '../services/task-decision-service.js';
+import { TaskDecisionService, type RequirementDecisionSelection } from '../services/task-decision-service.js';
 import { TaskFactGuard } from '../services/task-fact-guard.js';
 import type { TaskRunLock } from '../services/task-run-lock.js';
 import { ignoreDevelopmentNode, transitionNode } from '../services/task-state-machine.js';
@@ -31,38 +28,18 @@ export class TaskStateCommands {
     return (this.deps.decisionService ?? new TaskDecisionService({ taskStore: this.deps.taskStore })).pending(taskId);
   }
 
-  async approve(taskId: string, nodeId: string, options: { actor?: string; note?: string } = {}): Promise<Task> {
+  async reviewRequirement(taskId: string, selections: RequirementDecisionSelection[], options: { actor?: string; note?: string } = {}): Promise<Task> {
     return this.locked(taskId, async () => {
       let task = await this.deps.taskStore.load(taskId);
-      const node = task.nodes[nodeId];
-      if (node?.status !== 'awaiting_approval') throw new Error('只有待审批节点可以批准');
-      const factPaths = [`.aiw/tasks/${task.id}/task.yaml`, ...node.outputs.map((path) => `.aiw/tasks/${task.id}/${path}`)];
-      await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: factPaths });
-      const actor = await this.deps.taskFactGuard.actor(options.actor);
-      const approvalPath = `approvals/${nodeId}.yaml`;
-      await this.deps.taskStore.replaceFact(taskId, approvalPath, stringify(ApprovalFactSchema.parse({ nodeId, decision: 'approved', actor, at: new Date().toISOString(), ...(options.note === undefined ? {} : { note: options.note }) })));
-      task.approvalRefs = [...new Set([...task.approvalRefs, approvalPath])];
-      task = transitionNode(task, nodeId, { type: 'approve', actor, ...(options.note === undefined ? {} : { note: options.note }) });
-      if (nodeId === 'plan') task = (await materializeDevelopmentWork(task, this.deps.taskStore)).task;
-      return this.deps.taskStore.update(task);
-    });
-  }
-
-  async reviewClarify(taskId: string, selections: ClarifyDecisionSelection[], options: { actor?: string; note?: string } = {}): Promise<Task> {
-    return this.locked(taskId, async () => {
-      let task = await this.deps.taskStore.load(taskId);
-      if (task.nodes.clarify?.status !== 'awaiting_approval') throw new Error('需求澄清当前不需要确认');
-      const clarifyPaths = [
+      if (task.nodes['requirement-analysis']?.status !== 'awaiting_approval') throw new Error('需求分析当前不需要确认');
+      const requirementPaths = [
         `.aiw/tasks/${task.id}/task.yaml`,
-        ...task.nodes.clarify.outputs.map((path) => `.aiw/tasks/${task.id}/${path}`),
+        ...task.nodes['requirement-analysis'].outputs.map((path) => `.aiw/tasks/${task.id}/${path}`),
       ];
-      await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: clarifyPaths });
+      await this.deps.taskFactGuard.assertCommitted({ task, projectRoot: this.deps.taskStore.projectDirectory(), paths: requirementPaths });
       await (this.deps.decisionService ?? new TaskDecisionService({ taskStore: this.deps.taskStore })).apply(taskId, selections);
       const actor = await this.deps.taskFactGuard.actor(options.actor);
-      const approvalPath = 'approvals/clarify.yaml';
-      await this.deps.taskStore.replaceFact(taskId, approvalPath, stringify(ApprovalFactSchema.parse({ nodeId: 'clarify', decision: 'approved', actor, at: new Date().toISOString(), ...(options.note === undefined ? {} : { note: options.note }) })));
-      task.approvalRefs = [...new Set([...task.approvalRefs, approvalPath])];
-      task = transitionNode(task, 'clarify', { type: 'approve', actor, ...(options.note === undefined ? {} : { note: options.note }) });
+      task = transitionNode(task, 'requirement-analysis', { type: 'approve', actor, ...(options.note === undefined ? {} : { note: options.note }) });
       return this.deps.taskStore.update(task);
     });
   }
@@ -116,19 +93,15 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
     const task = await deps.commands.status(taskId);
     writeCommandResult(task, command, deps.stdout, statusOutput(task, await nextStepsForTask(deps.commands, task)));
   }));
-  root.addCommand(new Command('review').description('逐项确认需求澄清中的待决策事项').argument('<task-id>').action(async (taskId: string, _options: unknown, command: Command) => {
+  root.addCommand(new Command('review').description('逐项处理需求分析中的待决策事项').argument('<task-id>').action(async (taskId: string, _options: unknown, command: Command) => {
     const task = await deps.commands.status(taskId);
-    if (task.nodes.clarify?.status !== 'awaiting_approval') {
-      writeCommandResult(task, command, deps.stdout, { headline: '需求澄清当前不需要确认', nextSteps: await nextStepsForTask(deps.commands, task) });
+    if (task.nodes['requirement-analysis']?.status !== 'awaiting_approval') {
+      writeCommandResult(task, command, deps.stdout, { headline: '需求分析当前不需要确认', nextSteps: await nextStepsForTask(deps.commands, task) });
       return;
     }
     const prompter = deps.reviewPrompter ?? createReviewPrompter(deps.stdout);
-    const reviewed = await reviewClarifyInteractively(deps.commands, taskId, prompter, deps.stdout);
-    writeCommandResult(reviewed, command, deps.stdout, { headline: '需求澄清已确认', nextSteps: await nextStepsForTask(deps.commands, reviewed, 'review clarify') });
-  }));
-  root.addCommand(new Command('approve').description('批准开发计划').argument('<task-id>').argument('<node-id>').option('--note <text>', '审批说明').action(async (taskId: string, nodeId: string, options: { note?: string }, command: Command) => {
-    const task = await deps.commands.approve(taskId, nodeId, options);
-    writeCommandResult(task, command, deps.stdout, { headline: `「${nodeId}」节点已批准`, nextSteps: await nextStepsForTask(deps.commands, task, `approve ${nodeId}`) });
+    const reviewed = await reviewRequirementInteractively(deps.commands, taskId, prompter, deps.stdout);
+    writeCommandResult(reviewed, command, deps.stdout, { headline: '需求分析中的待决策事项已处理', nextSteps: await nextStepsForTask(deps.commands, reviewed, 'review requirement-analysis') });
   }));
   root.addCommand(new Command('ignore').description('忽略不属于当前任务范围的开发单元').argument('<task-id>').argument('<development-unit-name>', 'development-unit-<英文语义名>').requiredOption('--note <text>', '忽略原因').action(async (taskId: string, nodeId: string, options: { note: string }, command: Command) => {
     const task = await deps.commands.ignore(taskId, nodeId, options);
@@ -143,20 +116,20 @@ export function createTaskStateCommand(deps: { commands: TaskStateCommands; stdo
   return root;
 }
 
-export async function reviewClarifyInteractively(
-  commands: Pick<TaskStateCommands, 'pendingDecisions' | 'reviewClarify'>,
+export async function reviewRequirementInteractively(
+  commands: Pick<TaskStateCommands, 'pendingDecisions' | 'reviewRequirement'>,
   taskId: string,
   prompter: ReviewPrompter,
   stdout: NodeJS.WriteStream,
 ): Promise<Task> {
   const pending = await commands.pendingDecisions(taskId);
-  const selections: ClarifyDecisionSelection[] = [];
-  stdout.write(`需求澄清 · 待确认 ${pending.length} 项\n\n`);
+  const selections: RequirementDecisionSelection[] = [];
+  stdout.write(`需求分析 · 待确认 ${pending.length} 项\n\n`);
   for (const [index, item] of pending.entries()) selections.push(await promptDecision(prompter, stdout, item, index, pending.length));
-  return commands.reviewClarify(taskId, selections, { note: '需求澄清已逐项确认' });
+  return commands.reviewRequirement(taskId, selections, { note: '需求分析待决策事项已逐项处理' });
 }
 
-async function promptDecision(prompter: ReviewPrompter, stdout: NodeJS.WriteStream, item: Awaited<ReturnType<TaskDecisionService['pending']>>[number], index: number, total: number): Promise<ClarifyDecisionSelection> {
+async function promptDecision(prompter: ReviewPrompter, stdout: NodeJS.WriteStream, item: Awaited<ReturnType<TaskDecisionService['pending']>>[number], index: number, total: number): Promise<RequirementDecisionSelection> {
   stdout.write(`[${index + 1}/${total}] ${item.question}\n  当前情况：${item.background}\n  影响：${item.impact}\n\n1. 本期继续\n2. 延期处理\n`);
   const action = await askChoice(prompter, '请输入选择（1-2）：', 2);
   if (action === 2) {
@@ -201,11 +174,11 @@ export async function nextStepsForTask(commands: Pick<TaskStateCommands, 'uncomm
 
 export function workflowNextSteps(task: Task): string[] | undefined {
   if (task.status === 'completed' || task.status === 'cancelled') return undefined;
-  if (task.nodes.clarify?.status === 'awaiting_approval') return [`aiw task review ${task.id}`];
-  const approvals = Object.entries(task.nodes)
-    .filter(([, node]) => node.status === 'awaiting_approval')
-    .map(([nodeId]) => `aiw task approve ${task.id} ${nodeId} --note "<审批说明>"`);
-  if (approvals.length > 0) return approvals;
+  if (task.nodes['requirement-analysis']?.status === 'awaiting_approval') return [`aiw task review ${task.id}`];
+  if (task.nodes['requirement-analysis']?.status === 'completed'
+    && (task.inputs.apiDocuments.status === 'not-asked' || task.inputs.design.status === 'not-asked')) {
+    return [`aiw task inputs ${task.id}`];
+  }
   const runnable = Object.entries(task.nodes)
     .filter(([, node]) => ['ready', 'failed'].includes(node.status)
       && node.dependsOn.every((dependency) => task.nodes[dependency]?.status === 'completed'))

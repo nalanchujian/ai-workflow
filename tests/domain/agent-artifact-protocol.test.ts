@@ -11,6 +11,7 @@ import {
 describe('Agent artifact protocol', () => {
   it('renders every registered contract from its schema and a schema-valid YAML example', () => {
     expect(agentArtifactProtocolIds).toEqual([
+      'api-analysis',
       'design-assets',
       'fact-register',
       'decision-register',

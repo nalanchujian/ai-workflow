@@ -49,7 +49,7 @@ export class LocalInitializer {
 }
 
 const localConfigTemplate = `# AI Workflow 本机配置；此文件仅保存个人连接器和默认工作流设置，不得提交到业务仓库。
-# 默认团队技能包内置方法，无需配置或单独安装 Superpowers。
+# 默认团队技能包只包含自定义阶段技能，无需配置额外方法来源。
 schemaVersion: aiw.local/v1
 
 # aiw init 会把官方来源同步为当前 AIW 版本指定的标签，并覆盖同一来源的旧安装记录。

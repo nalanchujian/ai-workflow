@@ -5,7 +5,7 @@ import { DevelopmentPlanSchema } from '../../src/domain/work-breakdown.js';
 describe('DevelopmentPlanSchema', () => {
   it('accepts self-contained development units without verification or cross-node references', () => {
     const plan = DevelopmentPlanSchema.parse({
-      schemaVersion: 'aiw.development-plan/v1',
+      schemaVersion: 'aiw.development-plan/v2',
       units: [{
         name: 'development-unit-main-list-metrics',
         title: '主列表指标配置',
@@ -25,7 +25,7 @@ describe('DevelopmentPlanSchema', () => {
 
   it('rejects acceptance, fact, decision, and verification mappings', () => {
     expect(() => DevelopmentPlanSchema.parse({
-      schemaVersion: 'aiw.development-plan/v1',
+      schemaVersion: 'aiw.development-plan/v2',
       units: [{
         name: 'development-unit-main-list-metrics',
         title: '主列表指标配置',
@@ -53,15 +53,15 @@ describe('DevelopmentPlanSchema', () => {
     };
 
     expect(() => DevelopmentPlanSchema.parse({
-      schemaVersion: 'aiw.development-plan/v1',
+      schemaVersion: 'aiw.development-plan/v2',
       units: [{ ...unit, name: 'development-unit-1' }],
     })).toThrow(/development-unit-<英文 kebab-case 描述>/);
     expect(() => DevelopmentPlanSchema.parse({
-      schemaVersion: 'aiw.development-plan/v1',
+      schemaVersion: 'aiw.development-plan/v2',
       units: [{ ...unit, name: 'development-unit-主列表指标' }],
     })).toThrow(/development-unit-<英文 kebab-case 描述>/);
     expect(() => DevelopmentPlanSchema.parse({
-      schemaVersion: 'aiw.development-plan/v1',
+      schemaVersion: 'aiw.development-plan/v2',
       units: [
         { ...unit, name: 'development-unit-main-list-metrics' },
         { ...unit, title: '主列表导出', name: 'development-unit-main-list-metrics' },
@@ -71,7 +71,7 @@ describe('DevelopmentPlanSchema', () => {
 
   it('requires dependencies to reference semantic development unit names', () => {
     expect(() => DevelopmentPlanSchema.parse({
-      schemaVersion: 'aiw.development-plan/v1',
+      schemaVersion: 'aiw.development-plan/v2',
       units: [
         {
           name: 'development-unit-main-list-metrics', title: '主列表指标配置', goal: '配置指标',
@@ -87,7 +87,7 @@ describe('DevelopmentPlanSchema', () => {
 
   it('rejects design references because binding happens after planning', () => {
     expect(() => DevelopmentPlanSchema.parse({
-      schemaVersion: 'aiw.development-plan/v1',
+      schemaVersion: 'aiw.development-plan/v2',
       units: [{
         name: 'development-unit-performance-overview',
         title: 'Performance overview',

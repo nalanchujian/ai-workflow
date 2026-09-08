@@ -10,7 +10,7 @@ export function developmentPlanYaml(quoted = false): string {
     steps: ['完成实现', index === 7 ? '使用 prefers-color-scheme: dark 切换主题。' : '调整入口'],
     dependencies: [],
   }));
-  const content = stringify({ schemaVersion: 'aiw.development-plan/v1', units });
+  const content = stringify({ schemaVersion: 'aiw.development-plan/v2', units });
   return quoted ? content : content
     .replace('"请求使用 granularity: day。"', '请求使用 granularity: day。')
     .replace('"使用 prefers-color-scheme: dark 切换主题。"', '使用 prefers-color-scheme: dark 切换主题。');

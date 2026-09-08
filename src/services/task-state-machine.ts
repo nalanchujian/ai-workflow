@@ -28,7 +28,6 @@ export function transitionNode(task: Task, nodeId: string, event: NodeEvent): Ta
   }
 
   if (event.type === 'start') {
-    if (node.phase === 'intake') throw new TaskTransitionError('资料接入节点不能通过 task run 执行');
     if (['completed', 'awaiting_approval', 'cancelled', 'invalidated'].includes(node.status)) {
       resetForOverwrite(next, nodeId);
       node = getNode(next, nodeId);

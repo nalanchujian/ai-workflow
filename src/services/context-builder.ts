@@ -10,6 +10,7 @@ import {
   type ContextManifest,
 } from '../domain/context.js';
 import type { Task } from '../domain/task.js';
+import { selectedApiDocuments } from '../domain/api-analysis.js';
 import { DevelopmentUnitContextSchema } from '../domain/work-breakdown.js';
 
 export class ContextBuilderError extends Error {
@@ -44,7 +45,7 @@ export class ContextBuilder {
     enforceBudget?: boolean;
   }): Promise<ContextManifest> {
     const node = input.task.nodes[input.nodeId];
-    if (node === undefined || node.phase === 'intake' || node.skill === undefined) {
+    if (node === undefined || node.skills.length === 0) {
       throw new ContextBuilderError('CONTEXT_INVALID', '当前节点不能创建上下文');
     }
     const taskDirectory = this.deps.taskDirectory(input.task);
@@ -62,13 +63,13 @@ export class ContextBuilder {
       ...(input.budgetInputs ?? []),
     ];
     const manifest = ContextManifestSchema.parse({
-      schemaVersion: 'aiw.context/v2',
+      schemaVersion: 'aiw.context/v3',
       taskId: input.task.id,
       nodeId: input.nodeId,
       skillProfile: input.task.skillProfile,
       files: deduplicated.map(({ role, path }) => ({ role, path })),
       images: imagePaths.map((path) => ({ path })),
-      skill: node.skill,
+      skills: node.skills,
       budget: budgetFromInputs(maxTokens, budgetInputs),
     });
     if (input.enforceBudget !== false) this.assertWithinBudget(manifest);
@@ -127,22 +128,35 @@ interface LoadedContextFile extends ContextFile {
 function defaultFiles(task: Task, nodeId: string): ContextFile[] {
   const node = task.nodes[nodeId];
   if (node === undefined) throw new ContextBuilderError('CONTEXT_INVALID', `未知节点：${nodeId}`);
-  if (node.phase === 'design') {
-    return [{ role: 'artifact', path: 'artifacts/plan/development-plan.yaml' }];
+  if (node.phase === 'design-slicing') {
+    return [];
   }
-  if (node.phase === 'clarify') {
-    return [
-      ...Object.values(task.sources).map((source) => ({ role: 'source' as const, path: source.snapshotPath })),
-    ];
+  if (node.phase === 'requirement-analysis') {
+    const requirement = task.sources.requirements;
+    if (requirement === undefined) throw new ContextBuilderError('CONTEXT_INVALID', '需求分析缺少需求快照');
+    return [{ role: 'source', path: requirement.snapshotPath }];
+  }
+  if (node.phase === 'api-analysis') {
+    if (task.inputs.apiDocuments.status !== 'provided') throw new ContextBuilderError('CONTEXT_INVALID', '接口分析缺少已登记的接口文档');
+    return selectedApiDocuments(task.inputs.apiDocuments.urls).map((document) => {
+      const source = task.sources[document.sourceId];
+      if (source === undefined) throw new ContextBuilderError('CONTEXT_INVALID', `接口分析缺少接口快照：${document.id}`);
+      return { role: 'source', path: source.snapshotPath };
+    });
   }
   if (node.phase === 'solution') {
     return [
-      { role: 'artifact', path: 'artifacts/clarify/fact-register.yaml' },
-      { role: 'artifact', path: 'artifacts/clarify/decision-register.yaml' },
+      { role: 'artifact', path: 'artifacts/requirement-analysis/fact-register.yaml' },
+      { role: 'artifact', path: 'artifacts/requirement-analysis/decision-register.yaml' },
+      ...(task.nodes['api-analysis'] === undefined ? [] : [{ role: 'artifact' as const, path: 'artifacts/api-analysis/api-analysis.yaml' }]),
     ];
   }
   if (node.phase === 'plan') {
-    return [{ role: 'artifact', path: 'artifacts/solution/solution.md' }];
+    return [
+      { role: 'artifact', path: 'artifacts/solution/solution.md' },
+      ...(task.nodes['api-analysis'] === undefined ? [] : [{ role: 'artifact' as const, path: 'artifacts/api-analysis/api-analysis.yaml' }]),
+      ...(task.nodes['design-slicing'] === undefined ? [] : [{ role: 'artifact' as const, path: 'artifacts/design/design-assets.yaml' }]),
+    ];
   }
   if (node.contextPath === undefined) {
     throw new ContextBuilderError('CONTEXT_INVALID', `开发节点缺少独立上下文：${nodeId}`);
@@ -151,7 +165,7 @@ function defaultFiles(task: Task, nodeId: string): ContextFile[] {
 }
 
 function imagesForNode(task: Task, nodeId: string, files: LoadedContextFile[]): string[] {
-  if (task.nodes[nodeId]?.phase === 'design') return task.designInput?.images.map((image) => image.imagePath) ?? [];
+  if (task.nodes[nodeId]?.phase === 'design-slicing') return task.inputs.design.status === 'provided' ? [task.inputs.design.image.imagePath] : [];
   if (task.nodes[nodeId]?.phase !== 'development') return [];
   const context = files.find((file) => file.path === task.nodes[nodeId]?.contextPath);
   if (context === undefined) return [];

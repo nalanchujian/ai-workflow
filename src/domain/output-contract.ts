@@ -5,7 +5,7 @@ import { z } from 'zod';
  * Codex writes only to a per-run staging location; AIW validates and promotes
  * those files into the current task result after the process exits.
  */
-export const OutputContractVersion = 'aiw.task-output/v1' as const;
+export const OutputContractVersion = 'aiw.task-output/v2' as const;
 /** The current CLI major and artifact protocol understood by this runtime. */
 export const SupportedAiwCompatibility = '>=0.0.1 <1.0.0' as const;
 

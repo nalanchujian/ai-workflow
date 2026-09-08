@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-import { DesignInputSchema } from './design.js';
+import { TaskInputsSchema } from './task-input.js';
 
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const taskIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
-export const PhaseSchema = z.enum(['intake', 'design', 'clarify', 'solution', 'plan', 'development']);
+export const PhaseSchema = z.enum(['requirement-analysis', 'api-analysis', 'design-slicing', 'solution', 'plan', 'development']);
 export const NodeStatusSchema = z.enum([
   'pending', 'ready', 'running', 'awaiting_approval', 'completed', 'failed', 'invalidated', 'cancelled', 'ignored',
 ]);
@@ -18,20 +18,11 @@ export const RegistrySourceSchema = z.object({
   revision: z.string().min(1),
 }).strict();
 
-export const MethodSourceSchema = z.object({
-  id: z.string().min(1),
-  source: z.string().min(1),
-  version: z.string().min(1),
-  revision: z.string().min(1),
-  sha256: z.string().regex(sha256Pattern, '必须是 SHA-256 哈希'),
-}).strict();
-
 export const SkillLockSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9-]*$/),
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
   registrySource: RegistrySourceSchema,
   sha256: z.string().regex(sha256Pattern, '必须是 SHA-256 哈希'),
-  methodSources: z.array(MethodSourceSchema),
 }).strict();
 
 export const WorkflowProfileLockSchema = z.object({
@@ -61,7 +52,7 @@ export const TaskNodeSchema = z.object({
   title: z.string().min(1),
   phase: PhaseSchema,
   dependsOn: z.array(z.string().min(1)),
-  skill: SkillLockSchema.optional(),
+  skills: z.array(SkillLockSchema).min(1),
   requiresApproval: z.boolean(),
   status: NodeStatusSchema,
   hasResult: z.boolean().default(false),
@@ -82,15 +73,15 @@ export const TaskEventSchema = z.object({
 }).strict();
 
 const TaskBaseSchema = z.object({
-  schemaVersion: z.literal('aiw.task/v3'),
+  schemaVersion: z.literal('aiw.task/v5'),
   stateVersion: z.number().int().nonnegative().default(0),
   id: z.string().regex(taskIdPattern),
   title: z.string().min(1),
   repository: z.string().min(1),
   status: TaskStatusSchema,
   skillProfile: WorkflowProfileLockSchema,
-  developmentSkill: SkillLockSchema,
-  designInput: DesignInputSchema.optional(),
+  developmentSkills: z.array(SkillLockSchema).min(1),
+  inputs: TaskInputsSchema,
   sources: z.record(z.string().min(1), SourceReferenceSchema),
   nodes: z.record(z.string().min(1), TaskNodeSchema),
   approvalRefs: z.array(z.string().regex(relativePathPattern, '必须是任务根目录内的相对路径')),
@@ -100,12 +91,6 @@ const TaskBaseSchema = z.object({
 export const TaskSchema = TaskBaseSchema.superRefine((task, context) => {
   const nodeIds = new Set(Object.keys(task.nodes));
   for (const [nodeId, node] of Object.entries(task.nodes)) {
-    if (node.phase === 'intake' && node.skill !== undefined) {
-      context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'skill'], message: '资料接入节点不得锁定技能' });
-    }
-    if (node.phase !== 'intake' && node.skill === undefined) {
-      context.addIssue({ code: 'custom', path: ['nodes', nodeId, 'skill'], message: '可执行节点必须锁定技能' });
-    }
     if (node.generatedFromPlan === true && (node.phase !== 'development' || node.contextPath === undefined)) {
       context.addIssue({ code: 'custom', path: ['nodes', nodeId], message: '计划生成节点必须是带独立上下文的开发节点' });
     }

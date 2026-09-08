@@ -3,9 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse } from 'yaml';
 
-import { BundledMethodManifestSchema, type InstalledBundledMethod } from '../domain/bundled-method-source.js';
 import { SkillSchema, type InstalledSkill } from '../domain/skill.js';
-import type { MethodSource, ResolvedMethodSource } from '../domain/method-source.js';
 import { WorkflowProfileSchema, type InstalledWorkflowProfile } from '../domain/workflow-profile.js';
 import type { GitClient } from '../ports/git-client.js';
 import { SkillRegistry } from './skill-registry.js';
@@ -13,7 +11,6 @@ import { SkillRegistry } from './skill-registry.js';
 export interface InstallResult {
   skills: InstalledSkill[];
   profiles: InstalledWorkflowProfile[];
-  methods: InstalledBundledMethod[];
 }
 
 export class SkillInstaller {
@@ -23,8 +20,7 @@ export class SkillInstaller {
     assertSupportedGitUrl(input.url);
     const cloned = await this.deps.git.clone(input);
     const registrySource = { url: input.url, revision: cloned.revision };
-    const bundledMethods = await this.readBundledMethods(cloned.directory, registrySource);
-    const skills = await this.readSkills(cloned.directory, registrySource, bundledMethods);
+    const skills = await this.readSkills(cloned.directory, registrySource);
     const existing = await this.deps.registry.snapshotForInstall();
     const profiles = await this.readProfiles(
       cloned.directory,
@@ -35,85 +31,35 @@ export class SkillInstaller {
       throw new Error('技能包未包含有效技能或工作流模板');
     }
     await this.deps.registry.replaceSource(
-      { sourceUrl: input.url, skills, profiles, methods: bundledMethods },
+      { sourceUrl: input.url, skills, profiles },
       { recoverInvalidRegistry: existing.recoveredInvalidRegistry },
     );
-    return { skills, profiles, methods: bundledMethods };
+    return { skills, profiles };
   }
 
   private async readSkills(
     directory: string,
     registrySource: { url: string; revision: string },
-    bundledMethods: InstalledBundledMethod[],
   ): Promise<InstalledSkill[]> {
     const skillDirectories = await listDirectories(join(directory, 'skills'));
     const skills = await Promise.all(skillDirectories.map(async (name) => {
       const path = join(directory, 'skills', name, 'SKILL.md');
       const content = await readFile(path, 'utf8');
-      const skill = SkillSchema.parse({ ...readFrontMatter(content), body: bodyOf(content) });
+      const frontMatter = readFrontMatter(content);
+      if ('methodSources' in frontMatter) throw new Error(`技能 ${name} 不支持第三方方法来源；请将方法完整实现为自定义技能正文`);
+      const skill = SkillSchema.parse({ ...frontMatter, body: bodyOf(content) });
       if (skill.name !== name) {
         throw new Error(`技能目录与名称不一致：${name}`);
       }
       assertSkillBody(skill.body);
       assertNoPlatformPathInstructions(skill.body, `技能 ${name}`);
-      const methodSources = await Promise.all(skill.methodSources.map((source) => this.resolveMethodSource(source, bundledMethods)));
       return {
         ...skill,
         registrySource,
         sha256: sha256(content),
-        methodSources,
       };
     }));
     return skills;
-  }
-
-  private async resolveMethodSource(source: MethodSource, bundledMethods: InstalledBundledMethod[]): Promise<ResolvedMethodSource> {
-    if (!source.source.startsWith('bundled:')) {
-      throw new Error(`团队技能包只支持内置方法来源：${source.source}`);
-    }
-    const method = bundledMethods.find((candidate) => (
-      candidate.source.id === source.id
-      && candidate.source.source === source.source
-      && candidate.source.version === source.version
-    ));
-    if (method === undefined) {
-      throw new Error(`团队技能包未提供声明的方法来源：${source.id}@${source.version}`);
-    }
-    return method.source;
-  }
-
-  private async readBundledMethods(
-    directory: string,
-    registrySource: { url: string; revision: string },
-  ): Promise<InstalledBundledMethod[]> {
-    const sourceDirectories = await listDirectories(join(directory, 'method-sources'));
-    const bundles = await Promise.all(sourceDirectories.map(async (sourceName) => {
-      const versions = await listDirectories(join(directory, 'method-sources', sourceName));
-      return Promise.all(versions.map(async (version) => {
-        const root = join(directory, 'method-sources', sourceName, version);
-        const manifest = BundledMethodManifestSchema.parse(parse(await readFile(join(root, 'SOURCE.yaml'), 'utf8')));
-        if (manifest.id !== sourceName || manifest.version !== version) {
-          throw new Error(`内置方法目录与 SOURCE.yaml 不一致：${sourceName}@${version}`);
-        }
-        return Promise.all(manifest.methods.map(async (name) => {
-          const content = await readFile(join(root, name, 'SKILL.md'), 'utf8');
-          assertMethodName(content, name);
-          assertNoPlatformPathInstructions(bodyOf(content), `内置方法 ${manifest.id}:${name}`);
-          return {
-            source: {
-              id: `${manifest.id}:${name}`,
-              source: `bundled:${manifest.id}`,
-              version: manifest.version,
-              revision: manifest.upstream.revision,
-              sha256: sha256(content),
-            },
-            content,
-            registrySource,
-          };
-        }));
-      }));
-    }));
-    return bundles.flat(2);
   }
 
   private async readProfiles(
@@ -129,11 +75,13 @@ export class SkillInstaller {
       if (profile.name !== name) {
         throw new Error(`工作流模板目录与名称不一致：${name}`);
       }
-      for (const [stage, reference] of Object.entries(profile.skills)) {
-        const [skillName, version] = reference.split('@');
-        const skill = skills.find((candidate) => candidate.name === skillName && candidate.version === version);
-        if (skill === undefined || !skill.phases.includes(stage as typeof skill.phases[number])) {
-          throw new Error(`工作流模板引用了不兼容技能：${stage}`);
+      for (const [stage, references] of Object.entries(profile.skills)) {
+        for (const reference of references) {
+          const [skillName, version] = reference.split('@');
+          const skill = skills.find((candidate) => candidate.name === skillName && candidate.version === version);
+          if (skill === undefined || !skill.phases.includes(stage as typeof skill.phases[number])) {
+            throw new Error(`工作流模板引用了不兼容技能：${stage}`);
+          }
         }
       }
       return { ...profile, registrySource, sha256: sha256(content) };
@@ -229,13 +177,6 @@ function assertNoPlatformPathInstructions(body: string, label: string): void {
   ].find((pattern) => pattern.test(body));
   if (protocolCopy !== undefined) {
     throw new Error(`${label} 不得复制 AIW 产物协议。字段、枚举和示例由运行时 Zod Schema 生成。`);
-  }
-}
-
-function assertMethodName(content: string, expectedName: string): void {
-  const frontMatter = readFrontMatter(content);
-  if (frontMatter.name !== expectedName) {
-    throw new Error(`方法来源入口与声明不一致：${expectedName}`);
   }
 }
 

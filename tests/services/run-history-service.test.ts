@@ -21,7 +21,7 @@ describe('RunHistoryService', () => {
       runId: 'run-1',
       status: 'succeeded',
       context: {
-        nodeId: 'clarify', fileCount: 2, roles: ['artifact', 'source'], estimatedTokens: 42, maxTokens: 12_000,
+        nodeId: 'requirement-analysis', fileCount: 2, roles: ['artifact', 'source'], estimatedTokens: 42, maxTokens: 12_000,
         breakdown: expect.arrayContaining([{ category: 'source', label: 'sources/requirements/r1/snapshot.md', estimatedTokens: 30 }]),
       },
     });
@@ -67,10 +67,10 @@ async function createRunFixture(directories: string[], runId: string) {
     startedAt: '2026-08-01T00:00:00.000Z', finishedAt: '2026-08-01T00:01:00.000Z', artifacts: [],
   }), 'utf8');
   await writeFile(join(sharedDirectory, 'context-manifest.json'), JSON.stringify({
-    schemaVersion: 'aiw.context/v2', taskId: 'refund-123', nodeId: 'clarify',
+    schemaVersion: 'aiw.context/v3', taskId: 'refund-123', nodeId: 'requirement-analysis',
     skillProfile: { name: 'standard-web-feature', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash },
-    files: [{ role: 'artifact', path: 'artifacts/clarify/fact-register.yaml' }, { role: 'source', path: 'sources/requirements/r1/snapshot.md' }],
-    skill: { name: 'requirements-clarification', version: '1.0.0', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash, methodSources: [] },
+    files: [{ role: 'artifact', path: 'artifacts/requirement-analysis/fact-register.yaml' }, { role: 'source', path: 'sources/requirements/r1/snapshot.md' }],
+    skills: [{ name: 'requirement-analysis', version: '1.0.0', registrySource: { url: 'https://example.test/skills.git', revision: 'abc123' }, sha256: hash }],
     budget: {
       maxTokens: 12_000,
       estimatedTokens: 42,

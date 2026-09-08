@@ -14,7 +14,7 @@ describe('TaskDecisionService', () => {
     const root = await createTempDirectory('aiw-decision-'); directories.push(root);
     const store = new TaskStore(root);
     await store.create(createSevenPhaseTask());
-    await store.replaceFact('refund-123', 'artifacts/clarify/decision-register.yaml', stringify({
+    await store.replaceFact('refund-123', 'artifacts/requirement-analysis/decision-register.yaml', stringify({
       schemaVersion: 'aiw.decision-register/v2',
       pendingDecisions: [
         { question: '接口采用哪种方式？', background: '正式接口未提供。', impact: '影响数据接入。', options: [{ title: '使用现有接口', tradeoffs: '改动较小。' }, { title: '新增接口', tradeoffs: '能力完整。' }], recommendation: { option: 0, rationale: '优先复用。' } },

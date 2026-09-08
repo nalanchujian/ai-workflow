@@ -5,7 +5,7 @@ import { FactRegisterSchema } from '../../src/domain/fact-register.js';
 describe('FactRegisterSchema', () => {
   it('accepts confirmed facts without cross-node IDs', () => {
     const register = FactRegisterSchema.parse({
-      schemaVersion: 'aiw.fact-register/v2',
+      schemaVersion: 'aiw.fact-register/v3',
       facts: [{
         statement: '主列表支持用户调整指标显示顺序。',
         source: {
@@ -23,7 +23,7 @@ describe('FactRegisterSchema', () => {
 
   it('rejects old identity and confidence fields', () => {
     expect(() => FactRegisterSchema.parse({
-      schemaVersion: 'aiw.fact-register/v2',
+      schemaVersion: 'aiw.fact-register/v3',
       facts: [{
         id: 'FACT-LIST-01',
         kind: 'confirmed',
@@ -36,7 +36,7 @@ describe('FactRegisterSchema', () => {
 
   it('requires every fact to identify a readable source path', () => {
     expect(() => FactRegisterSchema.parse({
-      schemaVersion: 'aiw.fact-register/v2',
+      schemaVersion: 'aiw.fact-register/v3',
       facts: [{ statement: '主列表支持用户调整指标显示顺序。', source: { type: 'requirement', path: '../outside.md' } }],
     })).toThrow(/相对路径/);
   });

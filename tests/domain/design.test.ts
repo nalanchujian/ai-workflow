@@ -1,61 +1,24 @@
 import { describe, expect, it } from 'vitest';
-
-import {
-  DesignAssetsSchema,
-  DesignInputSchema,
-} from '../../src/domain/design.js';
+import { DesignAssetsSchema, DesignInputSchema } from '../../src/domain/design.js';
+import { designAssets } from '../helpers/design-assets.js';
 
 describe('design contracts', () => {
-  it('accepts task-local exported design images without external design metadata', () => {
-    expect(DesignInputSchema.parse({
-      provider: 'local-images',
-      images: [
-        { id: 'tracking-links', originalName: 'tracking-links.png', imagePath: 'sources/design/tracking-links.png', mediaType: 'image/png' },
-        { id: 'performance', originalName: 'performance.jpg', imagePath: 'sources/design/performance.jpg', mediaType: 'image/jpeg' },
-      ],
-    }).images).toHaveLength(2);
+  it('accepts exactly one task-local PNG or JPEG', () => {
+    const source = designAssets().source;
+    expect(DesignInputSchema.parse(source)).toEqual(source);
+    expect(DesignInputSchema.parse({ image: { ...source.image, imagePath: 'sources/design/main.jpg', mediaType: 'image/jpeg' } }).image.mediaType).toBe('image/jpeg');
+    expect(DesignInputSchema.safeParse({ image: { ...source.image, mediaType: 'image/jpeg' } }).success).toBe(false);
   });
-
-  it('records every cut asset and binds it to at least one development unit', () => {
-    const source = DesignInputSchema.parse({
-      provider: 'local-images',
-      images: [{ id: 'tracking-links', originalName: 'tracking-links.png', imagePath: 'sources/design/tracking-links.png', mediaType: 'image/png' }],
-    });
-    const catalog = DesignAssetsSchema.parse({
-      schemaVersion: 'aiw.design-assets/v1',
-      source,
-      coverage: { sourceImageCount: 1, logicalBlockCount: 1 },
-      assets: [{
-        id: 'tracking-links-page',
-        sourceImageId: 'tracking-links',
-        title: 'Tracking links 主列表',
-        kind: 'page',
-        imagePath: 'artifacts/design/assets/tracking-links-page.png',
-        purpose: '主列表布局与状态',
-        developmentUnits: ['development-unit-main-list'],
-      }],
-    });
-
-    expect(catalog.assets[0]?.developmentUnits).toEqual(['development-unit-main-list']);
+  it('rejects old version, image list, unit binding and design-analysis fields', () => {
+    const catalog = designAssets();
+    expect(DesignAssetsSchema.safeParse({ ...catalog, schemaVersion: 'aiw.design-assets/v1' }).success).toBe(false);
+    expect(DesignInputSchema.safeParse({ provider: 'local-images', images: [catalog.source.image] }).success).toBe(false);
+    for (const extra of [{ developmentUnits: ['development-unit-main'] }, { kind: 'page' }, { purpose: '推导交互' }]) expect(DesignAssetsSchema.safeParse({ ...catalog, assets: [{ ...catalog.assets[0], ...extra }] }).success).toBe(false);
   });
-
-  it('rejects incomplete coverage, unknown source images and unbound assets', () => {
-    const source = {
-      provider: 'local-images',
-      images: [{ id: 'tracking-links', originalName: 'tracking-links.png', imagePath: 'sources/design/tracking-links.png', mediaType: 'image/png' }],
-    };
-    const asset = {
-      id: 'tracking-links-page', sourceImageId: 'missing', title: 'Tracking links', kind: 'page',
-      imagePath: 'artifacts/design/assets/tracking-links-page.png', purpose: '主列表', developmentUnits: [],
-    };
-    expect(() => DesignAssetsSchema.parse({
-      schemaVersion: 'aiw.design-assets/v1', source,
-      coverage: { sourceImageCount: 1, logicalBlockCount: 1 }, assets: [asset],
-    })).toThrow();
-    expect(() => DesignAssetsSchema.parse({
-      schemaVersion: 'aiw.design-assets/v1', source,
-      coverage: { sourceImageCount: 1, logicalBlockCount: 2 },
-      assets: [{ ...asset, sourceImageId: 'tracking-links', developmentUnits: ['development-unit-main-list'] }],
-    })).toThrow(/逻辑业务块/);
+  it('rejects unsafe paths, duplicate paths and fractional crop coordinates', () => {
+    const catalog = designAssets();
+    for (const imagePath of ['../outside.png', 'artifacts/design/assets/../outside.png', '/tmp/image.png']) expect(DesignAssetsSchema.safeParse({ ...catalog, assets: [{ ...catalog.assets[0], imagePath }] }).success).toBe(false);
+    expect(DesignAssetsSchema.safeParse({ ...catalog, assets: [catalog.assets[0], { ...catalog.assets[0], id: 'other' }] }).success).toBe(false);
+    expect(DesignAssetsSchema.safeParse({ ...catalog, assets: [{ ...catalog.assets[0], crop: { x: 0.5, y: 0, width: 1, height: 1 } }] }).success).toBe(false);
   });
 });

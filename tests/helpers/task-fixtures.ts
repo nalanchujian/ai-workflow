@@ -6,17 +6,13 @@ export function createSkillLock(name: string): SkillLock {
     version: '1.0.0',
     registrySource: { url: 'git@example.test/agent-skills.git', revision: 'a1b2c3d4' },
     sha256: 'a'.repeat(64),
-    methodSources: [{
-      id: 'superpowers:brainstorming', source: 'bundled:superpowers', version: '6.2.0',
-      revision: 'b'.repeat(40), sha256: 'b'.repeat(64),
-    }],
   };
 }
 
 /** A new task before its approved plan has materialized development units. */
 export function createSevenPhaseTask(): Task {
   return {
-    schemaVersion: 'aiw.task/v3',
+    schemaVersion: 'aiw.task/v5',
     stateVersion: 0,
     id: 'refund-123',
     title: '实现退款功能',
@@ -27,17 +23,17 @@ export function createSevenPhaseTask(): Task {
       registrySource: { url: 'git@example.test/agent-skills.git', revision: 'a1b2c3d4' },
       sha256: 'c'.repeat(64),
     },
-    developmentSkill: createSkillLock('typescript-web-implementation'),
+    developmentSkills: [createSkillLock('typescript-web-implementation')],
+    inputs: { requirementUrl: 'https://docs.example.test/requirements', apiDocuments: { status: 'not-asked' }, design: { status: 'not-asked' } },
     sources: {},
     nodes: {
-      intake: node('接入资料', 'intake', [], 'completed', false, ['sources/requirements/current/snapshot.md']),
-      clarify: node('澄清需求', 'clarify', ['intake'], 'ready', true, [
-        'artifacts/clarify/fact-register.yaml', 'artifacts/clarify/decision-register.yaml',
-      ], createSkillLock('requirements-clarification')),
-      solution: node('形成技术方案', 'solution', ['clarify'], 'pending', false, [
+      'requirement-analysis': node('澄清需求', 'requirement-analysis', [], 'ready', true, [
+        'artifacts/requirement-analysis/fact-register.yaml', 'artifacts/requirement-analysis/decision-register.yaml',
+      ], createSkillLock('requirement-analysis')),
+      solution: node('形成技术方案', 'solution', ['requirement-analysis'], 'pending', false, [
         'artifacts/solution/solution.md',
       ], createSkillLock('technical-solution')),
-      plan: node('制定开发计划', 'plan', ['solution'], 'pending', true, [
+      plan: node('制定开发计划', 'plan', ['solution'], 'pending', false, [
         'artifacts/plan/development-plan.yaml',
       ], createSkillLock('implementation-planning')),
     },
@@ -57,6 +53,6 @@ function node(
 ): Task['nodes'][string] {
   return {
     title, phase, dependsOn, status, hasResult: status === 'completed', outputs, requiresApproval,
-    ...(skill === undefined ? {} : { skill }),
+    skills: skill === undefined ? [createSkillLock('fallback-skill')] : [skill],
   };
 }

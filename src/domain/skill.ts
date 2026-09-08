@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-import { MethodSourceSchema, ResolvedMethodSourceSchema } from './method-source.js';
 import { PhaseSchema, RegistrySourceSchema } from './task.js';
 import { OutputContractVersion, SupportedAiwCompatibility } from './output-contract.js';
 
@@ -10,15 +9,13 @@ export const SkillSchema = z.object({
   description: z.string().min(1).refine((value) => !value.includes('\n')),
   aiwCompatibility: z.literal(SupportedAiwCompatibility),
   artifactContract: z.literal(OutputContractVersion),
-  phases: z.array(PhaseSchema.exclude(['intake'])).min(1),
-  methodSources: z.array(MethodSourceSchema).default([]),
+  phases: z.array(PhaseSchema).min(1),
   body: z.string().min(1),
 });
 
 export const InstalledSkillSchema = SkillSchema.extend({
   registrySource: RegistrySourceSchema,
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  methodSources: z.array(ResolvedMethodSourceSchema).default([]),
 });
 
 export type Skill = z.infer<typeof SkillSchema>;

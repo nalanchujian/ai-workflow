@@ -1,40 +1,40 @@
 import { describe, expect, it } from 'vitest';
 
-import { ignoreDevelopmentNode, restartDependentsForSourceChange, transitionNode } from '../../src/services/task-state-machine.js';
+import { ignoreDevelopmentNode, invalidateNodeAndDependents, transitionNode } from '../../src/services/task-state-machine.js';
 import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 
 describe('task state machine', () => {
   it('moves clarification to approval without artifact hashes', () => {
     const task = createSevenPhaseTask();
-    const running = transitionNode(task, 'clarify', { type: 'start', runId: 'run-01' });
-    const next = transitionNode(running, 'clarify', {
-      type: 'succeed', runId: 'run-01', outputs: [{ path: 'artifacts/clarify/fact-register.yaml' }],
+    const running = transitionNode(task, 'requirement-analysis', { type: 'start', runId: 'run-01' });
+    const next = transitionNode(running, 'requirement-analysis', {
+      type: 'succeed', runId: 'run-01', outputs: [{ path: 'artifacts/requirement-analysis/fact-register.yaml' }],
     });
-    expect(next.nodes.clarify).toMatchObject({ status: 'awaiting_approval', hasResult: true });
+    expect(next.nodes['requirement-analysis']).toMatchObject({ status: 'awaiting_approval', hasResult: true });
   });
 
   it('approves clarification and unlocks solution', () => {
     const task = createSevenPhaseTask();
-    task.nodes.clarify!.status = 'awaiting_approval';
-    const next = transitionNode(task, 'clarify', { type: 'approve', actor: 'developer' });
+    task.nodes['requirement-analysis']!.status = 'awaiting_approval';
+    const next = transitionNode(task, 'requirement-analysis', { type: 'approve', actor: 'developer' });
     expect(next.nodes.solution!.status).toBe('ready');
   });
 
   it('reruns an upstream node and invalidates every downstream result', () => {
     const task = createSevenPhaseTask();
-    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', hasResult: true };
+    task.nodes['requirement-analysis'] = { ...task.nodes['requirement-analysis']!, status: 'completed', hasResult: true };
     task.nodes.solution = { ...task.nodes.solution!, status: 'completed', hasResult: true };
     task.nodes.plan = { ...task.nodes.plan!, status: 'completed', hasResult: true };
     task.nodes['development-list'] = {
       title: '主列表开发', phase: 'development', dependsOn: ['plan'],
-      skill: task.developmentSkill, requiresApproval: false, outputs: ['artifacts/development/development-list/result.md'],
+      skills: task.developmentSkills, requiresApproval: false, outputs: ['artifacts/development/development-list/result.md'],
       status: 'completed', hasResult: true,
       generatedFromPlan: true, contextPath: 'artifacts/plan/units/development-list.yaml',
     };
 
-    const next = transitionNode(task, 'clarify', { type: 'start', runId: 'rerun-01' });
+    const next = transitionNode(task, 'requirement-analysis', { type: 'start', runId: 'rerun-01' });
 
-    expect(next.nodes.clarify!.status).toBe('running');
+    expect(next.nodes['requirement-analysis']!.status).toBe('running');
     expect(next.nodes.solution!.status).toBe('pending');
     expect(next.nodes.plan!.status).toBe('pending');
     expect(next.nodes['development-list']).toBeUndefined();
@@ -42,25 +42,25 @@ describe('task state machine', () => {
 
   it('source refresh restarts the workflow from clarification', () => {
     const task = createSevenPhaseTask();
-    task.nodes.clarify = { ...task.nodes.clarify!, status: 'completed', hasResult: true };
+    task.nodes['requirement-analysis'] = { ...task.nodes['requirement-analysis']!, status: 'completed', hasResult: true };
     task.nodes.solution = { ...task.nodes.solution!, status: 'completed', hasResult: true };
     task.nodes.plan = { ...task.nodes.plan!, status: 'completed', hasResult: true };
 
-    const next = restartDependentsForSourceChange(task, 'intake', '需求来源已更新');
+    const next = invalidateNodeAndDependents(task, 'requirement-analysis', '需求来源已更新');
 
-    expect(next.nodes.clarify!.status).toBe('ready');
-    expect(next.nodes.solution!.status).toBe('pending');
-    expect(next.nodes.plan!.status).toBe('pending');
+    expect(next.nodes['requirement-analysis']!.status).toBe('invalidated');
+    expect(next.nodes.solution!.status).toBe('invalidated');
+    expect(next.nodes.plan!.status).toBe('invalidated');
   });
 
   it('finishes a task when its last unfinished development unit is explicitly ignored', () => {
     const task = createSevenPhaseTask();
-    task.nodes.clarify!.status = 'completed';
+    task.nodes['requirement-analysis']!.status = 'completed';
     task.nodes.solution!.status = 'completed';
     task.nodes.plan!.status = 'completed';
     task.nodes['development-unit-share-link-theme'] = {
       title: '外部落地页开发', phase: 'development', dependsOn: ['plan'],
-      skill: task.developmentSkill, requiresApproval: false, outputs: ['artifacts/development/development-unit-share-link-theme/result.md'],
+      skills: task.developmentSkills, requiresApproval: false, outputs: ['artifacts/development/development-unit-share-link-theme/result.md'],
       status: 'failed', hasResult: false,
       generatedFromPlan: true, contextPath: 'artifacts/plan/units/development-unit-share-link-theme.yaml',
     };
@@ -76,18 +76,18 @@ describe('task state machine', () => {
 
   it('rejects ignoring a workflow node or a unit with unfinished dependents', () => {
     const task = createSevenPhaseTask();
-    task.nodes.clarify!.status = 'completed';
+    task.nodes['requirement-analysis']!.status = 'completed';
     task.nodes.solution!.status = 'completed';
     task.nodes.plan!.status = 'completed';
     task.nodes['development-unit-base-rules'] = {
       title: '基础开发', phase: 'development', dependsOn: ['plan'],
-      skill: task.developmentSkill, requiresApproval: false, outputs: ['artifacts/development/development-unit-base-rules/result.md'],
+      skills: task.developmentSkills, requiresApproval: false, outputs: ['artifacts/development/development-unit-base-rules/result.md'],
       status: 'failed', hasResult: false,
       generatedFromPlan: true, contextPath: 'artifacts/plan/units/development-unit-base-rules.yaml',
     };
     task.nodes['development-unit-dependent-feature'] = {
       title: '依赖开发', phase: 'development', dependsOn: ['development-unit-base-rules'],
-      skill: task.developmentSkill, requiresApproval: false, outputs: ['artifacts/development/development-unit-dependent-feature/result.md'],
+      skills: task.developmentSkills, requiresApproval: false, outputs: ['artifacts/development/development-unit-dependent-feature/result.md'],
       status: 'pending', hasResult: false,
       generatedFromPlan: true, contextPath: 'artifacts/plan/units/development-unit-dependent-feature.yaml',
     };

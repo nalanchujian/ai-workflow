@@ -69,7 +69,6 @@ function contextBudgetCategoryLabel(category: string): string {
     additional: '附加文件',
     'node-instruction': '节点指令',
     skill: '阶段技能',
-    'method-source': '通用方法论',
     'runtime-overhead': '运行约束与提示词结构',
   } as Record<string, string>)[category] ?? category;
 }

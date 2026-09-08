@@ -6,7 +6,7 @@ export const DEFAULT_CONTEXT_TOKEN_BUDGET = 20_000;
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
 export const ContextBudgetCategorySchema = z.enum([
-  'task-fact', 'source', 'generated', 'additional', 'node-instruction', 'skill', 'method-source', 'runtime-overhead',
+  'task-fact', 'source', 'generated', 'additional', 'node-instruction', 'skill', 'runtime-overhead',
 ]);
 export type ContextBudgetCategory = z.infer<typeof ContextBudgetCategorySchema>;
 
@@ -22,17 +22,17 @@ export const ContextFileSchema = z.object({
 }).strict();
 
 export const ContextManifestSchema = z.object({
-  schemaVersion: z.literal('aiw.context/v2'),
+  schemaVersion: z.literal('aiw.context/v3'),
   taskId: z.string().min(1),
   nodeId: z.string().min(1),
   skillProfile: WorkflowProfileLockSchema,
-  files: z.array(ContextFileSchema).min(1),
+  files: z.array(ContextFileSchema),
   images: z.array(z.object({ path: z.string().regex(relativePathPattern) }).strict()).default([]),
-  skill: SkillLockSchema,
+  skills: z.array(SkillLockSchema).min(1),
   budget: z.object({
     maxTokens: z.number().int().positive(),
     estimatedTokens: z.number().int().nonnegative(),
-    breakdown: z.array(ContextBudgetEntrySchema).min(1),
+    breakdown: z.array(ContextBudgetEntrySchema),
   }).strict(),
 }).strict();
 

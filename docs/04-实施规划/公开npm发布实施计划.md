@@ -10,7 +10,7 @@
 
 - npm Registry 固定为 `https://registry.npmjs.org`，公开访问级别为 `public`。
 - 发布物仅包含 `dist/` 与 `README.md`（npm 仍会附带必要的 `package.json` 与许可证类文件）。
-- 不发布 `src/`、`tests/`、`docs/`、`.aiw/`、`.superpowers/`、本机配置或运行数据。
+- 不发布 `src/`、`tests/`、`docs/`、`.aiw/`、本机配置或运行数据。
 - 发布前必须依次通过 lint、类型检查、全量测试、构建和包内容预检。
 - 发布者手动登录 npm 并显式运行发布命令；发布脚本可以调用 `npm publish`，但不得保存令牌或在其他命令中隐式触发。
 

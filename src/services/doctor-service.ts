@@ -5,7 +5,6 @@ import type { ProcessRunner } from '../ports/process-runner.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
 import { isLarkDocumentReference, LarkSourceConnector } from './lark-source-connector.js';
 import { LocalConfig, type LocalConfigDocument } from './local-config.js';
-import { SkillRegistry } from './skill-registry.js';
 
 const CHECK_TIMEOUT_MS = 10_000;
 const LARK_REQUIRED_TOOLS = ['docx_v1_document_rawContent', 'docx_v1_documentBlock_list'];
@@ -17,7 +16,6 @@ export class DoctorService {
     processRunner: ProcessRunner;
     mcpClient?: McpClient;
     mcpServerConfigResolver?: McpServerConfigResolver;
-    registry?: SkillRegistry;
   }) {}
 
   async inspect(input: { projectRoot: string; source?: string; codexBin?: string }): Promise<DoctorResult> {
@@ -36,7 +34,6 @@ export class DoctorService {
     }
 
     if (config === undefined) {
-      checks.push(warning('method-sources', '方法来源', '未检查内置方法，因为本机配置无效。', '运行 `aiw init` 重新创建或修复 `~/.aiw/config.yaml`。'));
       const connectorSource = larkSource(input.source);
       checks.push(connectorSource === undefined
         ? warning('document-connector-configuration', '文档连接器配置', '未检查文档连接器配置，因为本机配置无效。', '先修复 `~/.aiw/config.yaml` 中的文档连接器配置。')
@@ -45,7 +42,6 @@ export class DoctorService {
       return result(checks);
     }
 
-    checks.push(...await this.methodSourceChecks(config));
     checks.push(...await this.larkChecks(config, larkSource(input.source)));
     return result(checks);
   }
@@ -69,14 +65,6 @@ export class DoctorService {
     } catch {
       return failed('project-repository', '项目 Git 状态', '项目不是可用的 Git 工作树，或 `.aiw/` 被忽略。', '在业务仓库中运行命令，并确保 `.gitignore` 未忽略 `.aiw/`。');
     }
-  }
-
-  private async methodSourceChecks(config: LocalConfigDocument): Promise<DoctorCheck[]> {
-    void config;
-    const bundledMethods = await this.deps.registry?.listMethods() ?? [];
-    return bundledMethods.length === 0
-      ? [warning('method-sources', '方法来源', '尚未安装内置方法。', '运行 `aiw skills install <team-skill-repository>` 安装团队技能包。')]
-      : [passed('method-sources', '方法来源', `已安装 ${bundledMethods.length} 个由团队技能包锁定的内置方法。`)];
   }
 
   private async larkChecks(config: LocalConfigDocument, source: string | undefined): Promise<DoctorCheck[]> {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { OutputRecordSchema } from './task.js';
+import { OutputRecordSchema, PhaseSchema } from './task.js';
 import { ContextManifestSchema } from './context.js';
 import { OutputContractSchema } from './output-contract.js';
 
@@ -14,12 +14,12 @@ const RunContextFileSchema = z.object({
 });
 
 export const RunRequestSchema = z.object({
-  schemaVersion: z.literal('aiw.run/v3'),
+  schemaVersion: z.literal('aiw.run/v5'),
   runId: z.string().min(1),
   task: z.object({
     id: z.string().min(1),
     nodeId: z.string().min(1),
-    phase: z.enum(['design', 'clarify', 'solution', 'plan', 'development']),
+    phase: PhaseSchema,
     projectRoot: z.string().min(1),
   }),
   instruction: z.string().min(1),
@@ -29,8 +29,7 @@ export const RunRequestSchema = z.object({
   artifacts: z.array(z.string().min(1)),
   outputContract: OutputContractSchema,
   context: z.object({
-    skill: z.object({ name: z.string().min(1), version: z.string().min(1), content: z.string().min(1) }),
-    methodSources: z.array(z.object({ id: z.string().min(1), content: z.string().min(1) })),
+    skills: z.array(z.object({ name: z.string().min(1), version: z.string().min(1), content: z.string().min(1) })).min(1),
     files: z.array(RunContextFileSchema),
     images: z.array(z.object({ path: z.string().min(1), absolutePath: z.string().min(1) })).default([]),
   }),

@@ -1,6 +1,6 @@
 {
   "name": "@nalanchujian/aiw",
-  "version": "0.0.9",
+  "version": "0.0.11",
   "description": "可信、可控、可追责的 AI 研发工作流 CLI。",
   "private": false,
   "type": "module",

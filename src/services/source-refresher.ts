@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 
 import type { Task } from '../domain/task.js';
-import { restartDependentsForSourceChange } from './task-state-machine.js';
+import { invalidateNodeAndDependents } from './task-state-machine.js';
 import { SourceIntake } from './source-intake.js';
 import { TaskStore } from './task-store.js';
 import type { TaskRunLock } from './task-run-lock.js';
@@ -32,19 +32,9 @@ export class SourceRefresher {
       if (snapshot.markdown === previous) return { changed: false, revision: current.revision, task };
 
       const reference = await this.deps.intake.writeSnapshot({ snapshot, taskDirectory: this.deps.taskStore.taskDirectory(task.id) });
-      const recognitionNode = task.nodes['api-document-recognition'];
-      const upstreamNodeId = input.sourceId.startsWith('api-document-') && recognitionNode !== undefined
-        ? 'api-document-recognition'
-        : 'intake';
-      const next = restartDependentsForSourceChange(task, upstreamNodeId, `来源 ${input.sourceId} 已更新`);
+      const upstreamNodeId = input.sourceId.startsWith('api/') ? 'api-analysis' : 'requirement-analysis';
+      const next = invalidateNodeAndDependents(task, upstreamNodeId, `来源 ${input.sourceId} 已更新`);
       next.sources[input.sourceId] = reference;
-      if (upstreamNodeId === 'api-document-recognition') {
-        next.nodes[upstreamNodeId]!.outputs = Object.entries(next.sources)
-          .filter(([sourceId]) => sourceId.startsWith('api-document-'))
-          .flatMap(([, source]) => [source.snapshotPath, source.metaPath]);
-      } else {
-        next.nodes.intake!.outputs = [reference.snapshotPath, reference.metaPath];
-      }
       return { changed: true, revision: reference.revision, task: await this.deps.taskStore.update(next) };
     });
   }

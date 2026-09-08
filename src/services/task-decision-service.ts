@@ -5,7 +5,7 @@ import { parse, stringify } from 'yaml';
 import { DecisionRegisterSchema, type DecisionRegister, type PendingDecision } from '../domain/decision-register.js';
 import { TaskStore } from './task-store.js';
 
-export type ClarifyDecisionSelection =
+export type RequirementDecisionSelection =
   | { index: number; action: 'continue'; option: number; rationale?: string }
   | { index: number; action: 'defer'; reason: string; suggestedNextStep?: string };
 
@@ -13,7 +13,7 @@ export class TaskDecisionService {
   constructor(private readonly deps: { taskStore: TaskStore }) {}
 
   async read(taskId: string): Promise<DecisionRegister> {
-    const path = join(this.deps.taskStore.taskDirectory(taskId), 'artifacts/clarify/decision-register.yaml');
+    const path = join(this.deps.taskStore.taskDirectory(taskId), 'artifacts/requirement-analysis/decision-register.yaml');
     return DecisionRegisterSchema.parse(parse(await readFile(path, 'utf8')));
   }
 
@@ -21,7 +21,7 @@ export class TaskDecisionService {
     return (await this.read(taskId)).pendingDecisions;
   }
 
-  async apply(taskId: string, selections: ClarifyDecisionSelection[]): Promise<DecisionRegister> {
+  async apply(taskId: string, selections: RequirementDecisionSelection[]): Promise<DecisionRegister> {
     const register = await this.read(taskId);
     if (selections.length !== register.pendingDecisions.length) throw new Error('必须逐项处理全部待确认事项');
     const used = new Set<number>();
@@ -44,7 +44,7 @@ export class TaskDecisionService {
     }
     register.pendingDecisions = [];
     const parsed = DecisionRegisterSchema.parse(register);
-    await this.deps.taskStore.replaceFact(taskId, 'artifacts/clarify/decision-register.yaml', stringify(parsed));
+    await this.deps.taskStore.replaceFact(taskId, 'artifacts/requirement-analysis/decision-register.yaml', stringify(parsed));
     return parsed;
   }
 }

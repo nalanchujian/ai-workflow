@@ -5,6 +5,7 @@ import { createInitCommand } from './init-command.js';
 import { createRunHistoryCommand } from './run-history-command.js';
 import { createSkillsCommand } from './skills-commands.js';
 import { createTaskInitCommand } from './task-init-command.js';
+import { createTaskInputCommand } from './task-input-command.js';
 import { createTaskRunCommand } from './task-run-command.js';
 import { createTaskSourceRefreshCommand } from './task-source-refresh-command.js';
 import { createTaskStateCommand } from './task-state-commands.js';
@@ -30,10 +31,10 @@ export function createProgram(deps: CliDependencies): Command {
   aiw init → aiw doctor
 
 日常使用：
-  aiw task init --source "<需求地址或文件>"
-  可选设计图：重复增加 --design-image <本地 PNG/JPEG 路径>
-  aiw task run <task-id> clarify
-  AIW 每一步都会输出下一条精准命令，包括 review、approve 或具体节点的 run 命令。
+  aiw task init --source "<需求文档 URL>"
+  aiw task run <task-id> requirement-analysis
+  aiw task inputs <task-id>
+  AIW 每一步都会输出下一条精准命令，包括 review 或具体节点的 run 命令。
 
 高级与例外场景：
   aiw skills --help（高级：管理团队技能和工作流模板）
@@ -56,6 +57,7 @@ export function createProgram(deps: CliDependencies): Command {
   program.addCommand(createSkillsCommand({ installer: runtime.installer, registry: runtime.registry, config: runtime.localConfig, progress, stdout }), { hidden: true });
   const task = taskHelpShell(false);
   task.addCommand(createTaskInitCommand({ initializer: runtime.initializer, defaultSkillProfile: async () => (await runtime.localConfig.defaultWorkflow()).defaultProfile, progress, stdout }));
+  task.addCommand(createTaskInputCommand({ inputs: runtime.taskInputs, stdout }));
   task.addCommand(new Command('source').description('管理任务来源').addCommand(createTaskSourceRefreshCommand({ refresher: runtime.sourceRefresher, progress, stdout })), { hidden: true });
   const state = createTaskStateCommand({ commands: runtime.stateCommands, progress, stdout });
   task.addCommand(createTaskRunCommand({ runner: runtime.taskRunner, taskState: runtime.stateCommands, progress, stdout }));
@@ -77,8 +79,8 @@ function taskHelpShell(withCommands = true): Command {
   if (!withCommands) return task;
   task.addCommand(new Command('init').description('从需求来源创建任务'));
   task.addCommand(new Command('run').description('运行指定任务节点'));
-  task.addCommand(new Command('review').description('确认需求澄清事项'));
-  task.addCommand(new Command('approve').description('批准开发计划'));
+  task.addCommand(new Command('review').description('处理需求分析中的待决策事项'));
+  task.addCommand(new Command('inputs').description('通过对话补充接口文档和设计图'));
   task.addCommand(new Command('ignore').description('忽略不属于当前任务范围的开发单元'));
   task.addCommand(new Command('status').description('查看任务状态和开发进度'));
   return task;

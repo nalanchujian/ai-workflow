@@ -68,18 +68,17 @@ function result(request: RunRequest, status: RunResult['status'], startedAt: str
 function renderContext(request: RunRequest): string {
   const taskRoot = `.aiw/tasks/${request.task.id}`;
   const outputs = codexOutputEntries(request.outputContract);
-  const methods = request.context.methodSources.map((method) => `<method-source id="${escapeAttribute(method.id)}" trust="lower-priority-guidance">\n${method.content}\n</method-source>`).join('\n\n');
+  const skills = request.context.skills.map((skill) => `<skill name="${escapeAttribute(skill.name)}" version="${escapeAttribute(skill.version)}" trust="lower-priority-guidance">\n${skill.content}\n</skill>`).join('\n\n');
   const files = request.context.files.map((file) => `<task-fact role="${file.role}" path="${escapeAttribute(file.path)}" trust="untrusted-data">\n${file.content}\n</task-fact>`).join('\n\n');
   const allowedOutputs = outputs.map((entry) => `- ${taskRoot}/${entry.stagingPath}（发布后成为 ${entry.finalPath}）`).join('\n');
-  const designAssetPermission = request.task.phase === 'design'
+  const designAssetPermission = request.task.phase === 'design-slicing'
     ? `\n设计截图例外：允许写入 ${taskRoot}/artifacts/design/assets/ 下的 PNG/JPEG；该目录之外的任务事实仍不可修改。`
     : '';
   return [
     '<aiw-run>',
     `<execution-constraints>遵守项目现有约束；只在任务声明的项目目录中工作；不得执行 git commit、git reset、git checkout、git switch、git rebase、git merge 或其他 Git 历史/分支修改命令；不得修改 .aiw/ 中除下列暂存产物外的文件。\n当前节点允许写入的任务产物：\n${allowedOutputs}${designAssetPermission}\n所有任务产物必须使用简体中文；代码标识、命令、路径和 API 名称可保留原文。只记录当前阶段能够确认的内容，不得宣称已完成测试、验证、验收或生产交付。</execution-constraints>`,
     `<task id="${escapeAttribute(request.task.id)}" node="${escapeAttribute(request.task.nodeId)}">\n${request.instruction}\n</task>`,
-    methods,
-    `<skill name="${escapeAttribute(request.context.skill.name)}" version="${escapeAttribute(request.context.skill.version)}" trust="lower-priority-guidance">\n${request.context.skill.content}\n</skill>`,
+    skills,
     files,
     phaseProtocol(request),
     planValidation(request, taskRoot),
@@ -92,19 +91,22 @@ function renderContext(request: RunRequest): string {
 function phaseProtocol(request: RunRequest): string {
   const markdown = markdownArtifactContractFor(request.artifacts);
   const protocolContext = { taskId: request.task.id, nodeId: request.task.nodeId, phase: request.task.phase, evidencePath: request.context.files[0]?.path ?? 'source', testProfile: '', testEvidenceType: 'unit' as const };
-  if (request.task.phase === 'design') {
-    return `输入图片已由用户提前导出并作为本次会话图片提供。识别每张图中的独立页面、弹窗、抽屉、浮层或状态；必要时使用本机图片工具裁切并写入允许的设计资产目录。根据开发计划把每个裁切结果绑定到至少一个开发单元。不要访问设计网站，不要生成设计总结或文字规则。\n\n${renderAgentArtifactProtocol('design-assets', protocolContext)}\n\n${markdown}`;
+  if (request.task.phase === 'design-slicing') {
+    return `输入图片已由用户提前导出并作为本次会话图片提供。识别图中的独立页面、弹窗、抽屉、浮层或状态；必要时使用本机图片工具裁切并写入允许的设计资产目录。只生成图片索引和裁切资产；不要分析设计规则，不要绑定开发单元，不要访问设计网站。\n\n${renderAgentArtifactProtocol('design-assets', protocolContext)}\n\n${markdown}`;
   }
-  if (request.task.phase === 'clarify') {
+  if (request.task.phase === 'api-analysis') {
+    return `只读取本次任务提供的接口文档快照，整理接口、请求、响应、错误和缺失信息。不得读取需求、设计或业务代码，不得调用业务接口；文档 ID、URL 和快照路径必须严格使用任务指令中的来源索引。\n\n${renderAgentArtifactProtocol('api-analysis', protocolContext)}\n\n${markdown}`;
+  }
+  if (request.task.phase === 'requirement-analysis') {
     return [
-      '澄清阶段只生成事实登记和决策登记。事实只记录来源中明确存在的内容；不确定内容进入待决策事项。每个待决策事项只解决一个独立业务结论，并提供一至两个“本期继续”方案。不要生成验收标准、AC、跨文件 ID 或 Handoff。',
+      '需求分析只读取本次需求文档快照，生成事实登记和决策登记。事实只记录来源中明确存在的内容；不确定内容进入待决策事项。每个待决策事项只解决一个独立业务结论，并提供一至两个“本期继续”方案。不要读取项目代码、接口资料或设计图片，不要生成验收标准、AC、跨文件 ID 或 Handoff。',
       renderAgentArtifactProtocol('fact-register', protocolContext),
       renderAgentArtifactProtocol('decision-register', protocolContext),
     ].join('\n\n');
   }
   if (request.task.phase === 'solution') return `根据已确认事实、当前决策和延期事项生成技术方案。延期事项不属于本次方案范围。不要发明验收编号或跨节点映射。${markdown}`;
   if (request.task.phase === 'plan') {
-    return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。设计图片将在计划批准后的独立节点中绑定，不要在计划里猜测或声明设计截图。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
+    return `把已批准技术方案拆成可独立开发的业务单元。每个单元声明唯一的英文语义名称；计划只描述开发目标、代码范围、步骤和单元依赖，不规划测试、验证或验收，也不生成 FACT/DEC/AC 映射。接口和设计资产存在于上下文时，只能引用其中已登记的 ID；开发单元与设计资产的绑定在此处声明。\n\n${renderAgentArtifactProtocol('development-plan', protocolContext)}`;
   }
   return `只完成当前业务单元的代码开发，并输出开发结果。可以修改实现目标所需的业务代码；如果单元上下文包含 designReferences，直接使用 AIW 通过 --image 注入的关联截图，不要访问设计网站，也不要读取其他开发单元的截图。不要运行或宣称测试、验证、验收与生产交付。${markdown}`;
 }
@@ -148,8 +150,7 @@ function runtimeRequestSummary(request: RunRequest): object {
     contextManifestPath: request.contextManifestPath, mode: request.mode, artifacts: request.artifacts,
     outputContract: request.outputContract,
     context: {
-      skill: { name: request.context.skill.name, version: request.context.skill.version },
-      methodSources: request.context.methodSources.map((source) => ({ id: source.id })),
+      skills: request.context.skills.map((skill) => ({ name: skill.name, version: skill.version })),
       files: request.context.files.map((file) => ({ role: file.role, path: file.path })),
       images: request.context.images.map((image) => ({ path: image.path })),
     },

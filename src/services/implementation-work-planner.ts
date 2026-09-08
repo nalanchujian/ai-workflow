@@ -2,10 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 
-import type { DesignAssets } from '../domain/design.js';
+import { DesignAssetsSchema } from '../domain/design.js';
+import { ApiAnalysisSchema } from '../domain/api-analysis.js';
 import {
   DevelopmentPlanSchema,
   DevelopmentUnitContextSchema,
+  validatePlanReferences,
   type DevelopmentPlan,
 } from '../domain/work-breakdown.js';
 import { TaskSchema, type Task, type TaskNode } from '../domain/task.js';
@@ -46,27 +48,14 @@ function parseDevelopmentPlan(content: string): DevelopmentPlan {
   }
 }
 
-export async function applyDesignBindings(task: Task, taskStore: TaskStore, design: DesignAssets): Promise<void> {
-  const developmentNodes = new Map(Object.entries(task.nodes).filter(([, node]) => node.generatedFromPlan === true));
-  for (const asset of design.assets) {
-    for (const unitName of asset.developmentUnits) {
-      if (!developmentNodes.has(unitName)) {
-        throw new DevelopmentPlanError(`设计截图 ${asset.id} 引用了未知开发单元：${unitName}`);
-      }
-    }
-  }
-  for (const [unitName, node] of developmentNodes) {
-    if (node.contextPath === undefined) throw new DevelopmentPlanError(`开发单元缺少上下文：${unitName}`);
-    const context = DevelopmentUnitContextSchema.parse(parse(await readFile(join(taskStore.taskDirectory(task.id), node.contextPath), 'utf8')));
-    const designReferences = design.assets
-      .filter((asset) => asset.developmentUnits.includes(unitName))
-      .map((asset) => ({ assetId: asset.id, imagePath: asset.imagePath, purpose: asset.purpose }));
-    await taskStore.replaceFact(task.id, node.contextPath, stringify({ ...context, designReferences }, { lineWidth: 0 }));
-  }
-}
-
 export async function materializeDevelopmentWork(task: Task, taskStore: TaskStore): Promise<{ task: Task }> {
   const plan = await readDevelopmentPlan(task, taskStore);
+  const readArtifact = async (path: string): Promise<unknown> => parse(await readFile(join(taskStore.taskDirectory(task.id), path), 'utf8'));
+  const design = plan.units.some((unit) => unit.designReferences.length > 0)
+    ? DesignAssetsSchema.parse(await readArtifact('artifacts/design/design-assets.yaml')) : undefined;
+  const api = plan.units.some((unit) => unit.apiReferences.length > 0)
+    ? ApiAnalysisSchema.parse(await readArtifact('artifacts/api-analysis/api-analysis.yaml')) : undefined;
+  validatePlanReferences(plan, { api, design });
   const next = TaskSchema.parse(task);
   for (const [nodeId, node] of Object.entries(next.nodes)) {
     if (node.generatedFromPlan === true) delete next.nodes[nodeId];
@@ -76,10 +65,17 @@ export async function materializeDevelopmentWork(task: Task, taskStore: TaskStor
     const nodeId = unit.name;
     const contextPath = `artifacts/plan/units/${nodeId}.yaml`;
     const outputPath = `artifacts/development/${nodeId}/result.md`;
-    const context = DevelopmentUnitContextSchema.parse({ schemaVersion: 'aiw.development-unit/v1', ...unit, designReferences: [] });
+    const context = DevelopmentUnitContextSchema.parse({
+      schemaVersion: 'aiw.development-unit/v2', ...unit,
+      designReferences: unit.designReferences.map((reference) => ({ ...reference, imagePath: design!.assets.find((asset) => asset.id === reference.assetId)!.imagePath })),
+      apiReferences: unit.apiReferences.map((reference) => {
+        const document = api!.documents.find((entry) => entry.interfaces.some((api) => api.id === reference.apiId))!;
+        return { ...reference, documentId: document.id, snapshotPath: document.snapshotPath };
+      }),
+    });
     await taskStore.replaceFact(task.id, contextPath, stringify(context, { lineWidth: 0 }));
     const dependencies = unit.dependencies.length === 0
-      ? [task.designInput === undefined ? 'plan' : 'design-analysis']
+      ? ['plan']
       : unit.dependencies;
     next.nodes[nodeId] = developmentNode(next, unit.title, contextPath, outputPath, dependencies);
   }
@@ -92,7 +88,7 @@ function developmentNode(task: Task, title: string, contextPath: string, outputP
     title,
     phase: 'development',
     dependsOn: dependencies,
-    skill: task.developmentSkill,
+    skills: task.developmentSkills,
     requiresApproval: false,
     status: dependencies.every((dependency) => task.nodes[dependency]?.status === 'completed') ? 'ready' : 'pending',
     hasResult: false,

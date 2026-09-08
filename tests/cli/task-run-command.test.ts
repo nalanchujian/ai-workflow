@@ -17,7 +17,7 @@ describe('task run command', () => {
         async status() {
           return {
             id: 'refund-123', status: 'active',
-            nodes: { clarify: { status: 'awaiting_approval', phase: 'clarify' } },
+            nodes: { 'requirement-analysis': { status: 'awaiting_approval', phase: 'requirement-analysis' } },
           };
         },
         async uncommittedTaskPaths() { return ['.aiw/tasks/refund-123/task.yaml']; },
@@ -26,10 +26,10 @@ describe('task run command', () => {
       stdout: { write(chunk: string) { output += chunk; return true; } } as unknown as NodeJS.WriteStream,
     });
 
-    await command.parseAsync(['node', 'run', 'refund-123', 'clarify', '--dry-run', '--include', 'src/refund.ts']);
+    await command.parseAsync(['node', 'run', 'refund-123', 'requirement-analysis', '--dry-run', '--include', 'src/refund.ts']);
 
-    expect(received).toEqual({ taskId: 'refund-123', nodeId: 'clarify', dryRun: true, includes: ['src/refund.ts'] });
-    expect(output).toContain('「clarify」节点已完成');
+    expect(received).toEqual({ taskId: 'refund-123', nodeId: 'requirement-analysis', dryRun: true, includes: ['src/refund.ts'] });
+    expect(output).toContain('「requirement-analysis」节点已完成');
     expect(output).toContain('运行 ID：run-1');
     expect(output).toContain('下一步：');
     expect(output).toContain('aiw task review refund-123');

@@ -28,22 +28,22 @@ describe('SourceRefresher', () => {
     const first = await intake.snapshot({ sourceId: 'requirements', value: 'https://example.larksuite.com/docx/doccn123' });
     const reference = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
     task.sources.requirements = reference;
-    task.nodes.clarify.status = 'completed';
+    task.nodes['requirement-analysis'].status = 'completed';
     task.nodes.solution.status = 'completed';
     task.nodes.plan.status = 'completed';
-    task.approvalRefs = ['approvals/clarify.yaml', 'approvals/plan.yaml'];
+    task.approvalRefs = ['approvals/requirement-analysis.yaml', 'approvals/plan.yaml'];
     await store.create(task);
-    await store.createFact(task.id, 'approvals/clarify.yaml', '当前审批证据\n');
+    await store.createFact(task.id, 'approvals/requirement-analysis.yaml', '当前审批证据\n');
     connector.content = '# Refund v2';
     const refresher = new SourceRefresher({ intake, taskStore: store });
 
     const result = await refresher.refresh({ sourceId: 'requirements', taskId: task.id });
 
     expect(result).toMatchObject({ changed: true, revision: 2 });
-    expect(result.task.nodes.clarify.status).toBe('ready');
-    expect(result.task.nodes.solution.status).toBe('pending');
+    expect(result.task.nodes['requirement-analysis'].status).toBe('invalidated');
+    expect(result.task.nodes.solution.status).toBe('invalidated');
     expect(result.task.approvalRefs).toEqual([]);
-    await expect(readFile(join(store.taskDirectory(task.id), 'approvals', 'clarify.yaml'), 'utf8')).resolves.toBe('当前审批证据\n');
+    await expect(readFile(join(store.taskDirectory(task.id), 'approvals', 'requirement-analysis.yaml'), 'utf8')).resolves.toBe('当前审批证据\n');
   });
 
   it('keeps the task unchanged when the refreshed content is unchanged', async () => {
@@ -62,7 +62,7 @@ describe('SourceRefresher', () => {
     const result = await refresher.refresh({ sourceId: 'requirements', taskId: task.id });
 
     expect(result).toMatchObject({ changed: false, revision: 1 });
-    expect(result.task.nodes.clarify.status).toBe('ready');
+    expect(result.task.nodes['requirement-analysis'].status).toBe('ready');
   });
 
   it('refreshes the same selected Lark section instead of the complete document', async () => {
@@ -83,33 +83,32 @@ describe('SourceRefresher', () => {
     expect(result).toMatchObject({ changed: false, revision: 1 });
   });
 
-  it('refreshes an API document from its recognition node without invalidating intake', async () => {
+  it('invalidates API analysis without invalidating requirement analysis', async () => {
     const projectRoot = await createTempDirectory('aiw-source-refresh-');
     directories.push(projectRoot);
     const connector = mutableLarkConnector('# 接口 v1');
     const intake = new SourceIntake({ connectors: [connector], network: safeNetwork(), projectRoot });
     const store = new TaskStore(projectRoot);
     const task = createSevenPhaseTask();
-    const first = await intake.snapshot({ sourceId: 'api-document-17904', value: 'https://example.larksuite.com/docx/doccn17904' });
-    task.sources['api-document-17904'] = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
-    task.nodes['api-document-recognition'] = {
-      title: '识别 API 文档', phase: 'intake', dependsOn: ['intake'], requiresApproval: false,
+    const first = await intake.snapshot({ sourceId: 'api/api-document-1', value: 'https://example.larksuite.com/docx/doccn17904' });
+    task.sources['api/api-document-1'] = await intake.writeSnapshot({ snapshot: first, taskDirectory: store.taskDirectory(task.id) });
+    task.nodes['api-analysis'] = {
+      title: '识别 API 文档', phase: 'api-analysis', dependsOn: ['requirement-analysis'], skills: task.developmentSkills, requiresApproval: false,
       status: 'completed', hasResult: true,
-      outputs: [task.sources['api-document-17904']!.snapshotPath, task.sources['api-document-17904']!.metaPath],
+      outputs: [task.sources['api/api-document-1']!.snapshotPath, task.sources['api/api-document-1']!.metaPath],
     };
-    task.nodes.clarify.dependsOn = ['api-document-recognition'];
-    task.nodes.clarify.status = 'completed';
+    task.nodes.solution.dependsOn = ['api-analysis'];
+    task.nodes['requirement-analysis'].status = 'completed';
     task.nodes.solution.status = 'completed';
     await store.create(task);
     connector.content = '# 接口 v2';
 
-    const result = await new SourceRefresher({ intake, taskStore: store }).refresh({ sourceId: 'api-document-17904', taskId: task.id });
+    const result = await new SourceRefresher({ intake, taskStore: store }).refresh({ sourceId: 'api/api-document-1', taskId: task.id });
 
     expect(result).toMatchObject({ changed: true, revision: 2 });
-    expect(result.task.nodes.intake.status).toBe('completed');
-    expect(result.task.nodes['api-document-recognition']).toMatchObject({ status: 'completed', outputs: ['sources/api-document-17904/r2/snapshot.md', 'sources/api-document-17904/r2/meta.json'] });
-    expect(result.task.nodes.clarify.status).toBe('ready');
-    expect(result.task.nodes.solution.status).toBe('pending');
+    expect(result.task.nodes['api-analysis'].status).toBe('invalidated');
+    expect(result.task.nodes['requirement-analysis'].status).toBe('completed');
+    expect(result.task.nodes.solution.status).toBe('invalidated');
   });
 
   it('does not read or replace a source while another command holds the task lock', async () => {

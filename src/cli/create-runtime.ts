@@ -15,7 +15,6 @@ import { DefaultWorkflowBootstrapper } from '../services/default-workflow-bootst
 import { LocalConfig } from '../services/local-config.js';
 import { LocalInitializer } from '../services/local-initializer.js';
 import { LarkConnectorAutoDiscovery } from '../services/lark-connector-auto-discovery.js';
-import { MethodSourceResolver } from '../services/method-source-resolver.js';
 import { SkillInstaller } from '../services/skill-installer.js';
 import { SkillRegistry } from '../services/skill-registry.js';
 import { SourceIntake } from '../services/source-intake.js';
@@ -26,6 +25,7 @@ import { TaskInitializer } from '../services/task-initializer.js';
 import { TaskRunner } from '../services/task-runner.js';
 import { TaskCancellationService } from '../services/task-cancellation-service.js';
 import { TaskDecisionService } from '../services/task-decision-service.js';
+import { TaskInputService } from '../services/task-input-service.js';
 import { YapiSourceConnector } from '../services/yapi-source-connector.js';
 import { TaskStateCommands } from './task-state-commands.js';
 import { TaskStore } from '../services/task-store.js';
@@ -46,6 +46,7 @@ export interface CliRuntime {
   initializer: TaskInitializer;
   sourceRefresher: SourceRefresher;
   stateCommands: TaskStateCommands;
+  taskInputs: TaskInputService;
   taskRunner: TaskRunner;
   taskCancellation: TaskCancellationService;
   doctor: DoctorService;
@@ -76,7 +77,6 @@ export function createCliRuntime(input: {
   const taskLock = new FileTaskRunLock(runtimeRoot);
   const registry = new SkillRegistry(join(input.homeDirectory, 'registry.yaml'));
   const config = new LocalConfig(join(input.homeDirectory, 'config.yaml'));
-  const methodSourceResolver = new MethodSourceResolver(registry);
   const connector = input.ports.mcpClient === undefined || input.ports.mcpServerConfigResolver === undefined
     ? undefined
     : new ConfiguredLarkSourceConnector({
@@ -90,7 +90,6 @@ export function createCliRuntime(input: {
   const initializer = new TaskInitializer({
     registry,
     projectRepository: input.ports.repositoryStatus,
-    sourceIntakeFactory: intake,
     taskStoreFactory: (root) => new TaskStore(root),
     ...(input.taskCreatedAt === undefined ? {} : { now: input.taskCreatedAt }),
   });
@@ -112,16 +111,17 @@ export function createCliRuntime(input: {
   const taskCancellation = new TaskCancellationService({ taskStore, runtimeRoot });
   const codexAdapter = new CodexAdapter({ processRunner: input.ports.processRunner });
   const stateCommands = new TaskStateCommands({ taskStore, taskFactGuard, taskLock, cancellation: taskCancellation, decisionService: new TaskDecisionService({ taskStore }) });
+  const taskInputs = new TaskInputService({ taskStore, registry, taskLock });
   const taskRunner = new TaskRunner({
     taskStore,
     skillRegistry: registry,
-    methodSourceResolver,
     contextBuilder: new ContextBuilder({
       taskDirectory: (task) => taskStore.taskDirectory(task.id),
       projectRoot: () => taskStore.projectDirectory(),
       maxTokens: () => config.contextTokenBudget(),
     }),
     taskFactGuard,
+    sourceIntake: intake(projectRoot),
     changeInspector: input.ports.repositoryStatus,
     adapter: codexAdapter,
     ...(input.ports.deliveryWorkspaceManager === undefined ? {} : { deliveryWorkspaceManager: input.ports.deliveryWorkspaceManager }),
@@ -134,11 +134,11 @@ export function createCliRuntime(input: {
     initializer,
     sourceRefresher,
     stateCommands,
+    taskInputs,
     taskRunner,
     taskCancellation,
     doctor: new DoctorService({
       config,
-      registry,
       projectRepository: input.ports.repositoryStatus,
       processRunner: input.ports.processRunner,
       ...(input.ports.mcpClient === undefined ? {} : { mcpClient: input.ports.mcpClient }),

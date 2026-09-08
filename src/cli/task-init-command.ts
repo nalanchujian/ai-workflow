@@ -8,26 +8,20 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
   return new Command('init')
     .description('使用工作流模板初始化研发任务')
     .requiredOption('--project <path>', '业务仓库根目录')
-    .requiredOption('--source <reference>', '需求文档地址或本地文件路径')
-    .option('--section <title>', '可选：只读取文档中指定标题及其子标题内容')
-    .option('--api-doc-id <id>', '可选：YApi 接口文档末尾 ID；支持逗号分隔或重复使用', collectValues, [])
-    .option('--design-image <path>', '可选：添加一张设计工具导出的 PNG/JPEG；可重复使用', collectValues, [])
+    .requiredOption('--source <url>', '需求文档 URL')
     .option('--skill-profile <name>', '工作流模板；默认使用本机配置')
     .option('--force-new', '即使存在相同未完成需求任务，仍创建新任务')
-    .action(async (options: { project: string; source: string; section?: string; apiDocId: string[]; designImage: string[]; skillProfile?: string; forceNew?: boolean }, command: Command) => {
+    .action(async (options: { project: string; source: string; skillProfile?: string; forceNew?: boolean }, command: Command) => {
       const skillProfile = options.skillProfile ?? await deps.defaultSkillProfile();
       const task = await withProgress({
         reporter: deps.progress ?? new TerminalProgressReporter({ stderr: process.stderr }),
         command,
-        start: '正在检查业务仓库并读取需求来源',
-        success: '需求已固化，任务已创建',
+        start: '正在检查业务仓库并创建任务',
+        success: '任务已创建',
         failure: '任务初始化失败',
         operation: () => deps.initializer.init({
           projectRoot: options.project,
           source: options.source,
-          ...(options.section === undefined ? {} : { section: options.section }),
-          ...(options.apiDocId.length === 0 ? {} : { apiDocumentIds: options.apiDocId }),
-          ...(options.designImage.length === 0 ? {} : { designImages: options.designImage }),
           ...(options.forceNew === true ? { forceNew: true } : {}),
           skillProfile,
         }),
@@ -42,12 +36,8 @@ export function createTaskInitCommand(deps: { initializer: TaskInitializer; defa
         ],
         nextSteps: [
           'git add .aiw && git commit -m "chore(aiw): initialize task"',
-          `aiw task run ${task.id} clarify`,
+          `aiw task run ${task.id} requirement-analysis`,
         ],
       });
     });
-}
-
-function collectValues(value: string, previous: string[]): string[] {
-  return [...previous, value];
 }

@@ -3,69 +3,56 @@ import { z } from 'zod';
 const kebabId = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const taskImagePath = /^sources\/design\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i;
 const assetImagePath = /^artifacts\/design\/assets\/[a-z][a-z0-9-]*\.(?:png|jpe?g)$/i;
-const developmentUnitName = /^development-unit-[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export const DesignImageInputSchema = z.object({
   id: z.string().regex(kebabId, '设计图片 ID 必须使用英文 kebab-case'),
   originalName: z.string().min(1),
   imagePath: z.string().regex(taskImagePath, '设计原图必须位于 sources/design/'),
   mediaType: z.enum(['image/png', 'image/jpeg']),
-}).strict();
-
-export const DesignInputSchema = z.object({
-  provider: z.literal('local-images'),
-  images: z.array(DesignImageInputSchema).min(1),
-}).strict().superRefine((input, context) => {
-  if (new Set(input.images.map((image) => image.id)).size !== input.images.length) {
-    context.addIssue({ code: 'custom', path: ['images'], message: '设计图片 ID 必须唯一' });
-  }
-  if (new Set(input.images.map((image) => image.imagePath)).size !== input.images.length) {
-    context.addIssue({ code: 'custom', path: ['images'], message: '设计图片路径必须唯一' });
-  }
+}).strict().superRefine((image, context) => {
+  const expected = /\.png$/i.test(image.imagePath) ? 'image/png' : 'image/jpeg';
+  if (image.mediaType !== expected) context.addIssue({ code: 'custom', path: ['mediaType'], message: '图片类型必须与扩展名一致' });
 });
 
+export const DesignInputSchema = z.object({ image: DesignImageInputSchema }).strict();
+
+/** Plans refer to catalog IDs. Physical paths are resolved by AIW. */
 export const DesignReferenceSchema = z.object({
   assetId: z.string().regex(kebabId, '设计截图 ID 必须使用英文 kebab-case'),
-  imagePath: z.string().regex(assetImagePath, '设计截图必须位于 artifacts/design/assets/'),
   purpose: z.string().min(1),
 }).strict();
 
-const DesignAssetSchema = z.object({
-  id: z.string().regex(kebabId, '设计截图 ID 必须使用英文 kebab-case'),
-  sourceImageId: z.string().regex(kebabId, '来源图片 ID 必须使用英文 kebab-case'),
-  title: z.string().min(1),
-  kind: z.enum(['block', 'page', 'dialog', 'drawer', 'popover', 'state']),
+export const ResolvedDesignReferenceSchema = DesignReferenceSchema.extend({
   imagePath: z.string().regex(assetImagePath, '设计截图必须位于 artifacts/design/assets/'),
-  purpose: z.string().min(1),
-  developmentUnits: z.array(z.string().regex(developmentUnitName)).min(1),
+}).strict();
+
+export const DesignAssetSchema = z.object({
+  id: z.string().regex(kebabId),
+  sourceImageId: z.string().regex(kebabId),
+  title: z.string().min(1),
+  imagePath: z.string().regex(assetImagePath),
+  crop: z.object({
+    x: z.number().int().nonnegative(), y: z.number().int().nonnegative(),
+    width: z.number().int().positive(), height: z.number().int().positive(),
+  }).strict(),
 }).strict();
 
 export const DesignAssetsSchema = z.object({
-  schemaVersion: z.literal('aiw.design-assets/v1'),
+  schemaVersion: z.literal('aiw.design-assets/v2'),
   source: DesignInputSchema,
-  coverage: z.object({
-    sourceImageCount: z.number().int().positive(),
-    logicalBlockCount: z.number().int().positive(),
-  }).strict(),
+  sourceSize: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).strict(),
   assets: z.array(DesignAssetSchema).min(1),
 }).strict().superRefine((catalog, context) => {
-  if (catalog.coverage.sourceImageCount !== catalog.source.images.length) {
-    context.addIssue({ code: 'custom', path: ['coverage', 'sourceImageCount'], message: '来源图片数量必须等于任务输入图片数量' });
-  }
-  if (catalog.coverage.logicalBlockCount !== catalog.assets.length) {
-    context.addIssue({ code: 'custom', path: ['coverage', 'logicalBlockCount'], message: '逻辑业务块数量必须等于实际切割图片数量' });
-  }
-  const sourceIds = new Set(catalog.source.images.map((image) => image.id));
+  const ids = new Set<string>();
+  const paths = new Set<string>();
   for (const [index, asset] of catalog.assets.entries()) {
-    if (!sourceIds.has(asset.sourceImageId)) {
-      context.addIssue({ code: 'custom', path: ['assets', index, 'sourceImageId'], message: `引用了未知来源图片：${asset.sourceImageId}` });
-    }
-  }
-  if (new Set(catalog.assets.map((asset) => asset.id)).size !== catalog.assets.length) {
-    context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图 ID 必须唯一' });
-  }
-  if (new Set(catalog.assets.map((asset) => asset.imagePath)).size !== catalog.assets.length) {
-    context.addIssue({ code: 'custom', path: ['assets'], message: '设计截图路径必须唯一' });
+    const issue = (field: string, message: string) => context.addIssue({ code: 'custom', path: ['assets', index, field], message });
+    if (asset.sourceImageId !== catalog.source.image.id) issue('sourceImageId', '引用了未知来源图片');
+    if (ids.has(asset.id)) issue('id', '设计截图 ID 必须唯一');
+    if (paths.has(asset.imagePath)) issue('imagePath', '设计截图路径必须唯一');
+    if (asset.crop.x + asset.crop.width > catalog.sourceSize.width || asset.crop.y + asset.crop.height > catalog.sourceSize.height) issue('crop', '裁切范围超出原图尺寸');
+    ids.add(asset.id);
+    paths.add(asset.imagePath);
   }
 });
 

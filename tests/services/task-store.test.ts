@@ -22,8 +22,8 @@ describe('TaskStore', () => {
     await store.create(task);
     const loaded = await store.load(task.id);
 
-    expect(loaded).toMatchObject({ id: 'refund-123', schemaVersion: 'aiw.task/v3' });
-    expect(loaded.nodes.clarify.status).toBe('ready');
+    expect(loaded).toMatchObject({ id: 'refund-123', schemaVersion: 'aiw.task/v5' });
+    expect(loaded.nodes['requirement-analysis'].status).toBe('ready');
   });
 
   it('derives the current task status when the stored aggregate status is stale', async () => {
@@ -45,12 +45,12 @@ describe('TaskStore', () => {
     const task = createSevenPhaseTask();
     await store.create(task);
     await store.createFact(task.id, 'artifacts/brief.md', '# Brief\n');
-    await store.createFact(task.id, 'notes/clarify.txt', 'note\n');
+    await store.createFact(task.id, 'notes/requirement-analysis.txt', 'note\n');
 
-    await store.removeFacts(task.id, ['artifacts/brief.md', 'notes/clarify.txt']);
+    await store.removeFacts(task.id, ['artifacts/brief.md', 'notes/requirement-analysis.txt']);
 
     await expect(readFile(join(store.taskDirectory(task.id), 'artifacts', 'brief.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(readFile(join(store.taskDirectory(task.id), 'notes', 'clarify.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(store.taskDirectory(task.id), 'notes', 'requirement-analysis.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(store.load(task.id)).resolves.toMatchObject({ id: task.id });
   });
 

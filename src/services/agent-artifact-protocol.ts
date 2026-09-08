@@ -5,8 +5,10 @@ import { DecisionRegisterSchema } from '../domain/decision-register.js';
 import { FactRegisterSchema } from '../domain/fact-register.js';
 import { DevelopmentPlanSchema } from '../domain/work-breakdown.js';
 import { DesignAssetsSchema } from '../domain/design.js';
+import { ApiAnalysisSchema } from '../domain/api-analysis.js';
 
 export const agentArtifactProtocolIds = [
+  'api-analysis',
   'design-assets',
   'fact-register',
   'decision-register',
@@ -56,21 +58,35 @@ export function renderAgentArtifactProtocolDescriptor(descriptor: AgentArtifactP
 }
 
 function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtocolContext): AgentArtifactProtocolDescriptor {
+  if (id === 'api-analysis') {
+    return {
+      id, title: '接口分析', schema: ApiAnalysisSchema,
+      example: {
+        schemaVersion: 'aiw.api-analysis/v1',
+        documents: [{
+          id: 'orders', url: 'https://api.example.test/docs/orders', snapshotPath: 'sources/api/orders/r1/snapshot.md',
+          interfaces: [{ id: 'list-orders', title: '订单列表', method: 'GET', path: '/orders', request: 'page：可选整数，页码。', response: 'items：订单数组；total：整数，总条数。', errors: [], constraints: [], missingInformation: ['文档未说明错误码。'] }],
+          missingInformation: [],
+        }],
+      },
+      rules: ['只分析提供的接口快照，不读取需求或设计资料，不调用业务接口。', '接口 ID 在全部文档中唯一，供开发计划引用；文档 URL、标识与快照路径必须来自 AIW 提供的来源索引。', '请求与响应描述必须保留文档明确的字段、类型、必填性和结构；未说明的信息明确登记，不猜测补全。'],
+    };
+  }
   if (id === 'design-assets') {
     return {
       id,
       title: '设计截图索引',
       schema: DesignAssetsSchema,
       example: {
-        schemaVersion: 'aiw.design-assets/v1',
-        source: { provider: 'local-images', images: [{ id: 'order-flow', originalName: 'order-flow.png', imagePath: 'sources/design/order-flow.png', mediaType: 'image/png' }] },
-        coverage: { sourceImageCount: 1, logicalBlockCount: 1 },
-        assets: [{ id: 'order-dialog', sourceImageId: 'order-flow', title: '订单弹窗', kind: 'dialog', imagePath: 'artifacts/design/assets/order-dialog.png', purpose: '订单编辑弹窗布局', developmentUnits: ['development-unit-order-editor'] }],
+        schemaVersion: 'aiw.design-assets/v2',
+        source: { image: { id: 'order-flow', originalName: 'order-flow.png', imagePath: 'sources/design/order-flow.png', mediaType: 'image/png' } },
+        sourceSize: { width: 1200, height: 800 },
+        assets: [{ id: 'order-dialog', sourceImageId: 'order-flow', title: '订单弹窗', imagePath: 'artifacts/design/assets/order-dialog.png', crop: { x: 0, y: 0, width: 600, height: 800 } }],
       },
       rules: [
-        'source 必须原样复用任务登记的本地图片清单；sourceImageCount 必须等于输入图片数量。',
+        'source 必须原样复用任务登记的一张本地图片；sourceSize 使用原图实际像素尺寸。',
         '每项代表一个实际裁切或可直接使用的页面、弹窗、抽屉、浮层或状态图片。',
-        '每项必须绑定至少一个开发计划中真实存在的 development-unit-* 名称。',
+        'crop 使用原图像素坐标，不得超出原图；不绑定开发单元，绑定在开发计划中声明。',
         '只输出图片索引和裁切图片，不总结设计规则。',
       ],
     };
@@ -81,14 +97,14 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
       title: '事实登记',
       schema: FactRegisterSchema,
       example: {
-        schemaVersion: 'aiw.fact-register/v2',
+        schemaVersion: 'aiw.fact-register/v3',
         facts: [{
           statement: '主列表需要支持调整指标显示顺序。',
           source: { type: 'requirement', path: context.evidencePath, locator: 'Custom metrics' },
         }],
       },
       rules: [
-        '只登记能够从需求或仓库直接确认的事实。',
+        '只登记能够从需求快照直接确认的事实，不读取仓库、接口或设计资料。',
         '不确定内容必须进入决策登记，不得生成 FACT-* 编号。',
       ],
     };
@@ -124,7 +140,7 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
     title: '开发计划',
     schema: DevelopmentPlanSchema,
     example: {
-      schemaVersion: 'aiw.development-plan/v1',
+      schemaVersion: 'aiw.development-plan/v2',
       units: [{
         name: 'development-unit-main-list-metrics',
         title: '主列表指标配置',
@@ -133,13 +149,16 @@ function descriptorFor(id: AgentArtifactProtocolId, context: AgentArtifactProtoc
         codeScope: ['src/pages/growth/links/components/custom-metrics/'],
         steps: ['调整指标配置模型', '接入本地持久化'],
         dependencies: [],
+        apiReferences: [{ apiId: 'list-orders' }],
+        designReferences: [{ assetId: 'order-dialog', purpose: '订单编辑弹窗布局' }],
       }],
     },
     rules: [
       'name 是开发单元的真实节点名称，必须使用 development-unit-<英文 kebab-case 描述>，例如 development-unit-main-list-export；禁止数字编号和中文名称。',
       'dependencies 只引用同一计划中其他开发单元的 name，不引用 title。',
       '每个开发单元必须自包含，不得引用 FACT-*、DEC-* 或 AC-*。',
-      '计划不声明设计图片；设计节点在计划批准后按开发单元名称完成绑定。',
+      'apiReferences 和 designReferences 仅引用已提供资料中的真实 ID，实际路径由 AIW 解析；没有对应资料时使用空数组。',
+      '图片只绑定到相关开发单元，不生成设计分析报告。计划通过结构及引用校验后完成，无需人工批准。',
       '只规划代码开发，不包含验证、测试、验收或证据声明。',
     ],
   };

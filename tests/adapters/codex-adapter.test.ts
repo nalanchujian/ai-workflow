@@ -21,16 +21,16 @@ describe('CodexAdapter', () => {
     const calls: Array<{ command: string; args: string[]; stdin: string }> = [];
     const adapter = new CodexAdapter({ processRunner: { async run(input) { calls.push(input); return ok(); } } });
 
-    const result = await adapter.run(runRequest({ projectRoot, runDirectory, phase: 'clarify', artifacts: ['artifacts/clarify/fact-register.yaml', 'artifacts/clarify/decision-register.yaml'] }));
+    const result = await adapter.run(runRequest({ projectRoot, runDirectory, phase: 'requirement-analysis', artifacts: ['artifacts/requirement-analysis/fact-register.yaml', 'artifacts/requirement-analysis/decision-register.yaml'] }));
 
     expect(result.status).toBe('succeeded');
     expect(calls[0]).toMatchObject({ command: 'codex', args: ['exec', '--cd', projectRoot, '--approve-for-me', '--output-last-message', join(runDirectory, 'last-message.md'), '-'] });
     const prompt = await readFile(join(runDirectory, 'context.md'), 'utf8');
     expect(prompt).toContain('<artifact-protocol id="fact-register"');
     expect(prompt).toContain('<artifact-protocol id="decision-register"');
-    expect(prompt).toContain('只生成事实登记和决策登记');
+    expect(prompt).toContain('需求分析只读取本次需求文档快照');
     expect(prompt).toContain('不要生成验收标准、AC、跨文件 ID 或 Handoff');
-    expect(prompt).toContain('runs/run-1/staging/artifacts/clarify/fact-register.yaml');
+    expect(prompt).toContain('runs/run-1/staging/artifacts/requirement-analysis/fact-register.yaml');
     expect(prompt).not.toContain('acceptance-catalog');
   });
 
@@ -48,6 +48,17 @@ describe('CodexAdapter', () => {
     expect(prompt).toContain('codeScope');
     expect(prompt).not.toContain('acceptanceCoverage');
     expect(prompt).not.toContain('testPlan');
+  });
+
+  it('injects every skill bound to the current phase in declaration order', async () => {
+    const projectRoot = await temporaryDirectory();
+    const request = runRequest({ projectRoot, runDirectory: join(projectRoot, '.runtime'), phase: 'solution', artifacts: ['artifacts/solution/solution.md'] });
+    request.context.skills.push({ name: 'solution-review', version: '0.0.1', content: '复核技术方案。' });
+
+    const prompt = new CodexAdapter({ processRunner: { async run() { return ok(); } } }).renderPrompt(request);
+
+    expect(prompt.indexOf('name="team-skill"')).toBeLessThan(prompt.indexOf('name="solution-review"'));
+    expect(prompt).toContain('复核技术方案。');
   });
 
   it('limits development to code and a development result', async () => {
@@ -103,7 +114,7 @@ describe('CodexAdapter', () => {
     const projectRoot = await temporaryDirectory();
     const runDirectory = join(projectRoot, '.runtime', 'run-design-browser');
     const adapter = new CodexAdapter({ processRunner: { async run() { return ok(); } } });
-    const request = runRequest({ projectRoot, runDirectory, phase: 'design', artifacts: ['artifacts/design/design-assets.yaml'] });
+    const request = runRequest({ projectRoot, runDirectory, phase: 'design-slicing', artifacts: ['artifacts/design/design-assets.yaml'] });
     request.instruction = '切割并绑定 2 张设计图片';
 
     await adapter.run(request);
@@ -120,7 +131,7 @@ describe('CodexAdapter', () => {
     const calls: Array<{ args: string[] }> = [];
     const adapter = new CodexAdapter({ processRunner: { async run(input) { calls.push(input); return ok(); } } });
 
-    const request = runRequest({ projectRoot, runDirectory: currentRun, phase: 'design', artifacts: ['artifacts/design/design-assets.yaml'] });
+    const request = runRequest({ projectRoot, runDirectory: currentRun, phase: 'design-slicing', artifacts: ['artifacts/design/design-assets.yaml'] });
     request.context.images = [{ path: 'sources/design/main.png', absolutePath: join(projectRoot, 'sources/design/main.png') }];
     await adapter.run(request);
 
@@ -142,13 +153,12 @@ describe('CodexAdapter', () => {
 
 function runRequest(input: { projectRoot: string; runDirectory: string; phase: RunRequest['task']['phase']; artifacts: string[] }): RunRequest {
   return {
-    schemaVersion: 'aiw.run/v3', runId: 'run-1',
+    schemaVersion: 'aiw.run/v5', runId: 'run-1',
     task: { id: 'task-1', nodeId: input.phase === 'development' ? 'development-unit-refund-entry' : input.phase, phase: input.phase, projectRoot: input.projectRoot },
     instruction: '完成当前节点。', contextManifestPath: '.aiw/tasks/task-1/runs/run-1/context-manifest.json', runDirectory: input.runDirectory,
     mode: 'execute', artifacts: input.artifacts, outputContract: outputContractFor('run-1', input.artifacts),
     context: {
-      skill: { name: 'team-skill', version: '0.0.1', content: '按当前阶段完成工作。' },
-      methodSources: [{ id: 'superpowers:brainstorming', content: '先理解问题。' }],
+      skills: [{ name: 'team-skill', version: '0.0.1', content: '按当前阶段完成工作。' }],
       files: [{ role: 'source', path: 'sources/requirements/snapshot.md', content: '# 需求' }],
       images: [],
     },

@@ -3,7 +3,7 @@ import { z } from 'zod';
 const relativePathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
 
 export const FactSourceSchema = z.object({
-  type: z.enum(['requirement', 'repository']),
+  type: z.literal('requirement'),
   path: z.string().regex(relativePathPattern, '事实来源必须是项目内相对路径'),
   locator: z.string().min(1).optional(),
 }).strict();
@@ -14,7 +14,7 @@ export const FactItemSchema = z.object({
 }).strict();
 
 export const FactRegisterSchema = z.object({
-  schemaVersion: z.literal('aiw.fact-register/v2'),
+  schemaVersion: z.literal('aiw.fact-register/v3'),
   facts: z.array(FactItemSchema).min(1),
 }).strict();
 

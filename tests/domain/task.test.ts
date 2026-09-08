@@ -6,7 +6,7 @@ import { createSevenPhaseTask } from '../helpers/task-fixtures.js';
 describe('TaskSchema', () => {
   it('accepts the simplified task without decisions, impact graphs, or delivery status', () => {
     const task = createSevenPhaseTask();
-    expect(TaskSchema.parse(task)).toMatchObject({ schemaVersion: 'aiw.task/v3', status: 'active' });
+    expect(TaskSchema.parse(task)).toMatchObject({ schemaVersion: 'aiw.task/v5', status: 'active' });
   });
 
   it('rejects a workflow profile lock with an independent profile version', () => {
@@ -24,8 +24,8 @@ describe('TaskSchema', () => {
 
   it('rejects an executable node without a locked skill', () => {
     const task = createSevenPhaseTask();
-    delete task.nodes.clarify!.skill;
-    expect(() => TaskSchema.parse(task)).toThrow(/技能/);
+    task.nodes['requirement-analysis']!.skills = [];
+    expect(() => TaskSchema.parse(task)).toThrow(/skills/);
   });
 
   it('rejects obsolete task protocol fields', () => {
@@ -35,18 +35,15 @@ describe('TaskSchema', () => {
 
   it('accepts an optional design-image node after planning', () => {
     const task = createSevenPhaseTask();
-    task.designInput = {
-      provider: 'local-images',
-      images: [{ id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' }],
-    };
-    task.nodes['design-analysis'] = {
-      title: '切割并绑定设计图片', phase: 'design', dependsOn: ['plan'],
-      skill: createSevenPhaseTask().nodes.clarify!.skill,
+    task.inputs.design = { status: 'provided', image: { id: 'main', originalName: 'main.png', imagePath: 'sources/design/main.png', mediaType: 'image/png' } };
+    task.nodes['design-slicing'] = {
+      title: '切割并绑定设计图片', phase: 'design-slicing', dependsOn: ['plan'],
+      skills: createSevenPhaseTask().nodes['requirement-analysis']!.skills,
       requiresApproval: false, status: 'pending', hasResult: false,
       outputs: [
         'artifacts/design/design-assets.yaml',
       ],
     };
-    expect(TaskSchema.parse(task).nodes['design-analysis']).toMatchObject({ phase: 'design', dependsOn: ['plan'] });
+    expect(TaskSchema.parse(task).nodes['design-slicing']).toMatchObject({ phase: 'design-slicing', dependsOn: ['plan'] });
   });
 });
