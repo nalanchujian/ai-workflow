@@ -10,7 +10,7 @@ export interface LarkConnectorConfig {
 }
 
 export class LarkSourceConnectorError extends Error {
-  constructor(readonly code: 'LARK_URL_UNSUPPORTED' | 'LARK_RESPONSE_INVALID' | 'LARK_MCP_UNAVAILABLE', message: string) {
+  constructor(readonly code: 'LARK_URL_UNSUPPORTED' | 'LARK_RESPONSE_INVALID' | 'LARK_MCP_UNAVAILABLE' | 'LARK_AUTH_EXPIRED', message: string) {
     super(message);
     this.name = 'LarkSourceConnectorError';
   }
@@ -58,7 +58,7 @@ export class LarkSourceConnector implements SourceConnector {
   }
 
   private async readRawContent(server: Awaited<ReturnType<McpServerConfigResolver['resolve']>>, documentId: string): Promise<string> {
-    const response = await this.deps.client.callTool({
+    const response = await this.callTool({
       server,
       tool: this.deps.config.tool,
       arguments: documentArguments(documentId, this.deps.config.useUAT),
@@ -78,7 +78,7 @@ export class LarkSourceConnector implements SourceConnector {
     const blocks: LarkBlock[] = [];
     let pageToken: string | undefined;
     do {
-      const response = await this.deps.client.callTool({
+      const response = await this.callTool({
         server,
         tool: 'docx_v1_documentBlock_list',
         arguments: blockArguments(documentId, this.deps.config.useUAT, pageToken),
@@ -116,7 +116,7 @@ export class LarkSourceConnector implements SourceConnector {
   }
 
   private async resolveWikiDocument(server: Awaited<ReturnType<McpServerConfigResolver['resolve']>>, nodeToken: string): Promise<string> {
-    const response = await this.deps.client.callTool({
+    const response = await this.callTool({
       server,
       tool: 'wiki_v2_space_getNode',
       arguments: { params: { token: nodeToken }, useUAT: this.deps.config.useUAT },
@@ -126,6 +126,18 @@ export class LarkSourceConnector implements SourceConnector {
       throw new LarkSourceConnectorError('LARK_URL_UNSUPPORTED', 'Wiki 节点不是可读取的 docx 文档');
     }
     return node.obj_token;
+  }
+
+  private async callTool(input: { server: Awaited<ReturnType<McpServerConfigResolver['resolve']>>; tool: string; arguments: unknown }): Promise<unknown> {
+    const response = await this.deps.client.callTool(input);
+    const message = mcpErrorMessage(response);
+    if (message === undefined) {
+      return response;
+    }
+    if (/user_access_token is invalid or expired/i.test(message)) {
+      throw new LarkSourceConnectorError('LARK_AUTH_EXPIRED', 'Lark Connector 登录状态已失效，请重新授权后重试');
+    }
+    throw new LarkSourceConnectorError('LARK_MCP_UNAVAILABLE', 'Lark MCP 不可用');
   }
 }
 
@@ -471,6 +483,22 @@ function objectFromResponse(response: unknown): Record<string, unknown> | undefi
     return isRecord(parsed) ? parsed : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function mcpErrorMessage(response: unknown): string | undefined {
+  if (!isRecord(response) || response.isError !== true || !Array.isArray(response.content)) {
+    return undefined;
+  }
+  const text = response.content.find((item) => isRecord(item) && item.type === 'text' && typeof item.text === 'string')?.text;
+  if (text === undefined) {
+    return 'MCP 调用失败';
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) && typeof parsed.errorMessage === 'string' ? parsed.errorMessage : 'MCP 调用失败';
+  } catch {
+    return 'MCP 调用失败';
   }
 }
 

@@ -58,6 +58,29 @@ describe('DoctorService', () => {
     expect(JSON.stringify(result)).not.toContain('# requirements');
   });
 
+  it('explains when the Lark OAuth login has expired', async () => {
+    const directory = await createConfiguredDirectory(directories);
+    const result = await new DoctorService({
+      config: new LocalConfig(join(directory, 'config.yaml')),
+      projectRepository: { async assertProjectReady() {} },
+      processRunner: successfulProcessRunner(),
+      mcpServerConfigResolver: { async resolve() { return { transport: 'stdio', command: 'lark-mcp', args: [], env: {} }; } },
+      mcpClient: {
+        async callTool() {
+          return { isError: true, content: [{ type: 'text', text: JSON.stringify({ errorMessage: 'Current user_access_token is invalid or expired' }) }] };
+        },
+        async listTools() { return [{ name: 'docx_v1_document_rawContent' }, { name: 'docx_v1_documentBlock_list' }]; },
+      },
+    }).inspect({ projectRoot: directory, codexBin: 'codex', source: 'https://acme.larksuite.com/docx/doccn123' });
+
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      id: 'document-authorization',
+      status: 'failed',
+      message: 'Lark Connector 登录状态已失效，请重新授权后重试',
+      suggestion: '重新授权当前 Lark Connector 账号后重试。',
+    }));
+  });
+
   it('reports a configuration failure before task creation when block listing is unavailable', async () => {
     const directory = await createConfiguredDirectory(directories);
     const result = await new DoctorService({

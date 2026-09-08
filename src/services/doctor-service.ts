@@ -3,7 +3,7 @@ import type { McpClient } from '../ports/mcp-client.js';
 import type { McpServerConfigResolver } from '../ports/mcp-server-config-resolver.js';
 import type { ProcessRunner } from '../ports/process-runner.js';
 import type { ProjectRepository } from '../ports/project-repository.js';
-import { isLarkDocumentReference, LarkSourceConnector } from './lark-source-connector.js';
+import { isLarkDocumentReference, LarkSourceConnector, LarkSourceConnectorError } from './lark-source-connector.js';
 import { LocalConfig, type LocalConfigDocument } from './local-config.js';
 
 const CHECK_TIMEOUT_MS = 10_000;
@@ -127,7 +127,13 @@ export class DoctorService {
         passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
         passed('document-authorization', '文档读取授权', '指定文档可通过已配置连接器读取。'),
       ];
-    } catch {
+    } catch (error) {
+      if (error instanceof LarkSourceConnectorError && error.code === 'LARK_AUTH_EXPIRED') {
+        return [
+          passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
+          failed('document-authorization', '文档读取授权', error.message, '重新授权当前 Lark Connector 账号后重试。'),
+        ];
+      }
       return [
         passed('document-connector-configuration', '文档连接器配置', 'Connector Profile 与 MCP Server 定义可解析。'),
         failed('document-authorization', '文档读取授权', '无法通过已配置连接器读取指定文档。', '确认文档地址、连接器授权和当前账号权限后重试。'),

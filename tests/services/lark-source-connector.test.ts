@@ -43,6 +43,24 @@ describe('LarkSourceConnector', () => {
       .rejects.toMatchObject({ code: 'LARK_MCP_UNAVAILABLE', message: 'Lark MCP 不可用' });
   });
 
+  it('asks the user to reauthorize when the Lark OAuth login has expired', async () => {
+    const connector = new LarkSourceConnector({
+      client: {
+        async callTool() {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: JSON.stringify({ errorMessage: 'Current user_access_token is invalid or expired' }) }],
+          };
+        },
+      },
+      config: { configPath: '/local/config.toml', server: 'lark-openapi', tool: 'docx_v1_document_rawContent', useUAT: false },
+      resolver: { async resolve() { return { args: [], command: 'lark-mcp', env: {}, transport: 'stdio' }; } },
+    });
+
+    await expect(connector.fetch('https://example.larksuite.com/docx/doccn123'))
+      .rejects.toMatchObject({ code: 'LARK_AUTH_EXPIRED', message: 'Lark Connector 登录状态已失效，请重新授权后重试' });
+  });
+
   it('recognizes a docx URL under a multi-label Lark tenant domain', () => {
     const connector = new LarkSourceConnector({
       client: { async callTool() { throw new Error('不应调用'); } },
