@@ -38,6 +38,8 @@ aiw task run <task-id> development-unit-<name>
 
 AIW 不兼容旧节点、旧参数或旧任务格式。MVP 仅支持 Lark 需求地址、YApi 接口文章和本地设计图片。
 
+Lark 需求读取使用 Codex 中已登录的 Lark MCP 用户身份。运行 `aiw doctor --source <Lark文档URL>` 可验证当前用户是否能读取目标文档。
+
 ## 开发
 
 ```bash

@@ -17,10 +17,13 @@ const LocalConfigSchema = z.object({
   schemaVersion: z.literal('aiw.local/v1'),
   connectors: z.object({
     lark: z.object({
-      appId: z.string().min(1),
-      appSecret: z.string().min(1),
-      domain: z.string().url(),
-    }).optional(),
+      mcp: z.object({
+        configPath: z.string().min(1),
+        server: z.string().min(1),
+        tool: z.string().min(1),
+        useUAT: z.literal(true),
+      }).strict(),
+    }).passthrough().optional(),
   }).strict().default({}),
   workflow: DefaultWorkflowSchema.optional(),
   context: z.object({
@@ -29,7 +32,7 @@ const LocalConfigSchema = z.object({
 }).strict();
 
 export type LocalConfigDocument = z.infer<typeof LocalConfigSchema>;
-export type LocalLarkConnectorProfile = NonNullable<LocalConfigDocument['connectors']['lark']>;
+export type LocalLarkConnectorProfile = NonNullable<LocalConfigDocument['connectors']['lark']>['mcp'];
 
 export class LocalConfig {
   constructor(private readonly path: string) {}
@@ -39,7 +42,7 @@ export class LocalConfig {
     if (profile === undefined) {
       throw new Error('Lark Connector is unavailable');
     }
-    return profile;
+    return profile.mcp;
   }
 
   async defaultWorkflow(): Promise<DefaultWorkflow> {

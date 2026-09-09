@@ -64,12 +64,14 @@ workflow:
 context:
   maxTokens: ${DEFAULT_CONTEXT_TOKEN_BUDGET}
 
-# 只有任务来源是 Lark 文档时，才把下方示例改为实际配置。App Secret 仅保存在本机，绝不提交到业务仓库。
+# 只有任务来源是 Lark 文档时，才把下方示例改为实际配置。AIW 通过 Codex 已配置的 Lark MCP 使用用户身份，不保存 App Secret。
 # connectors:
 #   lark:
-#     appId: cli_xxxx
-#     appSecret: your_app_secret
-#     domain: https://open.larksuite.com
+#     mcp:
+#       configPath: ~/.codex/config.toml
+#       server: lark-openapi
+#       tool: docx_v1_document_rawContent
+#       useUAT: true
 connectors: {}
 `;
 

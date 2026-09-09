@@ -1,11 +1,13 @@
 import { join } from 'node:path';
 
 import { CodexAdapter } from '../adapters/codex-adapter.js';
+import { CodexTomlMcpServerConfigResolver } from '../adapters/codex-toml-mcp-server-config-resolver.js';
 import { FetchNetworkClient } from '../adapters/fetch-network-client.js';
 import { GitRepositoryStatus } from '../adapters/git-repository-status.js';
 import { GitDeliveryWorkspaceManager } from '../adapters/git-delivery-workspace.js';
 import { NodeProcessRunner } from '../adapters/node-process-runner.js';
 import { ShellGitClient } from '../adapters/shell-git-client.js';
+import { StdioMcpClient } from '../adapters/stdio-mcp-client.js';
 import { ContextBuilder } from '../services/context-builder.js';
 import { ConfiguredLarkSourceConnector } from '../services/configured-lark-source-connector.js';
 import { DoctorService } from '../services/doctor-service.js';
@@ -68,7 +70,11 @@ export function createCliRuntime(input: {
   const taskLock = new FileTaskRunLock(runtimeRoot);
   const registry = new SkillRegistry(join(input.homeDirectory, 'registry.yaml'));
   const config = new LocalConfig(join(input.homeDirectory, 'config.yaml'));
-  const connector = new ConfiguredLarkSourceConnector({ config, network: input.ports.network });
+  const connector = new ConfiguredLarkSourceConnector({
+    config,
+    client: new StdioMcpClient(),
+    resolver: new CodexTomlMcpServerConfigResolver(),
+  });
   const yapiConnector = new YapiSourceConnector({ network: input.ports.network });
   const intake = (root: string) => new SourceIntake({ connectors: [yapiConnector, connector], network: input.ports.network, projectRoot: root });
   const taskFactGuard = new TaskFactGuard({ repositoryStatus: input.ports.repositoryStatus });
@@ -119,7 +125,7 @@ export function createCliRuntime(input: {
       config,
       projectRepository: input.ports.repositoryStatus,
       processRunner: input.ports.processRunner,
-      network: input.ports.network,
+      connector,
     }),
     runHistory: new RunHistoryService({ runtimeRoot }),
     localConfig: config,
