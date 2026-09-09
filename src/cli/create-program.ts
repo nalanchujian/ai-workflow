@@ -2,6 +2,7 @@ import { Command } from 'commander';
 
 import { createDoctorCommand } from './doctor-command.js';
 import { createInitCommand } from './init-command.js';
+import { createLarkConfigureCommand } from './lark-configure-command.js';
 import { createRunHistoryCommand } from './run-history-command.js';
 import { createSkillsCommand } from './skills-commands.js';
 import { createTaskInitCommand } from './task-init-command.js';
@@ -27,7 +28,7 @@ export function createProgram(deps: CliDependencies): Command {
     .addHelpText('after', `
 
 首次使用：
-  aiw init → aiw doctor
+  aiw init → aiw lark configure（仅需读取 Lark 文档时）→ aiw doctor
 
 日常使用：
   aiw task init --project .
@@ -50,6 +51,7 @@ export function createProgram(deps: CliDependencies): Command {
   const stdout = deps.stdout ?? process.stdout;
   const progress = new TerminalProgressReporter({ stderr: deps.stderr ?? process.stderr });
   program.addCommand(createInitCommand({ bootstrapper: runtime.defaultWorkflowBootstrapper, progress, stdout }));
+  program.addCommand(new Command('lark').description('配置 Lark 用户身份文档读取').addCommand(createLarkConfigureCommand({ config: runtime.localConfig, credentials: runtime.larkCredentials, progress, stdout })), { hidden: true });
   program.addCommand(createDoctorCommand({ doctor: runtime.doctor, progress, stdout }));
   program.addCommand(createRunHistoryCommand({ history: runtime.runHistory, progress, stdout }), { hidden: true });
   program.addCommand(createSkillsCommand({ installer: runtime.installer, registry: runtime.registry, config: runtime.localConfig, progress, stdout }), { hidden: true });

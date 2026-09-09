@@ -75,26 +75,26 @@ export class DoctorService {
     }
     if (source === undefined) {
       return [
-        passed('document-connector-configuration', '文档连接器配置', 'Lark MCP 用户身份配置有效。'),
-        warning('document-authorization', '文档读取授权', '未验证。', '运行 `aiw doctor --source <文档地址>` 验证用户身份文档读取权限。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Lark 用户身份读取配置有效。'),
+        warning('document-authorization', '文档读取授权', '未验证。', '运行 `aiw doctor --source <文档地址>`；该命令会打开浏览器重新授权。'),
       ];
     }
     try {
       await this.deps.connector.fetch(source);
       return [
-        passed('document-connector-configuration', '文档连接器配置', 'Lark MCP 用户身份配置有效。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Lark 用户身份读取配置有效。'),
         passed('document-authorization', '文档读取授权', '指定文档可通过用户身份读取。'),
       ];
     } catch (error) {
       if (error instanceof LarkSourceConnectorError && (error.code === 'LARK_AUTH_EXPIRED' || error.code === 'LARK_AUTHORIZATION_DENIED')) {
         return [
-          passed('document-connector-configuration', '文档连接器配置', 'Lark MCP 用户身份配置有效。'),
-          failed('document-authorization', '文档读取授权', error.message, '重新完成 Lark OAuth 授权后重试。'),
+          passed('document-connector-configuration', '文档连接器配置', 'Lark 用户身份读取配置有效。'),
+          failed('document-authorization', '文档读取授权', error.message, '重新运行当前命令并在浏览器中完成授权。'),
         ];
       }
       return [
-        passed('document-connector-configuration', '文档连接器配置', 'Lark MCP 用户身份配置有效。'),
-        failed('document-authorization', '文档读取授权', '无法通过 Lark MCP 用户身份读取指定文档。', '确认 MCP 登录状态和用户对文档的访问权限后重试。'),
+        passed('document-connector-configuration', '文档连接器配置', 'Lark 用户身份读取配置有效。'),
+        failed('document-authorization', '文档读取授权', '无法通过 Lark 用户身份读取指定文档。', '确认当前用户有文档权限后重新运行，并在浏览器中完成授权。'),
       ];
     }
   }

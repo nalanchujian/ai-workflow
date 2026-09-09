@@ -11,11 +11,11 @@ describe('DoctorService', () => {
   const directories: string[] = [];
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('checks a configured Lark MCP user-identity connector', async () => {
+  it('checks a configured direct Lark user-identity connector', async () => {
     const directory = await configuredDirectory(directories);
     const result = await new DoctorService({ config: new LocalConfig(join(directory, 'config.yaml')), projectRepository: { async assertProjectReady() {} }, processRunner: successfulProcessRunner(), connector: successfulConnector() }).inspect({ projectRoot: directory, codexBin: 'codex', source: 'https://acme.larksuite.com/docx/doccn123' });
     expect(result.ok).toBe(true);
-    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', status: 'passed', message: 'Lark MCP 用户身份配置有效。' }));
+    expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-connector-configuration', status: 'passed', message: 'Lark 用户身份读取配置有效。' }));
     expect(result.checks).toContainEqual(expect.objectContaining({ id: 'document-authorization', status: 'passed', message: '指定文档可通过用户身份读取。' }));
   });
 
@@ -43,9 +43,9 @@ describe('DoctorService', () => {
 async function configuredDirectory(directories: string[]): Promise<string> {
   const directory = await createTempDirectory('aiw-doctor-');
   directories.push(directory);
-  await writeFile(join(directory, 'config.yaml'), ['schemaVersion: aiw.local/v1', 'connectors:', '  lark:', '    mcp:', '      configPath: /local/config.toml', '      server: lark-openapi', '      tool: docx_v1_document_rawContent', '      useUAT: true', ''].join('\n'), 'utf8');
+  await writeFile(join(directory, 'config.yaml'), ['schemaVersion: aiw.local/v1', 'connectors:', '  lark:', '    appId: cli_xxx', '    domain: https://open.larksuite.com', '    callback:', '      host: 127.0.0.1', '      port: 38991', ''].join('\n'), 'utf8');
   return directory;
 }
 
 function successfulProcessRunner() { return { async run() { return { exitCode: 0, signal: null, stdout: 'version', stderr: '', timedOut: false }; } }; }
-function successfulConnector() { return { supports() { return true; }, async fetch() { return { canonicalUrl: 'https://acme.larksuite.com/docx/doccn123', externalId: 'doccn123', fetchedAt: new Date().toISOString(), markdown: '需求', extractor: 'lark-mcp/v1' }; } }; }
+function successfulConnector() { return { supports() { return true; }, async fetch() { return { canonicalUrl: 'https://acme.larksuite.com/docx/doccn123', externalId: 'doccn123', fetchedAt: new Date().toISOString(), markdown: '需求', extractor: 'lark-user-openapi/v1' }; } }; }

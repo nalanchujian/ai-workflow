@@ -10,26 +10,23 @@ describe('ConfiguredLarkSourceConnector', () => {
   const directories: string[] = [];
   afterEach(async () => Promise.all(directories.splice(0).map(removeTempDirectory)));
 
-  it('reads a selected section through the configured user-identity MCP', async () => {
-    const directory = await createTempDirectory('aiw-lark-mcp-');
+  it('delegates Lark document reads to the direct user-identity connector', async () => {
+    const directory = await createTempDirectory('aiw-lark-configured-');
     directories.push(directory);
-    await writeFile(join(directory, 'config.yaml'), [
-      'schemaVersion: aiw.local/v1', 'connectors:', '  lark:', '    mcp:', '      configPath: /local/config.toml', '      server: lark-openapi', '      tool: docx_v1_document_rawContent', '      useUAT: true', '',
-    ].join('\n'));
+    await writeFile(join(directory, 'config.yaml'), ['schemaVersion: aiw.local/v1', 'connectors:', '  lark:', '    appId: cli_xxx', '    domain: https://open.larksuite.com', '    callback:', '      host: 127.0.0.1', '      port: 38991', ''].join('\n'));
     const connector = new ConfiguredLarkSourceConnector({
       config: new LocalConfig(join(directory, 'config.yaml')),
-      resolver: {
-        async resolve() { return { args: [], command: 'lark-mcp', env: {}, transport: 'stdio' }; },
-      },
-      client: {
-        async callTool() {
-          return { content: [{ type: 'text', text: JSON.stringify({ has_more: false, items: [heading('target', '二期'), text('content', '目标需求'), heading('after', '三期')] }) }] };
+      oauth: { async authorize() { return 'user-token'; } } as never,
+      network: {
+        async fetch(input) {
+          return { body: JSON.stringify({ code: 0, data: { has_more: false, items: [heading('target', '二期'), text('content', '目标需求'), heading('after', '三期')] } }), contentType: 'application/json', status: 200, url: input.url };
         },
+        async resolve() { return []; },
       },
     });
 
     await expect(connector.fetch('https://acme.larksuite.com/docx/doccn123', { section: '二期' }))
-      .resolves.toMatchObject({ markdown: '# 二期\n\n目标需求', section: { startBlockId: 'target', endBlockId: 'content' }, extractor: 'lark-mcp/v1' });
+      .resolves.toMatchObject({ markdown: '# 二期\n\n目标需求', extractor: 'lark-user-openapi/v1' });
   });
 });
 

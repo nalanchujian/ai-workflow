@@ -20,6 +20,7 @@ requirement-analysis → task review → api-analysis → design-slicing → sol
 
 ```bash
 aiw init
+aiw lark configure --app-id <AppID> --app-secret <AppSecret>
 aiw doctor
 aiw task init --project .
 git add .aiw && git commit -m "chore(aiw): initialize task"
@@ -38,7 +39,7 @@ aiw task run <task-id> development-unit-<name>
 
 AIW 不兼容旧节点、旧参数或旧任务格式。MVP 仅支持 Lark 需求地址、YApi 接口文章和本地设计图片。
 
-Lark 需求读取使用 Codex 中已登录的 Lark MCP 用户身份。运行 `aiw doctor --source <Lark文档URL>` 可验证当前用户是否能读取目标文档。
+Lark 需求读取由 AIW 直接调用 Lark OpenAPI，并始终使用当前用户身份。先运行 `aiw lark configure` 保存 App Secret 到 macOS Keychain；每次读取文档都会打开浏览器重新授权。运行 `aiw doctor --source <Lark文档URL>` 可验证当前用户是否能读取目标文档。
 
 ## 开发
 

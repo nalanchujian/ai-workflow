@@ -17,13 +17,13 @@ const LocalConfigSchema = z.object({
   schemaVersion: z.literal('aiw.local/v1'),
   connectors: z.object({
     lark: z.object({
-      mcp: z.object({
-        configPath: z.string().min(1),
-        server: z.string().min(1),
-        tool: z.string().min(1),
-        useUAT: z.literal(true),
+      appId: z.string().min(1),
+      domain: z.string().url(),
+      callback: z.object({
+        host: z.string().min(1),
+        port: z.number().int().min(1).max(65_535),
       }).strict(),
-    }).passthrough().optional(),
+    }).strict().optional(),
   }).strict().default({}),
   workflow: DefaultWorkflowSchema.optional(),
   context: z.object({
@@ -32,7 +32,7 @@ const LocalConfigSchema = z.object({
 }).strict();
 
 export type LocalConfigDocument = z.infer<typeof LocalConfigSchema>;
-export type LocalLarkConnectorProfile = NonNullable<LocalConfigDocument['connectors']['lark']>['mcp'];
+export type LocalLarkConnectorProfile = NonNullable<LocalConfigDocument['connectors']['lark']>;
 
 export class LocalConfig {
   constructor(private readonly path: string) {}
@@ -42,7 +42,7 @@ export class LocalConfig {
     if (profile === undefined) {
       throw new Error('Lark Connector is unavailable');
     }
-    return profile.mcp;
+    return profile;
   }
 
   async defaultWorkflow(): Promise<DefaultWorkflow> {
@@ -84,7 +84,13 @@ export class LocalConfig {
   }
 
   async updateLarkConnector(profile: LocalLarkConnectorProfile): Promise<void> {
-    const document = await this.read();
+    const raw = parse(await readFile(this.path, 'utf8'));
+    if (!isRecord(raw) || Array.isArray(raw)) throw new Error('无法读取 AIW 本机设置');
+    const connectors = isRecord(raw.connectors) && !Array.isArray(raw.connectors) ? raw.connectors : {};
+    const document = LocalConfigSchema.parse({
+      ...raw,
+      connectors: { ...connectors, lark: profile },
+    });
     await writeFile(this.path, stringify({
       ...document,
       connectors: { ...document.connectors, lark: profile },
@@ -98,4 +104,8 @@ export class LocalConfig {
 
 function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

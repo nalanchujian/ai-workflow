@@ -19,7 +19,7 @@ describe('aiw CLI help', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('首次使用：');
-    expect(result.stdout).toContain('aiw init → aiw doctor');
+    expect(result.stdout).toContain('aiw init → aiw lark configure（仅需读取 Lark 文档时）→ aiw doctor');
     expect(result.stdout).toContain('日常使用：');
     expect(result.stdout).toContain('aiw task init --project .');
     expect(result.stdout).toContain('aiw task run <task-id> requirement-analysis');

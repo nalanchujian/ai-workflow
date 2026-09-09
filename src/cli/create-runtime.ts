@@ -1,19 +1,21 @@
 import { join } from 'node:path';
 
 import { CodexAdapter } from '../adapters/codex-adapter.js';
-import { CodexTomlMcpServerConfigResolver } from '../adapters/codex-toml-mcp-server-config-resolver.js';
 import { FetchNetworkClient } from '../adapters/fetch-network-client.js';
 import { GitRepositoryStatus } from '../adapters/git-repository-status.js';
 import { GitDeliveryWorkspaceManager } from '../adapters/git-delivery-workspace.js';
+import { MacOsKeychainSecretStore } from '../adapters/macos-keychain-secret-store.js';
 import { NodeProcessRunner } from '../adapters/node-process-runner.js';
 import { ShellGitClient } from '../adapters/shell-git-client.js';
-import { StdioMcpClient } from '../adapters/stdio-mcp-client.js';
+import { SystemBrowserOpener } from '../adapters/system-browser-opener.js';
 import { ContextBuilder } from '../services/context-builder.js';
 import { ConfiguredLarkSourceConnector } from '../services/configured-lark-source-connector.js';
 import { DoctorService } from '../services/doctor-service.js';
 import { DefaultWorkflowBootstrapper } from '../services/default-workflow-bootstrapper.js';
 import { LocalConfig } from '../services/local-config.js';
 import { LocalInitializer } from '../services/local-initializer.js';
+import { LarkAppCredentialService } from '../services/lark-app-credential-service.js';
+import { LarkUserOAuthService } from '../services/lark-user-oauth-service.js';
 import { SkillInstaller } from '../services/skill-installer.js';
 import { SkillRegistry } from '../services/skill-registry.js';
 import { SourceIntake } from '../services/source-intake.js';
@@ -48,6 +50,7 @@ export interface CliRuntime {
   doctor: DoctorService;
   runHistory: RunHistoryService;
   localConfig: LocalConfig;
+  larkCredentials: LarkAppCredentialService;
   localInitializer: LocalInitializer;
   defaultWorkflowBootstrapper: DefaultWorkflowBootstrapper;
 }
@@ -70,10 +73,18 @@ export function createCliRuntime(input: {
   const taskLock = new FileTaskRunLock(runtimeRoot);
   const registry = new SkillRegistry(join(input.homeDirectory, 'registry.yaml'));
   const config = new LocalConfig(join(input.homeDirectory, 'config.yaml'));
+  const secrets = new MacOsKeychainSecretStore({ processRunner: input.ports.processRunner, cwd: input.projectRoot });
+  const larkCredentials = new LarkAppCredentialService({ secrets });
+  const larkOAuth = new LarkUserOAuthService({
+    browser: new SystemBrowserOpener({ processRunner: input.ports.processRunner, cwd: input.projectRoot }),
+    config,
+    credentials: larkCredentials,
+    network: input.ports.network,
+  });
   const connector = new ConfiguredLarkSourceConnector({
     config,
-    client: new StdioMcpClient(),
-    resolver: new CodexTomlMcpServerConfigResolver(),
+    network: input.ports.network,
+    oauth: larkOAuth,
   });
   const yapiConnector = new YapiSourceConnector({ network: input.ports.network });
   const intake = (root: string) => new SourceIntake({ connectors: [yapiConnector, connector], network: input.ports.network, projectRoot: root });
@@ -129,6 +140,7 @@ export function createCliRuntime(input: {
     }),
     runHistory: new RunHistoryService({ runtimeRoot }),
     localConfig: config,
+    larkCredentials,
     localInitializer,
     defaultWorkflowBootstrapper,
   };

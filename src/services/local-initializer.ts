@@ -64,14 +64,15 @@ workflow:
 context:
   maxTokens: ${DEFAULT_CONTEXT_TOKEN_BUDGET}
 
-# 只有任务来源是 Lark 文档时，才把下方示例改为实际配置。AIW 通过 Codex 已配置的 Lark MCP 使用用户身份，不保存 App Secret。
+# 只有任务来源是 Lark 文档时，运行 aiw lark configure 完成应用凭据配置。
+# config.yaml 不保存 App Secret、access token 或 refresh token；它们只保存在 macOS Keychain。
 # connectors:
 #   lark:
-#     mcp:
-#       configPath: ~/.codex/config.toml
-#       server: lark-openapi
-#       tool: docx_v1_document_rawContent
-#       useUAT: true
+#     appId: cli_xxx
+#     domain: https://open.larksuite.com
+#     callback:
+#       host: 127.0.0.1
+#       port: 38991
 connectors: {}
 `;
 

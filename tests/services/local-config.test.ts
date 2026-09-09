@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { LocalConfig } from '../../src/services/local-config.js';
@@ -75,6 +75,28 @@ workflow:
 
     await writeFile(configPath, 'schemaVersion: aiw.local/v1\nconnectors: {}\ncontext:\n  maxTokens: 32000\n');
     await expect(config.contextTokenBudget()).resolves.toBe(32_000);
+  });
+
+  it('rejects the removed Codex MCP connector profile', async () => {
+    const directory = await createTempDirectory('aiw-local-config-');
+    directories.push(directory);
+    const configPath = join(directory, 'config.yaml');
+    await writeFile(configPath, ['schemaVersion: aiw.local/v1', 'connectors:', '  lark:', '    mcp:', '      configPath: ~/.codex/config.toml', ''].join('\n'));
+
+    await expect(new LocalConfig(configPath).read()).rejects.toBeDefined();
+  });
+
+  it('replaces a legacy MCP profile when configuring direct Lark user identity', async () => {
+    const directory = await createTempDirectory('aiw-local-config-');
+    directories.push(directory);
+    const configPath = join(directory, 'config.yaml');
+    await writeFile(configPath, ['schemaVersion: aiw.local/v1', 'connectors:', '  lark:', '    mcp:', '      configPath: ~/.codex/config.toml', '    appSecret: legacy-secret', ''].join('\n'));
+    const config = new LocalConfig(configPath);
+
+    await config.updateLarkConnector({ appId: 'cli_xxx', domain: 'https://open.larksuite.com', callback: { host: '127.0.0.1', port: 38991 } });
+
+    await expect(config.larkConnector()).resolves.toEqual({ appId: 'cli_xxx', domain: 'https://open.larksuite.com', callback: { host: '127.0.0.1', port: 38991 } });
+    await expect(readFile(configPath, 'utf8')).resolves.not.toContain('legacy-secret');
   });
 
 });
