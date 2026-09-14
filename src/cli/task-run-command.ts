@@ -104,10 +104,12 @@ async function prepareNodeInputs(
   const unanswered = node.phase === 'requirement-analysis' ? task.inputs.requirement.status === 'not-asked'
     : node.phase === 'api-analysis' ? task.inputs.apiDocuments.status === 'not-asked'
       : task.inputs.design.status === 'not-asked';
-  if (!unanswered) {
+  const retryingFailedNode = node.status === 'failed';
+  if (!unanswered && !retryingFailedNode) {
     if (hasMaterialOptions) throw new Error(`「${input.nodeId}」的资料已记录，不能重复传入`);
     return { skipped: false, inputsSaved: false };
   }
+  if (!unanswered && !hasMaterialOptions) return { skipped: false, inputsSaved: false };
   if (input.dryRun) throw new Error('资料未记录时不能使用 --dry-run；请在本次命令中传入所需资料参数');
   if (node.phase === 'requirement-analysis') {
     if (input.options.skip === true) throw new Error('需求分析不能使用 --skip，必须提供 --requirement-url');

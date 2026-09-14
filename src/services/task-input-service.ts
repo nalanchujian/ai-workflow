@@ -20,7 +20,7 @@ export class TaskInputService {
     const section = input.section?.trim();
     return this.locked(taskId, async () => {
       const task = await this.deps.taskStore.load(taskId);
-      this.requireUnansweredReadyNode(task, 'requirement-analysis', 'requirement');
+      this.requireWritableMaterialNode(task, 'requirement-analysis', 'requirement');
       const duplicates = (await this.deps.taskStore.list()).filter((candidate) => candidate.id !== task.id
         && candidate.status !== 'completed' && candidate.status !== 'cancelled'
         && candidate.inputs.requirement.status === 'provided' && candidate.inputs.requirement.url === url);
@@ -33,7 +33,7 @@ export class TaskInputService {
   async saveApiDocuments(taskId: string, urls: string[]): Promise<{ task: Task; skipped: boolean }> {
     return this.locked(taskId, async () => {
       let task = await this.deps.taskStore.load(taskId);
-      this.requireUnansweredReadyNode(task, 'api-analysis', 'apiDocuments');
+      this.requireWritableMaterialNode(task, 'api-analysis', 'apiDocuments');
       if (urls.length === 0) {
         task.inputs.apiDocuments = { status: 'absent' };
         task = skipNode(task, 'api-analysis', '未提供 YApi 接口文档，接口分析已跳过');
@@ -47,7 +47,7 @@ export class TaskInputService {
   async saveDesignImage(taskId: string, imageFile: string | undefined): Promise<{ task: Task; skipped: boolean }> {
     return this.locked(taskId, async () => {
       let task = await this.deps.taskStore.load(taskId);
-      this.requireUnansweredReadyNode(task, 'design-slicing', 'design');
+      this.requireWritableMaterialNode(task, 'design-slicing', 'design');
       if (imageFile === undefined) {
         task.inputs.design = { status: 'absent' };
         task = skipNode(task, 'design-slicing', '未提供设计图，设计图切割已跳过');
@@ -60,9 +60,10 @@ export class TaskInputService {
     });
   }
 
-  private requireUnansweredReadyNode(task: Task, nodeId: 'requirement-analysis' | 'api-analysis' | 'design-slicing', input: 'requirement' | 'apiDocuments' | 'design'): void {
-    if (task.nodes[nodeId]?.status !== 'ready') throw new Error(`当前不能为「${nodeId}」补充资料`);
-    if (task.inputs[input].status !== 'not-asked') throw new Error(`「${nodeId}」的资料已记录，不能重复提交`);
+  private requireWritableMaterialNode(task: Task, nodeId: 'requirement-analysis' | 'api-analysis' | 'design-slicing', input: 'requirement' | 'apiDocuments' | 'design'): void {
+    const status = task.nodes[nodeId]?.status;
+    if (status !== 'ready' && status !== 'failed') throw new Error(`当前不能为「${nodeId}」补充资料`);
+    if (status !== 'failed' && task.inputs[input].status !== 'not-asked') throw new Error(`「${nodeId}」的资料已记录，不能重复提交`);
   }
 
   private async locked<T>(taskId: string, action: () => Promise<T>): Promise<T> {

@@ -86,6 +86,25 @@ describe('task run command', () => {
     expect(output).toContain('「api-analysis」节点已跳过');
     expect(output).toContain('aiw task run refund-123 design-slicing');
   });
+
+  it('replaces API documents when a previous API analysis run failed', async () => {
+    let saved: unknown;
+    let received: unknown;
+    const command = createTaskRunCommand({
+      runner: { async run(input: unknown) { received = input; return { runId: 'retry-api-1', status: 'succeeded', artifacts: [] }; } } as never,
+      taskState: stateFor({
+        'requirement-analysis': { status: 'completed', phase: 'requirement-analysis' },
+        'api-analysis': { status: 'failed', phase: 'api-analysis' },
+      }, { requirement: { status: 'provided', url: 'https://acme.larksuite.com/docx/doccn123' }, apiDocuments: { status: 'provided', urls: ['https://yapi.hbdev.club/project/149/interface/api/1'] }, design: { status: 'not-asked' } }) as never,
+      inputs: { async saveApiDocuments(_taskId: string, input: unknown) { saved = input; return { task: taskFor({}, {}), skipped: false }; } } as never,
+      stdout: writable(),
+    });
+
+    await command.parseAsync(['node', 'run', 'refund-123', 'api-analysis', '--api-url', 'https://yapi.hbdev.club/project/149/interface/api/2'], { from: 'node' });
+
+    expect(saved).toEqual(['https://yapi.hbdev.club/project/149/interface/api/2']);
+    expect(received).toMatchObject({ taskId: 'refund-123', nodeId: 'api-analysis', allowUncommittedInputs: true });
+  });
 });
 
 function stateFor(nodes: Record<string, { status: string; phase: string }>, inputs: unknown) {
