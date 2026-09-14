@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 
 import type { BrowserOpener } from '../ports/browser-opener.js';
@@ -7,7 +7,6 @@ import { LarkAppCredentialService } from './lark-app-credential-service.js';
 import { LocalConfig, type LocalLarkConnectorProfile } from './local-config.js';
 import { LarkSourceConnectorError } from './lark-source-connector.js';
 
-const REQUIRED_SCOPES = ['wiki:node:read', 'docx:document:readonly'];
 const LOGIN_TIMEOUT_MS = 120_000;
 
 /** Starts a fresh OAuth authorization for each Lark document read. No user token is stored. */
@@ -19,46 +18,44 @@ export class LarkUserOAuthService {
     const appSecret = await this.deps.credentials.appSecret();
     const callbackUrl = `http://${profile.callback.host}:${profile.callback.port}/callback`;
     const state = randomBytes(24).toString('base64url');
-    const verifier = randomBytes(48).toString('base64url');
-    const challenge = createHash('sha256').update(verifier).digest('base64url');
     const callback = await this.startCallbackServer(profile.callback, state);
     try {
-      const authorizeUrl = new URL('/open-apis/authen/v1/authorize', profile.domain);
-      authorizeUrl.searchParams.set('client_id', profile.appId);
-      authorizeUrl.searchParams.set('response_type', 'code');
+      const authorizeUrl = new URL('/open-apis/authen/v1/index', profile.domain);
+      authorizeUrl.searchParams.set('app_id', profile.appId);
       authorizeUrl.searchParams.set('redirect_uri', callbackUrl);
-      authorizeUrl.searchParams.set('code_challenge', challenge);
-      authorizeUrl.searchParams.set('code_challenge_method', 'S256');
       authorizeUrl.searchParams.set('state', state);
-      authorizeUrl.searchParams.set('scope', REQUIRED_SCOPES.join(' '));
       process.stderr.write(`请在浏览器完成本次 Lark 授权；若未自动打开，请访问：${authorizeUrl}\n`);
       await this.deps.browser.open(authorizeUrl.toString());
       const code = await callback.code;
-      return this.exchange(profile, { code, appSecret, callbackUrl, verifier });
+      return this.exchange(profile, { code, appSecret });
     } finally {
       await close(callback.server);
     }
   }
 
-  private async exchange(profile: LocalLarkConnectorProfile, input: { code: string; appSecret: string; callbackUrl: string; verifier: string }): Promise<string> {
+  private async exchange(profile: LocalLarkConnectorProfile, input: { code: string; appSecret: string }): Promise<string> {
     try {
-      const response = await this.deps.network.fetch({
-        url: `${profile.domain.replace(/\/$/, '')}/open-apis/authen/v2/oauth/token`,
+      const baseUrl = profile.domain.replace(/\/$/, '');
+      const appTokenResponse = await this.deps.network.fetch({
+        url: `${baseUrl}/open-apis/auth/v3/app_access_token/internal`,
         method: 'POST',
         headers: { 'content-type': 'application/json; charset=utf-8' },
-        body: JSON.stringify({
-          grant_type: 'authorization_code',
-          client_id: profile.appId,
-          client_secret: input.appSecret,
-          code: input.code,
-          redirect_uri: input.callbackUrl,
-          code_verifier: input.verifier,
-        }),
+        body: JSON.stringify({ app_id: profile.appId, app_secret: input.appSecret }),
         timeoutMs: 30_000,
       });
-      const body: unknown = JSON.parse(response.body);
-      if (response.status !== 200 || !isRecord(body) || typeof body.access_token !== 'string' || body.access_token.length === 0) throw new Error('invalid');
-      return body.access_token;
+      const appTokenBody: unknown = JSON.parse(appTokenResponse.body);
+      if (appTokenResponse.status !== 200 || !isRecord(appTokenBody) || typeof appTokenBody.app_access_token !== 'string' || appTokenBody.app_access_token.length === 0) throw new Error('invalid');
+      const userTokenResponse = await this.deps.network.fetch({
+        url: `${baseUrl}/open-apis/authen/v1/oidc/access_token`,
+        method: 'POST',
+        headers: { 'content-type': 'application/json; charset=utf-8', authorization: `Bearer ${appTokenBody.app_access_token}` },
+        body: JSON.stringify({ grant_type: 'authorization_code', code: input.code }),
+        timeoutMs: 30_000,
+      });
+      const userTokenBody: unknown = JSON.parse(userTokenResponse.body);
+      const data = isRecord(userTokenBody) ? userTokenBody.data : undefined;
+      if (userTokenResponse.status !== 200 || !isRecord(userTokenBody) || userTokenBody.code !== 0 || !isRecord(data) || typeof data.access_token !== 'string' || data.access_token.length === 0) throw new Error('invalid');
+      return data.access_token;
     } catch {
       throw new LarkSourceConnectorError('LARK_AUTH_EXPIRED', 'Lark 用户授权失败，请重新运行当前命令');
     }
